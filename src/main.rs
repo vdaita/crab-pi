@@ -5,6 +5,7 @@ mod arch;
 mod llvm_infra;
 mod panic_infra;
 mod print;
+mod circular;
 mod mem;
 mod gpio;
 mod start;

@@ -50,4 +50,9 @@ pub fn cpsr_int_reset(cpsr: u32) -> u32 {
     }
 }
 
+#[inline(always)]
+pub fn gcc_mb() {
+    unsafe { ::core::arch::asm!("", options(nostack, preserves_flags)) }
+}
+
 pub fn wait() {}
