@@ -10,11 +10,17 @@ mod mem;
 mod gpio;
 mod start;
 mod uart;
+mod gpu;
 mod watchdog;
+mod programs {
+    pub mod gpu_test;
+}
 
 fn main() {
     uart::init();
     println!("Hello from Rust on the Pi!");
+
+    programs::gpu_test::test_gpu();
 
     done();
 }
