@@ -5,6 +5,8 @@ mod arch;
 mod llvm_infra;
 mod panic_infra;
 mod print;
+mod mem;
+mod gpio;
 mod start;
 mod uart;
 mod watchdog;
@@ -12,4 +14,10 @@ mod watchdog;
 fn main() {
     uart::init();
     println!("Hello from Rust on the Pi!");
+
+    done();
+}
+
+fn done(){
+    println!("DONE!!!");
 }
