@@ -35,13 +35,12 @@ unsafe fn mbox_write(channel: u8, data: u32) {
 }
 
 unsafe fn mbox_read(channel: u8) -> u32 {
-    while(true) {
+    loop {
         let data = read_volatile(MAILBOX_READ);
         if (data & 0xF) == (channel as u32) {
             return data & !0xF;
         }
     }
-    return 0;
 }
 
 unsafe fn mbox_property(message: &mut [u32]) -> bool {
@@ -57,7 +56,7 @@ unsafe fn mbox_property(message: &mut [u32]) -> bool {
     if (message[1] == 0x8000_0000) {
         true
     } else {
-        println!("Message doesn't match:");
+        println!("Message doesnt' have 8000_0000 in first index");
         for (i, &val) in message.iter().enumerate() {
             println!("  message[{}] = 0x{:08x}", i, val);
         }
@@ -165,7 +164,10 @@ unsafe fn gpu_fft_base_exec_direct(code: u32, unifs: &[u32], num_qpus: u32) {
         write_volatile(V3D_SRQPC, code); 
     }
 
-    while (((read_volatile(V3D_SRQCS) >> 16) & 0xff) != num_qpus) { core::hint::spin_loop(); }
+    while (((read_volatile(V3D_SRQCS) >> 16) & 0xff) != num_qpus) { 
+        core::hint::spin_loop();
+        // println!("QPUs finished: {}", (read_volatile(V3D_SRQCS) >> 16) & 0xff);
+    }
 }
 
 #[repr(C)]
@@ -180,9 +182,19 @@ pub struct DeadbeefGpu {
 
 impl DeadbeefGpu {
     pub unsafe fn init() -> *mut DeadbeefGpu {
+        println!("V3D_SRQCS address: 0x{:08x}", V3D_SRQCS as u32);
+        println!("Initial V3D_SRQCS read: 0x{:08x}", read_volatile(V3D_SRQCS));
+        println!("Initial V3D_DBCFG read: 0x{:08x}", read_volatile(V3D_DBCFG));
+
+        crate::arch::gcc_mb();
+        
         if !qpu_enable(1) {
             panic!("Failed to enable GPU");
         }
+
+        crate::arch::gcc_mb();
+        
+        println!("After qpu_enable, V3D_SRQCS: 0x{:08x}", read_volatile(V3D_SRQCS));
 
         let handle = mem_alloc(core::mem::size_of::<DeadbeefGpu>() as u32, 4096, GPU_MEM_FLAG);
         if handle == 0 {
@@ -192,6 +204,7 @@ impl DeadbeefGpu {
 
         let vc: u32 = mem_lock(handle);
         
+        println!("memory address: 0x{:08x}, GPU_BASE: 0x{:08x}", vc, GPU_BASE);
         let ptr = (vc - GPU_BASE) as *mut DeadbeefGpu;
         if ptr.is_null() {
             mem_unlock(handle);
@@ -216,11 +229,19 @@ impl DeadbeefGpu {
     }
 
     pub unsafe fn execute(&mut self) {
+        println!("Code addr: 0x{:08x}", self.mail[0]);
+        println!("Unif addr: 0x{:08x}", self.mail[1]);
+        println!("Before execution, SRQCS: 0x{:08x}", read_volatile(V3D_SRQCS));
+        
+        crate::arch::gcc_mb();
+
         gpu_fft_base_exec_direct(
             self.mail[0],
-            &self.unif[0],
+            &[self.mail[1]],
             1
         );
+
+        println!("After execution, SRQCS: 0x{:08x}", read_volatile(V3D_SRQCS));
     }
 
     pub unsafe fn release(&mut self) {
