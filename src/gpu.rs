@@ -21,7 +21,7 @@ const V3D_DBQITE: *mut u32 = (V3D_BASE + 0x0e2c) as *mut u32;
 const V3D_DBQITC: *mut u32 = (V3D_BASE + 0x0e30) as *mut u32;
 
 pub const GPU_BASE: u32 = 0x40000000;
-pub static GPU_KERNEL_CODE: &[u8] = include_bytes!("gpu_kernels/add_kernel.bin");
+pub static ADD_KERNEL_CODE: &[u8] = include_bytes!("gpu_kernels/add_kernel.bin");
 pub static DEADBEEF_GPU_CODE: &[u8] = include_bytes!("gpu_kernels/deadbeef.bin");
 const GPU_MEM_FLAG: u32 = 0xC;
 const MAX_VC_CORES: usize = 16;
@@ -178,6 +178,7 @@ pub struct GpuKernel {
     pub data: [[[u32; 128]; 4]; MAX_VC_CORES],
     pub code: [u32; 128],
     pub unif: [[u32; 4]; MAX_VC_CORES],
+    pub unif_ptr: [u32; MAX_VC_CORES], // this is the data that actually gets sent. this should point to unif, which points to the actual data
     pub mail: [u32; 2],
     pub handle: u32
 }
@@ -223,14 +224,19 @@ impl GpuKernel {
         core::ptr::copy_nonoverlapping(src, dst, len);
 
         let code_offset = (&(*ptr).code as *const _ as u32) - (ptr as u32);
-        let unif_offset = (&(*ptr).unif as *const _ as u32) - (ptr as u32);
         (*ptr).mail[0] = vc + code_offset;
+        
+        // let unif_ptr_offset = (&(*ptr).unif_ptr as *const _ as u32) - (ptr as u32);
+        // (*ptr).mail[1] = vc + unif_ptr_offset;
+
+        let unif_offset = (&(*ptr).unif as *const _ as u32) - (ptr as u32);
         (*ptr).mail[1] = vc + unif_offset;
 
         for core in 0..MAX_VC_CORES {
             for slot in 0..NUM_DATA_SLOTS {
                 (*ptr).unif[core][slot] = crate::gpu::GPU_BASE + (&((*ptr).data[core][slot]) as *const _ as u32);
             }
+            (*ptr).unif_ptr[core] = crate::gpu::GPU_BASE + (&((*ptr).unif[core]) as *const _ as u32);
         }
 
         ptr
@@ -245,7 +251,8 @@ impl GpuKernel {
 
         gpu_fft_base_exec_direct(
             self.mail[0],
-            &[self.mail[1]],
+            // &[self.mail[1]],
+            &self.unif_ptr[..1],
             1
         );
 
