@@ -26,6 +26,7 @@ pub static DEADBEEF_GPU_CODE: &[u8] = include_bytes!("gpu_kernels/deadbeef.bin")
 const GPU_MEM_FLAG: u32 = 0xC;
 const MAX_VC_CORES: usize = 16;
 const NUM_DATA_SLOTS: usize = 4;
+const NUM_PARAM_SLOTS: usize = 4;
 
 unsafe fn mbox_write(channel: u8, data: u32) {
     while(read_volatile(MAILBOX_STATUS) & MAILBOX_FULL != 0) {
@@ -175,9 +176,10 @@ unsafe fn gpu_fft_base_exec_direct(code: u32, unifs: &[u32], num_qpus: u32) {
 #[repr(C)]
 #[repr(align(16))]
 pub struct GpuKernel {
-    pub data: [[[u32; 128]; 4]; MAX_VC_CORES],
-    pub code: [u32; 128],
-    pub unif: [[u32; 4]; MAX_VC_CORES],
+    pub data: [[[u32; 512]; NUM_DATA_SLOTS]; MAX_VC_CORES],
+    pub params: [[u32; NUM_PARAM_SLOTS]; MAX_VC_CORES],
+    pub code: [u32; 2048],
+    pub unif: [[u32; NUM_DATA_SLOTS + NUM_PARAM_SLOTS]; MAX_VC_CORES],
     pub unif_ptr: [u32; MAX_VC_CORES], // this is the data that actually gets sent. this should point to unif, which points to the actual data
     pub mail: [u32; 2],
     pub handle: u32
@@ -235,6 +237,9 @@ impl GpuKernel {
         for core in 0..MAX_VC_CORES {
             for slot in 0..NUM_DATA_SLOTS {
                 (*ptr).unif[core][slot] = crate::gpu::GPU_BASE + (&((*ptr).data[core][slot]) as *const _ as u32);
+            }
+            for slot in 0..NUM_PARAM_SLOTS {
+                (*ptr).unif[core][slot + NUM_DATA_SLOTS] = (*ptr).params[core][slot]; 
             }
             (*ptr).unif_ptr[core] = crate::gpu::GPU_BASE + (&((*ptr).unif[core]) as *const _ as u32);
         }

@@ -15,33 +15,51 @@
     mov -, vw_wait
 .endm
 
+.macro do_round
+    mov vr_setup, vdr_setup_1(16)
+    mov vr_setup, vdr_setup_0(0, 16, 4, vdr_h32(1, 0, 0))
+    mov vr_addr, r0 # launch dma load
+    mov -, vr_wait
+
+    mov vr_setup, vdr_setup_1(16)
+    mov vr_setup, vdr_setup_0(0, 16, 4, vdr_h32(1, 4, 0))
+    mov vr_addr, r1 # launch dma load
+    mov -, vr_wait
+
+    # ----
+
+    write_16 0, 4, 8
+    write_16 1, 5, 9
+    write_16 2, 6, 10
+    write_16 3, 7, 11
+
+    # ---
+    mov vw_setup, vdw_setup_0(4, 16, dma_h32(8, 0))
+
+    mov vw_addr, r2 # write to the destination address
+    mov -, vw_wait
+.endm
+
 mov r0, unif # r0 <- src addresses
 mov r1, unif # r1 <- src address 2
 mov r2, unif # r2 <- output address
+mov ra2, unif # number of elements to process
+ldi ra1, 256 # <- increment amount
+ldi rb2, 64 # number of elements
 
+:loop
+    do_round
+    add r0, r0, ra1
+    add r1, r1, ra1
+    add r2, r2, ra1
 
-mov vr_setup, vdr_setup_1(64)
-mov vr_setup, vdr_setup_0(0, 16, 4, vdr_h32(1, 0, 0))
-mov vr_addr, r0 # launch dma load
-mov -, vr_wait
+    sub.setf ra2, ra2, rb2
+    brr.anynn -, :loop
 
-mov vr_setup, vdr_setup_1(64)
-mov vr_setup, vdr_setup_0(0, 16, 4, vdr_h32(1, 4, 0))
-mov vr_addr, r1 # launch dma load
-mov -, vr_wait
-
-# ----
-
-write_16 0, 4, 8
-write_16 1, 5, 9
-write_16 2, 6, 10
-write_16 3, 7, 11
-
-# ---
-
-mov vw_setup, vdw_setup_0(4, 16, dma_h32(8, 0))
-mov vw_addr, r2 # write to the destination address
-mov -, vw_wait
+    nop
+    nop
+    nop
+:end
 
 nop
 thrend 
