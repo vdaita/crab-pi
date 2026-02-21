@@ -4,6 +4,11 @@ mov vw_setup, vpm_setup(4, 1, h32(0))   # Write 4 rows,
                                         # increment by 1 after each write, 
                                         # start at VPM coord 0,0
 
+
+mov vw_setup, vpm_setup(4, 1, h32(0))   # Write 4 rows, 
+                                        # increment by 1 after each write, 
+                                        # start at VPM coord 0,0
+
 ldi vpm, 0xdeadbeef                     # Row 1
 mov -, vw_wait 
 
