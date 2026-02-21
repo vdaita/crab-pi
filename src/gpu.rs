@@ -22,6 +22,7 @@ const V3D_DBQITC: *mut u32 = (V3D_BASE + 0x0e30) as *mut u32;
 
 pub const GPU_BASE: u32 = 0x40000000;
 pub static ADD_KERNEL_CODE: &[u8] = include_bytes!("gpu_kernels/add_kernel.bin");
+pub static MATMUL_KERNEL_CODE: &[u8] = include_bytes!("gpu_kernels/matmul_kernel.bin");
 pub static DEADBEEF_GPU_CODE: &[u8] = include_bytes!("gpu_kernels/deadbeef.bin");
 const GPU_MEM_FLAG: u32 = 0xC;
 const MAX_VC_CORES: usize = 16;
