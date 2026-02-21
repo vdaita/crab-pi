@@ -28,16 +28,16 @@ pub fn add_kernel() {
         core::ptr::copy_nonoverlapping(a.as_ptr(), gpu.data[0][0].as_mut_ptr(), n);
         core::ptr::copy_nonoverlapping(b.as_ptr(), gpu.data[0][1].as_mut_ptr(), n);
 
-        print!("Before: out[0..16] =");
-        for i in 0..16 {
+        print!("Before: out[0..64] =");
+        for i in 0..64 {
             print!(" {}", gpu.data[0][2][i]);
         }
         println!("");
 
         gpu.execute();
 
-        print!("After: out[0..16] =");
-        for i in 0..16 {
+        print!("After: out[0..64] =");
+        for i in 0..64 {
             print!(" {}", gpu.data[0][2][i]);
         }
         println!("");
