@@ -21,9 +21,10 @@ const V3D_DBQITE: *mut u32 = (V3D_BASE + 0x0e2c) as *mut u32;
 const V3D_DBQITC: *mut u32 = (V3D_BASE + 0x0e30) as *mut u32;
 
 pub const GPU_BASE: u32 = 0x40000000;
-static GPU_KERNEL_CODE: &[u8] = include_bytes!("gpu_kernels/add_kernel.bin");
+static ADD_VECTOR_GPU_CODE: &[u8] = include_bytes!("gpu_kernels/add_kernel.bin");
 static DEADBEEF_GPU_CODE: &[u8] = include_bytes!("gpu_kernels/deadbeef.bin");
 const GPU_MEM_FLAG: u32 = 0xC;
+const MAX_VIDEOCORE_CORES: usize = 16;
 
 unsafe fn mbox_write(channel: u8, data: u32) {
     while(read_volatile(MAILBOX_STATUS) & MAILBOX_FULL != 0) {
@@ -169,84 +170,73 @@ unsafe fn gpu_fft_base_exec_direct(code: u32, unifs: &[u32], num_qpus: u32) {
         // println!("QPUs finished: {}", (read_volatile(V3D_SRQCS) >> 16) & 0xff);
     }
 }
+/// Common GPU kernel definition and implementation.
+macro_rules! define_gpu_kernel {
+    ($name:ident, $code_static:ident) => {
+        #[repr(C)]
+        #[repr(align(16))]
+        pub struct $name {
+            pub output: [u32; 64],
+            pub data: [[u32; 256]; 4],
+            pub code: [u32; 128],
+            pub unif: [[u32; MAX_VIDEOCORE_CORES]; 4],
+            pub mail: [u32; 2],
+            pub handle: u32,
+        }
 
-#[repr(C)]
-#[repr(align(16))]
-pub struct DeadbeefGpu {
-    pub output: [u32; 64],
-    pub code: [u32; 128],
-    pub unif: [[u32; 1]; 1],
-    pub mail: [u32; 2],
-    pub handle: u32
+        impl $name {
+            pub unsafe fn init() -> *mut $name {
+                crate::arch::gcc_mb();
+                if !qpu_enable(1) {
+                    panic!("Failed to enable GPU");
+                }
+                crate::arch::gcc_mb();
+
+                let handle = mem_alloc(core::mem::size_of::<$name>() as u32, 4096, GPU_MEM_FLAG);
+                if handle == 0 {
+                    qpu_enable(0);
+                    panic!("Failed to allocate GPU memory");
+                }
+                let vc = mem_lock(handle);
+
+                let ptr = (vc - GPU_BASE) as *mut $name;
+                if ptr.is_null() {
+                    mem_unlock(handle);
+                    mem_free(handle);
+                    qpu_enable(0);
+                    panic!("Failed to convert handle to GPU bus address.");
+                }
+
+                (*ptr).handle = handle;
+                let dst = (*ptr).code.as_mut_ptr() as *mut u8;
+                let src = $code_static.as_ptr();
+                let len = $code_static.len();
+                core::ptr::copy_nonoverlapping(src, dst, len);
+
+                let code_offset = (&(*ptr).code as *const _ as u32) - (ptr as u32);
+                let unif_offset = (&(*ptr).unif as *const _ as u32) - (ptr as u32);
+                (*ptr).mail[0] = vc + code_offset;
+                (*ptr).mail[1] = vc + unif_offset;
+
+                (*ptr).unif[0][0] = (ptr as u32 + ((&(*ptr).data[0] as *const _ as u32) - (ptr as u32)));
+                (*ptr).unif[0][1] = (ptr as u32 + ((&(*ptr).data[1] as *const _ as u32) - (ptr as u32)));
+                (*ptr).unif[0][2] = (ptr as u32 + ((&(*ptr).output as *const _ as u32) - (ptr as u32)));
+                ptr
+            }
+
+            pub unsafe fn execute(&mut self, num_cores: u32) {
+                crate::arch::gcc_mb();
+                gpu_fft_base_exec_direct(self.mail[0], &[self.mail[1]], num_cores);
+            }
+
+            pub unsafe fn release(&mut self) {
+                mem_unlock(self.handle);
+                mem_free(self.handle);
+                qpu_enable(0);
+            }
+        }
+    };
 }
 
-impl DeadbeefGpu {
-    pub unsafe fn init() -> *mut DeadbeefGpu {
-        println!("V3D_SRQCS address: 0x{:08x}", V3D_SRQCS as u32);
-        println!("Initial V3D_SRQCS read: 0x{:08x}", read_volatile(V3D_SRQCS));
-        println!("Initial V3D_DBCFG read: 0x{:08x}", read_volatile(V3D_DBCFG));
-
-        crate::arch::gcc_mb();
-        
-        if !qpu_enable(1) {
-            panic!("Failed to enable GPU");
-        }
-
-        crate::arch::gcc_mb();
-        
-        println!("After qpu_enable, V3D_SRQCS: 0x{:08x}", read_volatile(V3D_SRQCS));
-
-        let handle = mem_alloc(core::mem::size_of::<DeadbeefGpu>() as u32, 4096, GPU_MEM_FLAG);
-        if handle == 0 {
-            qpu_enable(0);
-            panic!("Failed to allocate GPU memory");
-        }
-
-        let vc: u32 = mem_lock(handle);
-        
-        println!("memory address: 0x{:08x}, GPU_BASE: 0x{:08x}", vc, GPU_BASE);
-        let ptr = (vc - GPU_BASE) as *mut DeadbeefGpu;
-        if ptr.is_null() {
-            mem_unlock(handle);
-            mem_free(handle);
-            qpu_enable(0);
-            panic!("Failed to convert handle to GPU bus address.");
-        }
-
-        (*ptr).handle = handle;
-
-        let dst = (*ptr).code.as_mut_ptr() as *mut u8;
-        let src = DEADBEEF_GPU_CODE.as_ptr();
-        let len = DEADBEEF_GPU_CODE.len();
-        core::ptr::copy_nonoverlapping(src, dst, len);
-
-        let code_offset = (&(*ptr).code as *const _ as u32) - (ptr as u32);
-        let unif_offset = (&(*ptr).unif as *const _ as u32) - (ptr as u32);
-        (*ptr).mail[0] = vc + code_offset;
-        (*ptr).mail[1] = vc + unif_offset;
-
-        ptr
-    }
-
-    pub unsafe fn execute(&mut self) {
-        println!("Code addr: 0x{:08x}", self.mail[0]);
-        println!("Unif addr: 0x{:08x}", self.mail[1]);
-        println!("Before execution, SRQCS: 0x{:08x}", read_volatile(V3D_SRQCS));
-        
-        crate::arch::gcc_mb();
-
-        gpu_fft_base_exec_direct(
-            self.mail[0],
-            &[self.mail[1]],
-            1
-        );
-
-        println!("After execution, SRQCS: 0x{:08x}", read_volatile(V3D_SRQCS));
-    }
-
-    pub unsafe fn release(&mut self) {
-        mem_unlock(self.handle);
-        mem_free(self.handle);
-        qpu_enable(0);
-    }
-}
+define_gpu_kernel!(AddVectorGpu, ADD_VECTOR_GPU_CODE);
+define_gpu_kernel!(DeadbeefGpu, DEADBEEF_GPU_CODE);

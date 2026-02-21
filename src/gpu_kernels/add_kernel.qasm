@@ -1,48 +1,37 @@
-.func vpm_read_setup(num_vectors, stride, start_offset)
-    (0 << 30) | (num_vectors << 20) | (stride << 12) | (2 << 8) | (start_offset)
-.endf
+.include "vc4.qinc"
 
-.func vpm_write_setup(num, stride, start_offset)
-    (2 << 30) | (num << 20) | (stride << 12) | (2 << 8) | (start_offset)
-.endf
+mov r0, unif # r0 <- src addresses
+mov r1, unif # r1 <- src address 2
+mov r2, unif # r2 <- output address
 
-# addresses
-mov ra0, unif
-mov ra1, unif
-mov ra2, unif
-
-# ram -> vpm
-mov vr_setup, vpm_read_setup(16, 1, 0)
-mov vr_addr, ra0
+mov vr_setup, vdr_setup_1(64)
+mov vr_setup, vdr_setup_0(0, 16, 4, vdr_h32(1, 0, 0))
+mov vr_addr, r0 # launch dma load
 mov -, vr_wait
 
-# ram -> vpm
-mov vr_setup, vpm_read_setup(16, 1, 16)
-mov vr_addr, ra1
+mov vr_setup, vdr_setup_0(1, 16, 4, vdr_h32(1, 0, 0))
+mov vr_addr, r1 # launch dma load
 mov -, vr_wait
 
-# vpm -> reg
-mov vr_setup, vpm_read_setup(1, 1, 0)
+mov vr_setup, vpm_setup(16, 1, h32(0)) # read 16 rows, increment by 1 after each write, start at vpm coord 0,0
+mov vw_setup, vpm_setup(16, 1, h32(0))
+
 mov r1, vpm
-
-# vpm -> reg
-mov vr_setup, vpm_read_setup(1, 1, 16)
-mov r2, vpm
-
-# add values
-add r3, r1, r2
-
-# register
-mov vr_setup, vpm_write_setup(1, 1, 32)
-mov vpm, r3
-
-# vpm -> ram
-mov vw_setup, vpm_write_setup(16, 1, 32)
-mov vw_addr, ra2
 mov -, vw_wait
 
-:end
-thrend
+mov r2, vpm
+mov -, vw_wait
+
+add r3, r1, ra2
+
+mov vpm, r3
+mov -, vw_wait
+
+mov vw_setup, vdw_setup_0(4, 16, dma_h32(0, 0))
+mov vw_addr, r1 # write to the destination address
+mov -, vw_wait
+
 nop
+thrend 
 nop
 nop
