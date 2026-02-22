@@ -179,7 +179,7 @@ unsafe fn gpu_fft_base_exec_direct(code: u32, unifs: &[u32], num_qpus: u32) {
 pub struct GpuKernel {
     pub data: [[[u32; 512]; NUM_DATA_SLOTS]; MAX_VC_CORES],
     pub params: [[u32; NUM_PARAM_SLOTS]; MAX_VC_CORES],
-    pub code: [u32; 2048],
+    pub code: [u32; 16384],
     pub unif: [[u32; NUM_DATA_SLOTS + NUM_PARAM_SLOTS]; MAX_VC_CORES],
     pub unif_ptr: [u32; MAX_VC_CORES], // this is the data that actually gets sent. this should point to unif, which points to the actual data
     pub mail: [u32; 2],
