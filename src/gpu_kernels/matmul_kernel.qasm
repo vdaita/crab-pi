@@ -12,6 +12,7 @@
     mov -, vr_wait
 .endm
 
+
 .macro load_a_tile
     mov vr_setup, vdr_setup_1(64)
     mov vr_setup, vdr_setup_0(0, 16, 16, vdr_h32(1, 0, 0))
@@ -39,11 +40,7 @@
     mov -, vw_wait
 .endm
 
-mov ra4, unif # ra4 <- src addresses
-mov ra5, unif # ra5 <- src address 2
-mov ra6, unif # ra6 <- output address
-
-.macro row_mul, a_row, b_row # need nops because of dependent operations
+.macro row_mul, a_row, b_row # need nops because of dependent operations. can't parallelize further because this needs r5rep
     mov r3, 0
     nop
     nop
@@ -64,15 +61,12 @@ mov ra6, unif # ra6 <- output address
     nop
     nop
     nop
+    # mov rb10 + a_row, r1
+    # mov rb10 + a_row, rb0
     mov rb10 + a_row, r3
     nop
     nop
     nop
-
-    # mov rb10 + a_row, r1
-    
-    # mov rb10 + a_row, rb0
-    # mov r3, r5reg
 .endm
 
 .macro row_mul_list, b_row
@@ -118,27 +112,6 @@ mov ra6, unif # ra6 <- output address
     load_a_row 13
     load_a_row 14
     load_a_row 15
-
-    mov r3, 0
-    mov rb10 + 0, 0
-    mov rb10 + 1, 0
-    mov rb10 + 2, 0
-    mov rb10 + 3, 0
-
-    mov rb10 + 4, 0
-    mov rb10 + 5, 0
-    mov rb10 + 6, 0
-    mov rb10 + 7, 0
-
-    mov rb10 + 8, 0
-    mov rb10 + 9, 0
-    mov rb10 + 10, 0
-    mov rb10 + 11, 0
-
-    mov rb10 + 12, 0
-    mov rb10 + 13, 0
-    mov rb10 + 14, 0
-    mov rb10 + 15, 0
 
     load_b_row 0
     row_mul_list 0
@@ -209,17 +182,69 @@ mov ra6, unif # ra6 <- output address
     store_c_row 15
 .endm
 
-load_a_tile
-load_b_tile
+mov ra4, unif # ra4 <- src addresses (a matrix)
+mov ra5, unif # ra5 <- src address 2 (b matrix)
+mov ra6, unif # ra6 <- output address
 
-process_group
+mov ra1, unif # ra1 <- height of a matrix  (in tiles)
+mov r2, unif # r2 <- number of tiles in b (k dimension)
+mov ra3, unif # ra2 <- width of b matrix (in tiles)
 
-# process_row_4 0 
-# process_row_4 4 
-# process_row_4 8
-# process_row_4 12
+mov rb31, 1024 # save this to the highest possible register file
+# needs to be in the b register file
 
-store_c_tile
+.macro process_line
+    mov r3, 0
+    mov rb10 + 0, 0
+    mov rb10 + 1, 0
+    mov rb10 + 2, 0
+    mov rb10 + 3, 0
+
+    mov rb10 + 4, 0
+    mov rb10 + 5, 0
+    mov rb10 + 6, 0
+    mov rb10 + 7, 0
+
+    mov rb10 + 8, 0
+    mov rb10 + 9, 0
+    mov rb10 + 10, 0
+    mov rb10 + 11, 0
+
+    mov rb10 + 12, 0
+    mov rb10 + 13, 0
+    mov rb10 + 14, 0
+    mov rb10 + 15, 0
+
+    load_a_tile 
+    nop; nop; 
+    load_b_tile
+    nop; nop;
+    process_group
+    nop; nop;
+
+    add r0, ra4, rb31; nop; nop; nop # shift right
+    mov ra4, r0; nop; nop; nop;
+
+    mul24 r0, rb31, ra3; nop; nop; nop# width of b matrix * the index of the elements
+    add r0, r0, ra5; nop; nop; nop # add this to the current value to shift it down
+    mov ra5, r0; nop; nop; nop # move this there
+
+    load_a_tile
+    nop; nop;
+    load_b_tile
+    nop; nop;
+    process_group
+    nop; nop;
+
+    store_c_tile
+.endm
+
+process_line
+
+# load_a_tile
+# load_b_tile
+# process_group
+# store_c_tile
 
 nop
 thrend

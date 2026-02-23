@@ -7,7 +7,8 @@
   .assert rowlen >= 0 && rowlen <= 0x10
   .assert nrows >= 0 && nrows <= 0x10
   .assert !(dma & ~0x7000ffff) && (dma & 0x70000000) != 0x10000000
-# 0x80000000 | ilog2(mpitch/8+1) << 24 | (rowlen & 0xf) << 20 | (nrows & 0xf) << 16 | dma
+  # mpitch is unused?
+  # 0x80000000 | mpitch << 24 | (rowlen & 0xf) << 20 | (nrows & 0xf) << 16 | dma
   0x80000000 | mpitch << 24 | (rowlen & 0xf) << 20 | (nrows & 0xf) << 16 | dma
 .endf
 .func vdr_setup_1(stride)

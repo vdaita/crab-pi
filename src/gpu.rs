@@ -26,8 +26,8 @@ pub static MATMUL_KERNEL_CODE: &[u8] = include_bytes!("gpu_kernels/matmul_kernel
 pub static DEADBEEF_GPU_CODE: &[u8] = include_bytes!("gpu_kernels/deadbeef.bin");
 const GPU_MEM_FLAG: u32 = 0xC;
 const MAX_VC_CORES: usize = 16;
-const NUM_DATA_SLOTS: usize = 4;
-const NUM_PARAM_SLOTS: usize = 4;
+const NUM_DATA_SLOTS: usize = 16;
+const BYTES_FOR_CODE: usize = 128000;
 
 unsafe fn mbox_write(channel: u8, data: u32) {
     while(read_volatile(MAILBOX_STATUS) & MAILBOX_FULL != 0) {
@@ -178,9 +178,8 @@ unsafe fn gpu_fft_base_exec_direct(code: u32, unifs: &[u32], num_qpus: u32) {
 #[repr(align(16))]
 pub struct GpuKernel {
     pub data: [[[u32; 512]; NUM_DATA_SLOTS]; MAX_VC_CORES],
-    pub params: [[u32; NUM_PARAM_SLOTS]; MAX_VC_CORES],
-    pub code: [u32; 16384],
-    pub unif: [[u32; NUM_DATA_SLOTS + NUM_PARAM_SLOTS]; MAX_VC_CORES],
+    pub code: [u8; BYTES_FOR_CODE],
+    pub unif: [[u32; NUM_DATA_SLOTS]; MAX_VC_CORES],
     pub unif_ptr: [u32; MAX_VC_CORES], // this is the data that actually gets sent. this should point to unif, which points to the actual data
     pub mail: [u32; 2],
     pub handle: u32
@@ -224,7 +223,14 @@ impl GpuKernel {
         let dst = (*ptr).code.as_mut_ptr() as *mut u8;
         let src = code.as_ptr();
         let len = code.len();
-        core::ptr::copy_nonoverlapping(src, dst, len);
+
+        if len > BYTES_FOR_CODE {
+            panic!("Too many bytes to fit into slot.");
+        }
+
+        unsafe {
+            core::ptr::copy_nonoverlapping(src, dst, len);
+        }
 
         let code_offset = (&(*ptr).code as *const _ as u32) - (ptr as u32);
         (*ptr).mail[0] = vc + code_offset;
@@ -238,9 +244,6 @@ impl GpuKernel {
         for core in 0..MAX_VC_CORES {
             for slot in 0..NUM_DATA_SLOTS {
                 (*ptr).unif[core][slot] = crate::gpu::GPU_BASE + (&((*ptr).data[core][slot]) as *const _ as u32);
-            }
-            for slot in 0..NUM_PARAM_SLOTS {
-                (*ptr).unif[core][slot + NUM_DATA_SLOTS] = (*ptr).params[core][slot]; 
             }
             (*ptr).unif_ptr[core] = crate::gpu::GPU_BASE + (&((*ptr).unif[core]) as *const _ as u32);
         }
