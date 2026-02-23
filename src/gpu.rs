@@ -25,8 +25,9 @@ pub static ADD_KERNEL_CODE: &[u8] = include_bytes!("gpu_kernels/add_kernel.bin")
 pub static MATMUL_KERNEL_CODE: &[u8] = include_bytes!("gpu_kernels/matmul_kernel.bin");
 pub static DEADBEEF_GPU_CODE: &[u8] = include_bytes!("gpu_kernels/deadbeef.bin");
 const GPU_MEM_FLAG: u32 = 0xC;
-const MAX_VC_CORES: usize = 16;
+const MAX_VC_CORES: usize = 12;
 const NUM_DATA_SLOTS: usize = 16;
+const NUM_UNIF_SLOTS: usize = 64;
 const MAX_DATA_SIZE: usize = 2048;
 const BYTES_FOR_CODE: usize = 128000;
 
@@ -165,6 +166,7 @@ unsafe fn gpu_fft_base_exec_direct(code: u32, unifs: &[u32], num_qpus: u32) {
 
     write_volatile(V3D_SRQCS, (1 << 7) | (1 << 8) | (1 << 16)); // Reset err bit and counts
     for q in 0..num_qpus {
+        println!("Writing code for QPU {}", q);
         write_volatile(V3D_SRQUA, unifs[q as usize]);
         write_volatile(V3D_SRQPC, code); 
     }
@@ -178,9 +180,9 @@ unsafe fn gpu_fft_base_exec_direct(code: u32, unifs: &[u32], num_qpus: u32) {
 #[repr(C)]
 #[repr(align(16))]
 pub struct GpuKernel {
-    pub data: [[[u32; MAX_DATA_SIZE]; NUM_DATA_SLOTS]; MAX_VC_CORES],
+    pub data: [[u32; MAX_DATA_SIZE]; NUM_DATA_SLOTS],
     pub code: [u8; BYTES_FOR_CODE],
-    pub unif: [[u32; NUM_DATA_SLOTS]; MAX_VC_CORES],
+    pub unif: [[u32; NUM_UNIF_SLOTS]; MAX_VC_CORES],
     pub unif_ptr: [u32; MAX_VC_CORES], // this is the data that actually gets sent. this should point to unif, which points to the actual data
     pub mail: [u32; 2],
     pub handle: u32
@@ -244,15 +246,25 @@ impl GpuKernel {
 
         for core in 0..MAX_VC_CORES {
             for slot in 0..NUM_DATA_SLOTS {
-                (*ptr).unif[core][slot] = crate::gpu::GPU_BASE + (&((*ptr).data[core][slot]) as *const _ as u32);
+                // (*ptr).unif[core][slot] = crate::gpu::GPU_BASE + (&((*ptr).data[slot]) as *const _ as u32);
+                (*ptr).unif[core][slot] = (*ptr).get_data_ptr(slot);
             }
-            (*ptr).unif_ptr[core] = crate::gpu::GPU_BASE + (&((*ptr).unif[core]) as *const _ as u32);
+            (*ptr).unif_ptr[core] = (*ptr).get_unif_ptr(core);
+            // (*ptr).unif_ptr[core] = crate::gpu::GPU_BASE + (&((*ptr).unif[core]) as *const _ as u32);
         }
 
         ptr
     }
 
-    pub unsafe fn execute(&mut self) {
+    pub unsafe fn get_data_ptr(&mut self, slot: usize) -> u32 {
+        return crate::gpu::GPU_BASE + &self.data[slot] as *const _ as u32;
+    }
+
+    pub unsafe fn get_unif_ptr(&mut self, core: usize) -> u32 {
+        return crate::gpu::GPU_BASE + &self.unif[core] as *const _ as u32;
+    }
+
+    pub unsafe fn execute(&mut self, num_cores: u32) {
         println!("Code addr: 0x{:08x}", self.mail[0]);
         println!("Unif addr: 0x{:08x}", self.mail[1]);
         println!("Before execution, SRQCS: 0x{:08x}", read_volatile(V3D_SRQCS));
@@ -262,8 +274,8 @@ impl GpuKernel {
         gpu_fft_base_exec_direct(
             self.mail[0],
             // &[self.mail[1]],
-            &self.unif_ptr[..1],
-            1
+            &self.unif_ptr[..num_cores as usize],
+            num_cores
         );
 
         println!("After execution, SRQCS: 0x{:08x}", read_volatile(V3D_SRQCS));
