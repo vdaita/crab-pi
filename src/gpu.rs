@@ -27,6 +27,7 @@ pub static DEADBEEF_GPU_CODE: &[u8] = include_bytes!("gpu_kernels/deadbeef.bin")
 const GPU_MEM_FLAG: u32 = 0xC;
 const MAX_VC_CORES: usize = 16;
 const NUM_DATA_SLOTS: usize = 16;
+const MAX_DATA_SIZE: usize = 2048;
 const BYTES_FOR_CODE: usize = 128000;
 
 unsafe fn mbox_write(channel: u8, data: u32) {
@@ -177,7 +178,7 @@ unsafe fn gpu_fft_base_exec_direct(code: u32, unifs: &[u32], num_qpus: u32) {
 #[repr(C)]
 #[repr(align(16))]
 pub struct GpuKernel {
-    pub data: [[[u32; 512]; NUM_DATA_SLOTS]; MAX_VC_CORES],
+    pub data: [[[u32; MAX_DATA_SIZE]; NUM_DATA_SLOTS]; MAX_VC_CORES],
     pub code: [u8; BYTES_FOR_CODE],
     pub unif: [[u32; NUM_DATA_SLOTS]; MAX_VC_CORES],
     pub unif_ptr: [u32; MAX_VC_CORES], // this is the data that actually gets sent. this should point to unif, which points to the actual data

@@ -130,10 +130,10 @@ pub fn matmul_kernel() {
         // MNK: M rows of A, N columns of B, K shared dimension
         const M: usize = 16; // rows of A
         const N: usize = 16; // columns of B
-        const K: usize = 32; // columns of A / rows of B
+        const K: usize = 64; // columns of A / rows of B
 
-        let a: [u32; M * K] = core::array::from_fn(|i| i as u32);
-        let b: [u32; K * N] = core::array::from_fn(|i| (i as u32) + 6);
+        let a: [u32; M * K] = core::array::from_fn(|i| (i % 8) as u32);
+        let b: [u32; K * N] = core::array::from_fn(|i| ((i % 8) as u32) + 1);
 
         let mut a_packed: [u32; M * K] = [0; M * K];
         let mut b_packed: [u32; K * N] = [0; K * N];

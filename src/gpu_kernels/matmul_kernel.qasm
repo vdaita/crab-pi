@@ -215,26 +215,25 @@ mov rb31, 1024 # save this to the highest possible register file
     mov rb10 + 14, 0
     mov rb10 + 15, 0
 
-    load_a_tile 
-    nop; nop; 
-    load_b_tile
-    nop; nop;
-    process_group
-    nop; nop;
+    :loop
+        load_a_tile 
+        nop; nop; 
+        load_b_tile
+        nop; nop;
+        process_group
+        nop; nop;
+    
+        add r0, ra4, rb31; nop; nop; nop # shift right
+        mov ra4, r0; nop; nop; nop;
 
-    add r0, ra4, rb31; nop; nop; nop # shift right
-    mov ra4, r0; nop; nop; nop;
+        mul24 r0, rb31, ra3; nop; nop; nop# width of b matrix * the index of the elements
+        add r0, r0, ra5; nop; nop; nop # add this to the current value to shift it down
+        mov ra5, r0; nop; nop; nop # move this there
 
-    mul24 r0, rb31, ra3; nop; nop; nop# width of b matrix * the index of the elements
-    add r0, r0, ra5; nop; nop; nop # add this to the current value to shift it down
-    mov ra5, r0; nop; nop; nop # move this there
-
-    load_a_tile
-    nop; nop;
-    load_b_tile
-    nop; nop;
-    process_group
-    nop; nop;
+        sub.setf r2, r2, 1
+        brr.anynz -, :loop
+        nop; nop; nop
+    :end
 
     store_c_tile
 .endm
