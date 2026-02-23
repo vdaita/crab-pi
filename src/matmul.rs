@@ -287,7 +287,7 @@ pub fn matmul(a: &[u32], b: &[u32], out: &mut [u32], m: usize, n: usize, k: usiz
         let tile_elems: usize = 16 * 16 as usize;
         let row_elems: usize = tile_elems * num_k_tiles as usize;
 
-        for m_group in 0..(num_m_tiles / 12) {
+        for m_group in 0..((num_m_tiles + 11) / 12) {
             for n_tile in 0..num_n_tiles {
                 a_slice_packed = [0; crate::gpu::MAX_DATA_SIZE];
                 b_slice_packed = [0; crate::gpu::MAX_DATA_SIZE];   
@@ -331,7 +331,7 @@ pub fn matmul(a: &[u32], b: &[u32], out: &mut [u32], m: usize, n: usize, k: usiz
                     gpu.data[1].as_mut_ptr(),
                     b_elems,
                 );
-                
+
                 let mut c_unpacked: [u32; crate::gpu::MAX_DATA_SIZE] = [0; crate::gpu::MAX_DATA_SIZE];
                 
                 let num_cores = (row_end_tile - row_start_tile); // this is at most 12
@@ -381,8 +381,8 @@ pub fn matmul(a: &[u32], b: &[u32], out: &mut [u32], m: usize, n: usize, k: usiz
 }
 
 pub fn matmul_func_test() {
-    const M: usize = 16 * 12;
-    const N: usize = 16;
+    const M: usize = 16 * 14;
+    const N: usize = 32;
     const K: usize = 64;
 
     let a: [u32; M * K] = core::array::from_fn(|i| (i % 9) as u32);
