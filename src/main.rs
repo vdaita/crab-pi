@@ -11,6 +11,7 @@ mod gpio;
 mod start;
 mod uart;
 mod gpu;
+mod matmul;
 mod watchdog;
 mod programs {
     pub mod gpu_test;

@@ -25,10 +25,10 @@ pub static ADD_KERNEL_CODE: &[u8] = include_bytes!("gpu_kernels/add_kernel.bin")
 pub static MATMUL_KERNEL_CODE: &[u8] = include_bytes!("gpu_kernels/matmul_kernel.bin");
 pub static DEADBEEF_GPU_CODE: &[u8] = include_bytes!("gpu_kernels/deadbeef.bin");
 const GPU_MEM_FLAG: u32 = 0xC;
-const MAX_VC_CORES: usize = 12;
+pub const MAX_VC_CORES: usize = 12;
 const NUM_DATA_SLOTS: usize = 16;
 const NUM_UNIF_SLOTS: usize = 64;
-const MAX_DATA_SIZE: usize = 16384;
+pub const MAX_DATA_SIZE: usize = 16384;
 const BYTES_FOR_CODE: usize = 128000;
 
 unsafe fn mbox_write(channel: u8, data: u32) {
