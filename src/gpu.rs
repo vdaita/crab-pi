@@ -28,7 +28,7 @@ const GPU_MEM_FLAG: u32 = 0xC;
 const MAX_VC_CORES: usize = 12;
 const NUM_DATA_SLOTS: usize = 16;
 const NUM_UNIF_SLOTS: usize = 64;
-const MAX_DATA_SIZE: usize = 2048;
+const MAX_DATA_SIZE: usize = 16384;
 const BYTES_FOR_CODE: usize = 128000;
 
 unsafe fn mbox_write(channel: u8, data: u32) {
@@ -287,4 +287,3 @@ impl GpuKernel {
         qpu_enable(0);
     }
 }
-

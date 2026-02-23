@@ -63,8 +63,7 @@
     nop
     # mov rb10 + a_row, r1
     # mov rb10 + a_row, rb0
-    # mov rb10 + a_row, r3
-    mov rb10 + a_row, ra6
+    mov rb10 + a_row, r3
     nop
     nop
     nop
@@ -183,25 +182,19 @@
     store_c_row 15
 .endm
 
-
+mov ra4, unif # ra4 <- src addresses (a matrix)
+mov ra5, unif # ra5 <- src address 2 (b matrix)
+mov ra6, unif # ra6 <- output address
 
 mov ra1, unif # ra1 <- height of a matrix  (in tiles)
-mov ra8, unif # r2 <- number of tiles in b (k dimension)
-mov ra3, unif # ra3 <- width of b matrix (in tiles)
-mov ra7, unif # number of jobs you have left to load
+mov r2, unif # r2 <- number of tiles in b (k dimension)
+mov ra3, unif # ra2 <- width of b matrix (in tiles)
 
 mov rb31, 1024 # save this to the highest possible register file
 # needs to be in the b register file
 
 .macro process_line
-    nop; nop; nop
-    mov ra4, unif # ra4 <- src addresses (a matrix)
-    mov ra5, unif # ra5 <- src address 2 (b matrix)
-    mov ra6, unif # ra6 <- output address
-    nop; nop; nop
-
     mov r3, 0
-    mov r2, ra8
     mov rb10 + 0, 0
     mov rb10 + 1, 0
     mov rb10 + 2, 0
@@ -229,7 +222,7 @@ mov rb31, 1024 # save this to the highest possible register file
         nop; nop;
         process_group
         nop; nop;
-
+    
         add r0, ra4, rb31; nop; nop; nop # shift right
         mov ra4, r0; nop; nop; nop;
 
