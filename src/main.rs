@@ -13,6 +13,7 @@ mod uart;
 mod gpu;
 mod matmul;
 mod watchdog;
+mod timer;
 mod programs {
     pub mod gpu_test;
 }

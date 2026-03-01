@@ -1,4 +1,5 @@
 use crate::gpu::{GpuKernel, MATMUL_KERNEL_CODE};
+use crate::timer::Timer;
 use crate::{print, println};
 
 
@@ -390,13 +391,20 @@ pub fn matmul_func_test() {
     let mut c: [u32; M * N] = [0; M * N];
     let mut c_cpu: [u32; M * N] = [0; M * N];
 
+    let start_matmul = Timer::get_usec();
     matmul(&a, &b, &mut c, M, N, K);
+    let matmul_time = Timer::get_usec() - start_matmul;
+
+    let start_cpu_matmul = Timer::get_usec();
     cpu_matmul(&a, &b, &mut c_cpu, M, N, K);
+    let cpu_matmul_time = Timer::get_usec() - start_cpu_matmul;
 
     println!("CPU matmul:\n");
     print_matrix(&c_cpu, M, N);
     println!("\n\nGPU matmul:\n");
     print_matrix(&c, M, N);
+
+    println!("Amount of time taken: GPU: {}, CPU: {}\n", matmul_time, cpu_matmul_time);
 
     let mut matches = true;
     for i in 0..(M * N) {
