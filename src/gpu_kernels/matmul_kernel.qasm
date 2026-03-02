@@ -186,59 +186,61 @@ mov ra4, unif # ra4 <- src addresses (a matrix)
 mov ra5, unif # ra5 <- src address 2 (b matrix)
 mov ra6, unif # ra6 <- output address
 
-mov ra1, unif # ra1 <- height of a matrix  (in tiles)
+mov r4, unif # ra4 <- height, which this will iterate through
 mov r2, unif # r2 <- number of tiles in b (k dimension)
 mov ra3, unif # ra2 <- width of b matrix (in tiles)
 
-mov rb31, 1024 # save this to the highest possible register file
-# needs to be in the b register file
+mov rb31, 1024 # save this to the highest possible register position
 
-.macro process_line
-    mov r3, 0
-    mov rb10 + 0, 0
-    mov rb10 + 1, 0
-    mov rb10 + 2, 0
-    mov rb10 + 3, 0
-
-    mov rb10 + 4, 0
-    mov rb10 + 5, 0
-    mov rb10 + 6, 0
-    mov rb10 + 7, 0
-
-    mov rb10 + 8, 0
-    mov rb10 + 9, 0
-    mov rb10 + 10, 0
-    mov rb10 + 11, 0
-
-    mov rb10 + 12, 0
-    mov rb10 + 13, 0
-    mov rb10 + 14, 0
-    mov rb10 + 15, 0
-
-    :loop
-        load_a_tile 
-        nop; nop; 
-        load_b_tile
-        nop; nop;
-        process_group
-        nop; nop;
+# :outer_loop
     
-        add r0, ra4, rb31; nop; nop; nop # shift right
-        mov ra4, r0; nop; nop; nop;
 
-        mul24 r0, rb31, ra3; nop; nop; nop# width of b matrix * the index of the elements
-        add r0, r0, ra5; nop; nop; nop # add this to the current value to shift it down
-        mov ra5, r0; nop; nop; nop # move this there
+#      sub.setf r4, r4, 1
+#     brr.anynz -, :outer_looop
+# :end
 
-        sub.setf r2, r2, 1
-        brr.anynz -, :loop
-        nop; nop; nop
-    :end
+mov r3, 0
+mov rb10 + 0, 0
+mov rb10 + 1, 0
+mov rb10 + 2, 0
+mov rb10 + 3, 0
 
-    store_c_tile
-.endm
+mov rb10 + 4, 0
+mov rb10 + 5, 0
+mov rb10 + 6, 0
+mov rb10 + 7, 0
 
-process_line
+mov rb10 + 8, 0
+mov rb10 + 9, 0
+mov rb10 + 10, 0
+mov rb10 + 11, 0
+
+mov rb10 + 12, 0
+mov rb10 + 13, 0
+mov rb10 + 14, 0
+mov rb10 + 15, 0
+
+:innerloop
+    load_a_tile 
+    nop; nop; 
+    load_b_tile
+    nop; nop;
+    process_group
+    nop; nop;
+
+    add r0, ra4, rb31; nop; nop; nop # shift right
+    mov ra4, r0; nop; nop; nop;
+
+    mul24 r0, rb31, ra3; nop; nop; nop# width of b matrix * the index of the elements
+    add r0, r0, ra5; nop; nop; nop # add this to the current value to shift it down
+    mov ra5, r0; nop; nop; nop # move this there
+
+    sub.setf r2, r2, 1
+    brr.anynz -, :innerloop
+    nop; nop; nop
+:end
+
+store_c_tile
 
 # load_a_tile
 # load_b_tile

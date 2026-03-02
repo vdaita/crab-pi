@@ -157,26 +157,6 @@ unsafe fn qpu_enable(enable: u32) -> bool {
     mbox_property(&mut msg.0)
 }
 
-unsafe fn gpu_fft_base_exec_direct(code: u32, unifs: &[u32], num_qpus: u32) {
-    write_volatile(V3D_DBCFG,  0); // Disallow IRQ
-    write_volatile(V3D_DBQITE, 0); // Disable IRQ
-    write_volatile(V3D_DBQITC, !0); // Resets IRQ flags
-    write_volatile(V3D_L2CACTL, 1 << 2); // Clear L2 Cache
-    write_volatile(V3D_SLCACTL, !0); // Clear other caches
-
-    write_volatile(V3D_SRQCS, (1 << 7) | (1 << 8) | (1 << 16)); // Reset err bit and counts
-    for q in 0..num_qpus {
-        println!("Writing code for QPU {}", q);
-        write_volatile(V3D_SRQUA, unifs[q as usize]);
-        write_volatile(V3D_SRQPC, code); 
-    }
-
-    while (((read_volatile(V3D_SRQCS) >> 16) & 0xff) != num_qpus) { 
-        core::hint::spin_loop();
-        // println!("QPUs finished: {}", (read_volatile(V3D_SRQCS) >> 16) & 0xff);
-    }
-}
-
 #[repr(C)]
 #[repr(align(16))]
 pub struct GpuKernel {
@@ -271,15 +251,26 @@ impl GpuKernel {
         
         crate::arch::gcc_mb();
 
-        gpu_fft_base_exec_direct(
-            self.mail[0],
-            // &[self.mail[1]],
-            &self.unif_ptr[..num_cores as usize],
-            num_cores
-        );
+        write_volatile(V3D_DBCFG,  0); // Disallow IRQ
+        write_volatile(V3D_DBQITE, 0); // Disable IRQ
+        write_volatile(V3D_DBQITC, !0); // Resets IRQ flags
+        write_volatile(V3D_L2CACTL, 1 << 2); // Clear L2 Cache
+        write_volatile(V3D_SLCACTL, !0); // Clear other caches
+        write_volatile(V3D_SRQCS, (1 << 7) | (1 << 8) | (1 << 16)); // Reset err bit and counts
+        for q in 0..num_cores {
+            println!("Writing code for QPU {}", q);
+            write_volatile(V3D_SRQUA, self.unif_ptr[q as usize]);
+            write_volatile(V3D_SRQPC, self.mail[0]); 
+        }
 
+        while (((read_volatile(V3D_SRQCS) >> 16) & 0xff) != num_cores) { 
+            core::hint::spin_loop();
+            // println!("QPUs finished: {}", (read_volatile(V3D_SRQCS) >> 16) & 0xff);
+        }
         println!("After execution, SRQCS: 0x{:08x}", read_volatile(V3D_SRQCS));
     }
+
+    
 
     pub unsafe fn release(&mut self) {
         mem_unlock(self.handle);

@@ -2,7 +2,6 @@ use crate::gpu::{GpuKernel, MATMUL_KERNEL_CODE};
 use crate::timer::Timer;
 use crate::{print, println};
 
-
 fn pack_kernel(data: &[u32], out: &mut [u32], n: usize, m: usize) {
     let n16 = ((n + 15) / 16) * 16;
     let m16 = ((m + 15) / 16) * 16;
@@ -282,16 +281,12 @@ pub fn matmul(a: &[u32], b: &[u32], out: &mut [u32], m: usize, n: usize, k: usiz
     
         let mut a_slice: [u32; crate::gpu::MAX_DATA_SIZE] = [0; crate::gpu::MAX_DATA_SIZE];
         let mut b_slice: [u32; crate::gpu::MAX_DATA_SIZE] = [0; crate::gpu::MAX_DATA_SIZE];
-        let mut a_slice_packed: [u32; crate::gpu::MAX_DATA_SIZE] = [0; crate::gpu::MAX_DATA_SIZE];
-        let mut b_slice_packed: [u32; crate::gpu::MAX_DATA_SIZE] = [0; crate::gpu::MAX_DATA_SIZE];
 
         let tile_elems: usize = 16 * 16 as usize;
         let row_elems: usize = tile_elems * num_k_tiles as usize;
 
         for m_group in 0..((num_m_tiles + 11) / 12) {
             for n_tile in 0..num_n_tiles {
-                a_slice_packed = [0; crate::gpu::MAX_DATA_SIZE];
-                b_slice_packed = [0; crate::gpu::MAX_DATA_SIZE];   
                 a_slice = [0; crate::gpu::MAX_DATA_SIZE];
                 b_slice = [0; crate::gpu::MAX_DATA_SIZE];
 
@@ -316,22 +311,8 @@ pub fn matmul(a: &[u32], b: &[u32], out: &mut [u32], m: usize, n: usize, k: usiz
                     );
                 }
 
-                pack_kernel(&a_slice, &mut a_slice_packed, (row_end_tile - row_start_tile) * 16, k);
-                pack_transpose_kernel(&b_slice, &mut b_slice_packed, k,16);
-
-                // move data from the packing to the data arrays on the GPU
-                let a_elems = (row_end_tile - row_start_tile) * 16 * k;
-                let b_elems = k * 16;
-                core::ptr::copy_nonoverlapping(
-                    a_slice_packed.as_ptr(),
-                    gpu.data[0].as_mut_ptr(),
-                    a_elems,
-                );
-                core::ptr::copy_nonoverlapping(
-                    b_slice_packed.as_ptr(),
-                    gpu.data[1].as_mut_ptr(),
-                    b_elems,
-                );
+                pack_kernel(&a_slice, &mut gpu.data[0], (row_end_tile - row_start_tile) * 16, k);
+                pack_transpose_kernel(&b_slice, &mut gpu.data[1], k,16);
 
                 let mut c_unpacked: [u32; crate::gpu::MAX_DATA_SIZE] = [0; crate::gpu::MAX_DATA_SIZE];
                 
@@ -342,7 +323,6 @@ pub fn matmul(a: &[u32], b: &[u32], out: &mut [u32], m: usize, n: usize, k: usiz
                     gpu.unif[core][0] = gpu.get_data_ptr(0) + a_offset as u32;
                     gpu.unif[core][1] = gpu.get_data_ptr(1);
                     gpu.unif[core][2] = gpu.get_data_ptr(2) + c_offset as u32;
-                    
                     gpu.unif[core][3] = (row_end_tile - row_start_tile) as u32; 
                     gpu.unif[core][4] = num_k_tiles as u32;
                     gpu.unif[core][5] = 1 as u32;
