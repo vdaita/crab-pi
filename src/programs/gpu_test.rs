@@ -16,59 +16,50 @@ pub fn deadbeef_kernel() {
     }
 }
 
+
 pub fn exp_max_kernel() {
+    
+    let a: f32 = 1.0f32;
+    println!("A: {}", a);
+    
     unsafe {
         let gpu_ptr = GpuKernel::init(EXP_MAX_GPU_CODE);
         let gpu = &mut *gpu_ptr;
+
+        // let a: [f32; 64] = core::array::from_fn(|i| i as f32);
+        // let n = a.len(); // copy_nonoverlapping expects element count
         
-        let a: [f32; 16] = core::array::from_fn(|i| i as f32);
-        let n = a.len();
-    
-        print!("A:\n");
-        for i in 0..n {
-            print!("{} ", a[i]);
+        // for (i, &f) in a.iter().enumerate() {
+        //     // gpu.data[0][i] = f.to_bits();
+        //     let f_u32: u32 = f.to_bits();
+        //     println!("conversion: f {} -> f_u32 {}", f, f_u32);
+        //     gpu.data[0][i] = f_u32;
+        // }
+        // core::ptr::copy_nonoverlapping(a.as_ptr() as *const u32, gpu.data[0].as_mut_ptr(), n);
+
+        print!("Input: a[0..64] = ");
+        for i in 0..64 {
+            print!(" {}", gpu.data[0][i]);
         }
-        print!("\n");
+        println!("");
         
-        // Cast f32 pointer to u32 pointer
-        core::ptr::copy_nonoverlapping(
-            a.as_ptr() as *const u32,
-            gpu.data[0].as_mut_ptr(),
-            n
-        );
-        
-        gpu.unif[0][0] = gpu.get_data_ptr(0) as u32;
-        gpu.unif[0][1] = gpu.get_data_ptr(1) as u32;
-        
-        let mut target: [f32; 16] = [0.0f32; 16]; 
-        for i in 0..n {
-            target[i] = 1.0 + a[i] + (a[i] * a[i] / 2.0);
+        print!("Before: out[0..64] =");
+        for i in 0..64 {
+            print!(" {}", gpu.data[1][i]);
         }
-        
-        print!("target:\n");
-        for i in 0..n {
-            print!("{} ", target[i]);
-        }
-        print!("\n");
-        
+        println!("");
+
         gpu.execute(1);
-        
-        print!("result:\n");
-        for i in 0..n {
-            let float_res = f32::from_bits(gpu.data[1][i]);
-            print!("{} ", float_res);
+
+        print!("After: out[0..64] =");
+        for i in 0..64 {
+            print!(" {}", gpu.data[1][i]);
         }
-        print!("\n");
-        
-        for i in 0..n {
-            let float_res = f32::from_bits(gpu.data[1][i]);
-            if (target[i] - float_res).abs() > 1e-5 {
-                println!("Discrepancy at position {}, target={}, result={}", i, target[i], float_res);
-            }
-        }
-        
+        println!("");
+
         gpu.release();
-     }
+        println!("Finished releasing test_gpu");
+    }
 }
 
 pub fn add_kernel() {
@@ -112,4 +103,5 @@ pub fn add_kernel() {
 pub fn test_gpu() {
     // crate::matmul::matmul_func_test();
     exp_max_kernel();
+    // add_kernel();
 }
