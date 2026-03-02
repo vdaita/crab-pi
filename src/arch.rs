@@ -52,7 +52,13 @@ pub fn cpsr_int_reset(cpsr: u32) -> u32 {
 
 #[inline(always)]
 pub fn gcc_mb() {
-    unsafe { ::core::arch::asm!("", options(nostack, preserves_flags)) }
+    // unsafe { ::core::arch::asm!("", options(nostack, preserves_flags)) }
+    core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
+}
+
+#[inline]
+pub unsafe fn prefetch_flush() {
+    core::arch::asm!("mcr p15, 0, {}, c7, c5, 4", in(reg) 0u32);
 }
 
 pub fn wait() {}

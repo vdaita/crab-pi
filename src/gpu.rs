@@ -1,5 +1,6 @@
 use core::ptr::{read_volatile, write_volatile};
 use crate::println;
+use core::sync::atomic::{fence, Ordering};
 
 const MAILBOX_BASE: usize = 0x2000_B880;
 const MAILBOX_READ: *mut u32 = (MAILBOX_BASE + 0x00) as *mut u32;
@@ -245,9 +246,9 @@ impl GpuKernel {
     }
 
     pub unsafe fn execute(&mut self, num_cores: u32) {
-        println!("Code addr: 0x{:08x}", self.mail[0]);
-        println!("Unif addr: 0x{:08x}", self.mail[1]);
-        println!("Before execution, SRQCS: 0x{:08x}", read_volatile(V3D_SRQCS));
+        // println!("Code addr: 0x{:08x}", self.mail[0]);
+        // println!("Unif addr: 0x{:08x}", self.mail[1]);
+        // println!("Before execution, SRQCS: 0x{:08x}", read_volatile(V3D_SRQCS));
         
         crate::arch::gcc_mb();
 
@@ -258,16 +259,19 @@ impl GpuKernel {
         write_volatile(V3D_SLCACTL, !0); // Clear other caches
         write_volatile(V3D_SRQCS, (1 << 7) | (1 << 8) | (1 << 16)); // Reset err bit and counts
         for q in 0..num_cores {
-            println!("Writing code for QPU {}", q);
+            // println!("Writing code for QPU {}", q);
+            for _ in 0..500 { core::hint::spin_loop(); } // TODO: figure out what needs to happen here for this to run properly. 
             write_volatile(V3D_SRQUA, self.unif_ptr[q as usize]);
-            write_volatile(V3D_SRQPC, self.mail[0]); 
+            write_volatile(V3D_SRQPC, self.mail[0]);
         }
 
         while (((read_volatile(V3D_SRQCS) >> 16) & 0xff) != num_cores) { 
             core::hint::spin_loop();
             // println!("QPUs finished: {}", (read_volatile(V3D_SRQCS) >> 16) & 0xff);
+            crate::arch::dev_barrier();
         }
-        println!("After execution, SRQCS: 0x{:08x}", read_volatile(V3D_SRQCS));
+        crate::arch::dev_barrier();
+        // println!("After execution, SRQCS: 0x{:08x}", read_volatile(V3D_SRQCS));
     }
 
     
