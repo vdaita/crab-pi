@@ -16,6 +16,7 @@ mod watchdog;
 mod timer;
 mod programs {
     pub mod gpu_test;
+    pub mod mandelbrot;
 }
 
 unsafe fn enable_fpu() {
@@ -40,8 +41,9 @@ fn main() {
 
     unsafe {enable_fpu();}
     
-    programs::gpu_test::test_gpu();
-
+    // programs::gpu_test::test_gpu();
+    programs::mandelbrot::mandelbrot();
+    
     done();
 }
 
