@@ -14,9 +14,14 @@ mod gpu;
 mod matmul;
 mod watchdog;
 mod timer;
+mod kmalloc;
+mod fat32;
+mod fast_hash;
+mod crc;
 mod programs {
     pub mod gpu_test;
     pub mod mandelbrot;
+    pub mod fat32_test;
 }
 
 unsafe fn enable_fpu() {
@@ -42,8 +47,9 @@ fn main() {
     unsafe {enable_fpu();}
     
     // programs::gpu_test::test_gpu();
-    programs::mandelbrot::mandelbrot();
-    
+    // programs::mandelbrot::mandelbrot();
+    programs::fat32_test::fat32_test();
+
     done();
 }
 
