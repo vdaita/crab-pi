@@ -115,6 +115,7 @@ pub fn test_dma() {
         gpu.unif[0][5] = 32 * 4 as u32;
         gpu.unif[0][6] = 2 as u32;
         gpu.unif[0][7] = 2 as u32;
+        gpu.unif[0][8] = 2 as u32;
 
         print!("A: ");
         print_matrix(&a, 32, 32);
