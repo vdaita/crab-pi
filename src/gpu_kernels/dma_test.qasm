@@ -307,115 +307,60 @@ mov ra13, 0
 mov ra14, 0
 mov ra15, 0
 
-# :hor_loop
-#     a_go_top
-#     c_go_top
-#     :ver_loop
-#         a_go_left
-#         b_go_top
-        
-#         clear_acc
-#         :innerloop
-#             load_a_tile
-#             load_b_tile
-            
-#             load_all_a
-#             load_all_b
-            
-#             mac_tile
-            
-#             move_a_right
-#             move_b_down
-#         :endinner
-        
-#         store_all_c
-#         store_c_tile
-        
-#         move_a_down
-#         move_c_down
-#     :end_ver
-#     move_b_right
-#     move_c_right
-# :end_hor
-
-# load_a_tile
-# load_b_tile
-
-# .rep i, 16
-#     load_a_row i
-#     load_b_row i
-#     mov rb16 + i, 0
-# .endr
-
-# mac_tile
-
-# .rep i, 16
-#     store_c_row i
-# .endr
-
-# store_c_tile
-
-# load_a_tile
-# Loop through the given columns
-
-:col_loop
-    # mov ra8, ra0
-    # mov ra9, ra1
-    # mov ra10, ra2
-    # mov ra4, ra7
+:hor_loop
+    a_go_top
+    c_go_top
 
     mov ra4, ra6
+    :ver_loop
+        a_go_left
+        b_go_top
 
-    mov ra9, 0
-    mov ra12, 0
-    mov ra14, 0
+        clear_acc
+        mov ra5, ra8
+        :innerloop
+            load_a_tile
+            load_b_tile
 
-    :row_loop
-        load_b_tile
-        load_a_tile
-        # loop downwards, through the rows
-        .rep i, 16
+            load_all_a
+            load_all_b
+
+            mac_tile
+
+            move_a_right
+            move_b_down
+
+            mov r0, ra5
+            sub.setf r0, r0, 1
+            mov ra5, r0
+            brr.anynz -, :innerloop
             nop
             nop
-            load_a_row i
-            mov rb16 + i, rb0 + i
-            # load_b_row i
-            # mov rb16 + i, ra16 + i
-            store_c_row i
-        .endr
+            nop
+        :endinner
+
+        store_all_c
         store_c_tile
-        
+
         move_a_down
-        move_b_down
         move_c_down
 
-
-        # subtract 1 to keep going
-        # mov r0, ra4
-        # sub.setf r0, r0, 1
-        # mov ra4, r0
-        # brr.anynz -, :row_loop
-        
         mov r0, ra4
         sub.setf r0, r0, 1
         mov ra4, r0
-        brr.anynz -, :row_loop
-        
+        brr.anynz -, :ver_loop
         nop
         nop
         nop
-    :end_rl
-    
-    move_a_right
+    :end_ver
+
     move_b_right
     move_c_right
 
-
-    # subtract 1 from r0
     mov r0, ra3
     sub.setf r0, r0, 1
     mov ra3, r0
-    brr.anynz -, :col_loop
+    brr.anynz -, :hor_loop
     nop
     nop
     nop

@@ -144,7 +144,7 @@ pub fn test_mini_matmul() {
         let gpu_ptr = GpuKernel::init(DMA_TEST_CODE);
         let gpu = &mut *gpu_ptr;
         
-        const N: usize = 16;
+        const N: usize = 32;
 
         let a: [u32; N * N] = core::array::from_fn(|i| i as u32); // arrange this as a 
         let b: [u32; N * N] = core::array::from_fn(|i| (i as u32) + 6);
@@ -210,8 +210,8 @@ pub fn test_mini_matmul() {
 
 
 pub fn test_gpu() {
-    // test_mini_matmul();
-    test_dma();
+    test_mini_matmul();
+    // test_dma();
     // crate::matmul::matmul_func_test();
     // exp_max_kernel();
     // add_kernel();
