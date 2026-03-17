@@ -266,6 +266,16 @@ impl GpuKernel {
         return crate::gpu::GPU_BASE + &self.data[slot] as *const _ as u32;
     }
 
+    pub fn data_slot_as_f32(&self, slot: usize) -> &[f32] {
+        assert!(slot < NUM_DATA_SLOTS, "data slot out of range");
+        unsafe { core::slice::from_raw_parts(self.data[slot].as_ptr() as *const f32, MAX_DATA_SIZE) }
+    }
+
+    pub fn data_slot_as_mut_f32(&mut self, slot: usize) -> &mut [f32] {
+        assert!(slot < NUM_DATA_SLOTS, "data slot out of range");
+        unsafe { core::slice::from_raw_parts_mut(self.data[slot].as_mut_ptr() as *mut f32, MAX_DATA_SIZE) }
+    }
+
     pub unsafe fn get_unif_ptr(&mut self, core: usize) -> u32 {
         return crate::gpu::GPU_BASE + &self.unif[core] as *const _ as u32;
     }

@@ -1,3 +1,6 @@
+# NOTE: this is stale
+
+
 .include "vc4.qinc"
 
 # Variable assignments:

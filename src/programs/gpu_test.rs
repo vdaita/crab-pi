@@ -1,4 +1,4 @@
-use crate::gpu::{GpuKernel, DEADBEEF_GPU_CODE, ADD_KERNEL_CODE, MATMUL_KERNEL_CODE, EXP_MAX_GPU_CODE, DMA_TEST_CODE};
+use crate::gpu::{GpuKernel, DEADBEEF_GPU_CODE, ADD_KERNEL_CODE, EXP_MAX_GPU_CODE, DMA_TEST_CODE};
 use crate::matmul::{print_matrix, cpu_matmul};
 use crate::{print, println};
 
@@ -152,13 +152,12 @@ pub fn test_mini_matmul() {
         
         const N: usize = 32;
 
-        let a: [u32; N * N] = core::array::from_fn(|i| i as u32); // arrange this as a 
-        let b: [u32; N * N] = core::array::from_fn(|i| (i as u32) + 6);
+        let a: [f32; N * N] = core::array::from_fn(|i| i as f32);
+        let b: [f32; N * N] = core::array::from_fn(|i| (i as f32) + 6.0);
         let n = N * N;
-        let num_elem = N;
 
-        core::ptr::copy_nonoverlapping(a.as_ptr(), gpu.data[0].as_mut_ptr(), n);
-        core::ptr::copy_nonoverlapping(b.as_ptr(), gpu.data[1].as_mut_ptr(), n);
+        gpu.data_slot_as_mut_f32(0)[..n].copy_from_slice(&a);
+        gpu.data_slot_as_mut_f32(1)[..n].copy_from_slice(&b);
 
         gpu.unif[0][3] = (N / 16) as u32;
         gpu.unif[0][4] = 0 as u32;
@@ -168,13 +167,19 @@ pub fn test_mini_matmul() {
         gpu.unif[0][8] = (N / 16) as u32;
         gpu.unif[0][9] = 0 as u32;
 
-        print!("A: ");
-        print_matrix(&a, N, N);
+        print!("A[0..16]:");
+        for i in 0..16 {
+            print!(" {:.2}", a[i]);
+        }
+        println!("");
 
-        print!("B: ");
-        print_matrix(&b, N, N);
+        print!("B[0..16]:");
+        for i in 0..16 {
+            print!(" {:.2}", b[i]);
+        }
+        println!("");
         
-        let mut c_cpu: [u32; N * N] = [0; N * N];
+        let mut c_cpu: [f32; N * N] = [0.0; N * N];
         cpu_matmul(&a, &b, &mut c_cpu, N, N, N);
 
 
@@ -184,20 +189,24 @@ pub fn test_mini_matmul() {
 
         gpu.execute(1);
 
-        print!("After: out[0..512] =");
-        print_matrix(&gpu.data[2], N, N);
+        print!("After: out[0..16] =");
+        for i in 0..16 {
+            print!(" {:.2}", gpu.data_slot_as_f32(2)[i]);
+        }
         println!("");
         
-        print!("Baseline: ");
-        print_matrix(&c_cpu, N, N);
+        print!("Baseline[0..16]: ");
+        for i in 0..16 {
+            print!(" {:.2}", c_cpu[i]);
+        }
         println!("");
         
         let mut matches = true;
         for i in 0..(N * N) {
-                if gpu.data[2][i] != c_cpu[i] {
+                if (gpu.data_slot_as_f32(2)[i] - c_cpu[i]).abs() > 1e-3 {
                 println!(
                     "Discrepancy at index {}: expected {}, observed {}",
-                    i, c_cpu[i], gpu.data[2][i] 
+                    i, c_cpu[i], gpu.data_slot_as_f32(2)[i]
                 );
                 matches = false;
                 break;

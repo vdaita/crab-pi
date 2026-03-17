@@ -247,9 +247,9 @@
     .rep b_row, 16
         mov r5rep, r1 << b_row
         nop; nop; nop;
-        mul24 r3, r5rep, ra16 + b_row
+        fmul r3, r5rep, ra16 + b_row
         nop; nop; nop;
-        add r3, r3, rb16 + a_row
+        fadd r3, r3, rb16 + a_row
         nop; nop; nop;
         mov rb16 + a_row, r3
     .endr

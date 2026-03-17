@@ -6,9 +6,9 @@ fn pad16(x: usize) -> usize {
     ((x + 15) / 16) * 16
 }
 
-fn zero_pad_matrix(src: &[u32], dst: &mut [u32], rows: usize, cols: usize, padded_cols: usize) {
+fn zero_pad_matrix(src: &[f32], dst: &mut [f32], rows: usize, cols: usize, padded_cols: usize) {
     for v in dst.iter_mut() {
-        *v = 0;
+        *v = 0.0;
     }
 
     for r in 0..rows {
@@ -22,7 +22,7 @@ fn zero_pad_matrix(src: &[u32], dst: &mut [u32], rows: usize, cols: usize, padde
     }
 }
 
-fn copy_from_padded(src: &[u32], dst: &mut [u32], rows: usize, cols: usize, padded_cols: usize) {
+fn copy_from_padded(src: &[f32], dst: &mut [f32], rows: usize, cols: usize, padded_cols: usize) {
     for r in 0..rows {
         unsafe {
             core::ptr::copy_nonoverlapping(
@@ -43,19 +43,19 @@ pub fn print_matrix(data: &[u32], n: usize, m: usize) {
     }
 }
 
-pub fn cpu_matmul(a: &[u32], b: &[u32], c: &mut [u32], M: usize, N: usize, K: usize) {
-    for i in 0..M {
-        for j in 0..N {
-            let mut sum: u32 = 0;
-            for k in 0..K {
-                sum += a[i * K + k] * b[k * N + j];
+pub fn cpu_matmul(a: &[f32], b: &[f32], c: &mut [f32], m: usize, n: usize, k: usize) {
+    for i in 0..m {
+        for j in 0..n {
+            let mut sum: f32 = 0.0;
+            for kk in 0..k {
+                sum += a[i * k + kk] * b[kk * n + j];
             }
-            c[i * N + j] = sum;
+            c[i * n + j] = sum;
         }
     }
 }
 
-fn matmul_with_gpu(gpu: &mut GpuKernel, a: &[u32], b: &[u32], out: &mut [u32], m: usize, n: usize, k: usize) {
+fn matmul_with_gpu(gpu: &mut GpuKernel, a: &[f32], b: &[f32], out: &mut [f32], m: usize, n: usize, k: usize) {
     let m16 = pad16(m);
     let n16 = pad16(n);
     let k16 = pad16(k);
@@ -68,10 +68,19 @@ fn matmul_with_gpu(gpu: &mut GpuKernel, a: &[u32], b: &[u32], out: &mut [u32], m
         panic!("matmul dimensions exceed GPU slot capacity after padding");
     }
 
-    zero_pad_matrix(a, &mut gpu.data[0][..a_elems], m, k, k16);
-    zero_pad_matrix(b, &mut gpu.data[1][..b_elems], k, n, n16);
-    for v in gpu.data[2][..c_elems].iter_mut() {
-        *v = 0;
+    {
+        let a_slot = gpu.data_slot_as_mut_f32(0);
+        zero_pad_matrix(a, &mut a_slot[..a_elems], m, k, k16);
+    }
+    {
+        let b_slot = gpu.data_slot_as_mut_f32(1);
+        zero_pad_matrix(b, &mut b_slot[..b_elems], k, n, n16);
+    }
+    {
+        let c_slot = gpu.data_slot_as_mut_f32(2);
+        for v in c_slot[..c_elems].iter_mut() {
+            *v = 0.0;
+        }
     }
 
     let num_m_tiles = m16 / 16;
@@ -113,10 +122,13 @@ fn matmul_with_gpu(gpu: &mut GpuKernel, a: &[u32], b: &[u32], out: &mut [u32], m
         gpu.execute(launch_cores as u32);
     }
 
-    copy_from_padded(&gpu.data[2][..c_elems], out, m, n, n16);
+    {
+        let c_slot = gpu.data_slot_as_f32(2);
+        copy_from_padded(&c_slot[..c_elems], out, m, n, n16);
+    }
 }
 
-pub fn matmul(a: &[u32], b: &[u32], out: &mut [u32], m: usize, n: usize, k: usize) {
+pub fn matmul(a: &[f32], b: &[f32], out: &mut [f32], m: usize, n: usize, k: usize) {
     unsafe {
         let gpu_ptr = GpuKernel::new();
         let gpu = &mut *gpu_ptr;
@@ -132,16 +144,16 @@ fn run_matmul_case(
     m: usize,
     n: usize,
     k: usize,
-    a: &[u32],
-    b: &[u32],
-    c: &mut [u32],
-    c_cpu: &mut [u32],
+    a: &[f32],
+    b: &[f32],
+    c: &mut [f32],
+    c_cpu: &mut [f32],
 ) -> bool {
     for v in c.iter_mut() {
-        *v = 0;
+        *v = 0.0;
     }
     for v in c_cpu.iter_mut() {
-        *v = 0;
+        *v = 0.0;
     }
 
     let start_matmul = Timer::get_usec();
@@ -175,7 +187,7 @@ fn run_matmul_case(
     }
 
     for i in 0..(m * n) {
-        if c[i] != c_cpu[i] {
+        if (c[i] - c_cpu[i]).abs() > 1e-3 {
             println!(
                 "[{}] mismatch at idx {}: expected {}, observed {}",
                 label,
@@ -202,10 +214,10 @@ pub fn matmul_func_test() {
             const M: usize = 16;
             const N: usize = 16;
             const K: usize = 16;
-            let a: [u32; M * K] = core::array::from_fn(|i| ((i * 13 + 7) % 23) as u32);
-            let b: [u32; K * N] = core::array::from_fn(|i| ((i * 17 + 3) % 19) as u32);
-            let mut c: [u32; M * N] = [0; M * N];
-            let mut c_cpu: [u32; M * N] = [0; M * N];
+            let a: [f32; M * K] = core::array::from_fn(|i| ((i * 13 + 7) % 23) as f32 * 0.25);
+            let b: [f32; K * N] = core::array::from_fn(|i| ((i * 17 + 3) % 19) as f32 * 0.25);
+            let mut c: [f32; M * N] = [0.0; M * N];
+            let mut c_cpu: [f32; M * N] = [0.0; M * N];
             all_passed = run_matmul_case(gpu, "square-16", M, N, K, &a, &b, &mut c, &mut c_cpu) && all_passed;
         }
 
@@ -213,10 +225,10 @@ pub fn matmul_func_test() {
             const M: usize = 32;
             const N: usize = 256;
             const K: usize = 64;
-            let a: [u32; M * K] = core::array::from_fn(|i| ((i * 13 + 7) % 23) as u32);
-            let b: [u32; K * N] = core::array::from_fn(|i| ((i * 17 + 3) % 19) as u32);
-            let mut c: [u32; M * N] = [0; M * N];
-            let mut c_cpu: [u32; M * N] = [0; M * N];
+            let a: [f32; M * K] = core::array::from_fn(|i| ((i * 13 + 7) % 23) as f32 * 0.25);
+            let b: [f32; K * N] = core::array::from_fn(|i| ((i * 17 + 3) % 19) as f32 * 0.25);
+            let mut c: [f32; M * N] = [0.0; M * N];
+            let mut c_cpu: [f32; M * N] = [0.0; M * N];
             all_passed = run_matmul_case(gpu, "wide-n-multi-qpu", M, N, K, &a, &b, &mut c, &mut c_cpu) && all_passed;
         }
 
@@ -224,10 +236,10 @@ pub fn matmul_func_test() {
             const M: usize = 31;
             const N: usize = 47;
             const K: usize = 19;
-            let a: [u32; M * K] = core::array::from_fn(|i| ((i * 13 + 7) % 23) as u32);
-            let b: [u32; K * N] = core::array::from_fn(|i| ((i * 17 + 3) % 19) as u32);
-            let mut c: [u32; M * N] = [0; M * N];
-            let mut c_cpu: [u32; M * N] = [0; M * N];
+            let a: [f32; M * K] = core::array::from_fn(|i| ((i * 13 + 7) % 23) as f32 * 0.25);
+            let b: [f32; K * N] = core::array::from_fn(|i| ((i * 17 + 3) % 19) as f32 * 0.25);
+            let mut c: [f32; M * N] = [0.0; M * N];
+            let mut c_cpu: [f32; M * N] = [0.0; M * N];
             all_passed = run_matmul_case(gpu, "non-multiple-of-16", M, N, K, &a, &b, &mut c, &mut c_cpu) && all_passed;
         }
 
@@ -235,10 +247,10 @@ pub fn matmul_func_test() {
             const M: usize = 48;
             const N: usize = 96;
             const K: usize = 32;
-            let a: [u32; M * K] = core::array::from_fn(|i| ((i * 13 + 7) % 23) as u32);
-            let b: [u32; K * N] = core::array::from_fn(|i| ((i * 17 + 3) % 19) as u32);
-            let mut c: [u32; M * N] = [0; M * N];
-            let mut c_cpu: [u32; M * N] = [0; M * N];
+            let a: [f32; M * K] = core::array::from_fn(|i| ((i * 13 + 7) % 23) as f32 * 0.25);
+            let b: [f32; K * N] = core::array::from_fn(|i| ((i * 17 + 3) % 19) as f32 * 0.25);
+            let mut c: [f32; M * N] = [0.0; M * N];
+            let mut c_cpu: [f32; M * N] = [0.0; M * N];
             all_passed = run_matmul_case(gpu, "rectangular", M, N, K, &a, &b, &mut c, &mut c_cpu) && all_passed;
         }
 
@@ -246,10 +258,10 @@ pub fn matmul_func_test() {
             const M: usize = 7;
             const N: usize = 13;
             const K: usize = 5;
-            let a: [u32; M * K] = core::array::from_fn(|i| ((i * 13 + 7) % 23) as u32);
-            let b: [u32; K * N] = core::array::from_fn(|i| ((i * 17 + 3) % 19) as u32);
-            let mut c: [u32; M * N] = [0; M * N];
-            let mut c_cpu: [u32; M * N] = [0; M * N];
+            let a: [f32; M * K] = core::array::from_fn(|i| ((i * 13 + 7) % 23) as f32 * 0.25);
+            let b: [f32; K * N] = core::array::from_fn(|i| ((i * 17 + 3) % 19) as f32 * 0.25);
+            let mut c: [f32; M * N] = [0.0; M * N];
+            let mut c_cpu: [f32; M * N] = [0.0; M * N];
             all_passed = run_matmul_case(gpu, "tiny", M, N, K, &a, &b, &mut c, &mut c_cpu) && all_passed;
         }
 
