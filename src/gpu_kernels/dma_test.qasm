@@ -22,8 +22,14 @@
 # ra2 -> ra10
 # ra7 -> ra11
 
+# ra9 -> current a row (vertical)
+# ra10 -> current a column (horizontal)
+
 # ra12 -> current b row (vertical)
 # ra13 -> current b column (horizontal)
+
+# ra14 -> current c row (vertical)
+# ra15 -> current c column (horizontal)
 
 # rb0-15: loaded tile a
 # ra16-32: loaded tile b
@@ -41,7 +47,32 @@
     or r0, r0, r1
     mov vr_setup, r0
     mov vr_setup, vdr_setup_0(0, 16, 16, vdr_h32(1, 0, 0))
-    mov vr_addr, ra8
+    # mov vr_addr, ra8
+    
+    mov r0, ra0
+    # add vertical offset
+    nop; nop; nop;
+    mov r1, ra9
+    mov r2, ra3
+    nop; nop; nop;
+    shl r1, r1, 4
+    nop; nop; nop;
+    mul24 r1, r1, r2;
+    nop; nop; nop;
+    add r0, r0, r1
+    nop; nop; nop;
+
+    
+    # add horizontal offset
+    mov r1, ra10
+    nop; nop; nop;
+    shl r1, r1, 6
+    nop; nop; nop;
+    add r0, r0, r1
+    nop; nop; nop;
+    
+    mov vr_addr, r0
+    
     mov -, vr_wait
 .endm
 
@@ -60,9 +91,9 @@
     mov vr_setup, vdr_setup_0(0, 16, 16, vdr_h32(1, 16, 0))
     # mov vr_addr, ra9
     
-    mov r0, ra9
+    # mov r0, ra9
+    mov r0, ra1
     # add vertical offset
-    # mov r0, ra1
     nop; nop; nop;
     mov r1, ra12
     mov r2, ra4
@@ -76,12 +107,12 @@
 
     
     # add horizontal offset
-    # mov r1, ra13
-    # nop; nop; nop;
-    # shl r1, r1, 6
-    # nop; nop; nop;
-    # add r0, r0, r1
-    # nop; nop; nop;
+    mov r1, ra13
+    nop; nop; nop;
+    shl r1, r1, 6
+    nop; nop; nop;
+    add r0, r0, r1
+    nop; nop; nop;
     
     mov vr_addr, r0
     
@@ -102,7 +133,33 @@
     or r0, r0, r1
     mov vw_setup, r0
     mov vw_setup, vdw_setup_0(16, 16, dma_h32(32, 0))
-    mov vw_addr, ra10
+    # mov vw_addr, ra10
+    
+    # mov r0, ra9
+    mov r0, ra2
+    # # add vertical offset
+    nop; nop; nop;
+    mov r1, ra14
+    mov r2, ra5
+    nop; nop; nop;
+    shl r1, r1, 4
+    nop; nop; nop;
+    mul24 r1, r1, r2;
+    nop; nop; nop;
+    add r0, r0, r1
+    nop; nop; nop;
+
+    
+    # # add horizontal offset
+    mov r1, ra15
+    nop; nop; nop;
+    shl r1, r1, 6
+    nop; nop; nop;
+    add r0, r0, r1
+    nop; nop; nop;
+    
+    mov vw_addr, r0
+    
     mov -, vw_wait
 .endm
 
@@ -117,32 +174,45 @@ mov ra6, unif
 mov ra7, unif
 mov ra11, ra7
 
+mov ra9, 0
+mov ra10, 0
 mov ra12, 0
 mov ra13, 0
+mov ra14, 0
+mov ra15, 0
 
 # load_a_tile
 
 # Loop through the given columns
 
 :col_loop
-    mov ra8, ra0
-    mov ra9, ra1
-    mov ra10, ra2
+    # mov ra8, ra0
+    # mov ra9, ra1
+    # mov ra10, ra2
     mov ra7, ra11
+    
+    mov ra9, 0
     mov ra12, 0
+    mov ra14, 0
     
     :row_loop
         load_b_tile
+        load_a_tile
         # loop downwards, through the rows
         .rep i, 16
             nop
             nop
-            # load_a_row i
-            load_b_row i
-            mov rb16 + i, ra16 + i
+            load_a_row i
+            mov rb16 + i, rb0 + i
+            # load_b_row i
+            # mov rb16 + i, ra16 + i
             store_c_row i
         .endr
         store_c_tile
+        
+        mov r0, ra9
+        add r0, r0, 1
+        mov ra9, r0
         
         # increment this to go to the next row
         # mov r0, ra9
@@ -154,11 +224,16 @@ mov ra13, 0
         add r0, r0, 1
         mov ra12, r0
         
-        mov r0, ra10
-        mov r1, ra5
-        shl r1, r1, 4
-        add r0, r0, r1
-        mov ra10, r0
+        # mov r0, ra10
+        # mov r1, ra5
+        # shl r1, r1, 4
+        # add r0, r0, r1
+        # mov ra10, r0
+        # 
+        mov r0, ra14
+        add r0, r0, 1
+        mov ra14, r0
+        
         
         # subtract 1 to keep going
         mov r0, ra7
@@ -170,21 +245,29 @@ mov ra13, 0
         nop
     :end_rl
     
-    # take the value from ra1, add 64 (size of a tile), and store this value
-    mov r0, ra1
-    mov r1, 64
-    add r0, r0, r1
-    mov ra1, r0
+    mov r0, ra10
+    add r0, r0, 1
+    mov ra10, r0
     
-    # mov r0, ra13
-    # add r0, r0, 1
-    # mov ra13, 0
+    # take the value from ra1, add 64 (size of a tile), and store this value
+    # mov r0, ra1
+    # mov r1, 64
+    # add r0, r0, r1
+    # mov ra1, r0
+    
+    mov r0, ra13
+    add r0, r0, 1
+    mov ra13, r0
     
     # take the value from ra2, add 64 (size of a tile), and store this value
-    mov r0, ra2
-    mov r1, 64
-    add r0, r0, r1
-    mov ra2, r0
+    # mov r0, ra2
+    # mov r1, 64
+    # add r0, r0, r1
+    # mov ra2, r0
+    # 
+    mov r0, ra15
+    add r0, r0, 1
+    mov ra15, r0
         
     # subtract 1 from r0
     mov r0, ra6
