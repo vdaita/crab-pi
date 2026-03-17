@@ -14,7 +14,7 @@
 # ra6: number of columns
 # ra7: number of rows
 
-# original values for:
+# used values for:
 # ra0 -> ra8
 # ra1 -> ra9
 # ra2 -> ra10
@@ -36,7 +36,7 @@
     or r0, r0, r1
     mov vr_setup, r0
     mov vr_setup, vdr_setup_0(0, 16, 16, vdr_h32(1, 0, 0))
-    mov vr_addr, ra0
+    mov vr_addr, ra8
     mov -, vr_wait
 .endm
 
@@ -52,7 +52,7 @@
     or r0, r0, r1
     mov vr_setup, r0
     mov vr_setup, vdr_setup_0(0, 16, 16, vdr_h32(1, 16, 0))
-    mov vr_addr, ra1
+    mov vr_addr, ra9
     mov -, vr_wait
 .endm
 
@@ -70,7 +70,7 @@
     or r0, r0, r1
     mov vw_setup, r0
     mov vw_setup, vdw_setup_0(16, 16, dma_h32(32, 0))
-    mov vw_addr, ra2
+    mov vw_addr, ra10
     mov -, vw_wait
 .endm
 
@@ -82,23 +82,54 @@ mov ra3, unif
 mov ra4, unif
 mov ra5, unif
 mov ra6, unif
+mov ra7, unif
+mov ra11, ra7
 
 # load_a_tile
 
 # Loop through the given columns
 
 :col_loop
-    load_b_tile
-    # loop downwards, through the rows
-    .rep i, 16
+    mov ra8, ra0
+    mov ra9, ra1
+    mov ra10, ra2
+    mov ra7, ra11
+    
+    :row_loop
+        load_b_tile
+        # loop downwards, through the rows
+        .rep i, 16
+            nop
+            nop
+            # load_a_row i
+            load_b_row i
+            mov rb16 + i, ra16 + i
+            store_c_row i
+        .endr
+        store_c_tile
+        
+        # increment this to go to the next row
+        mov r0, ra9
+        mov r1, ra4
+        shl r1, r1, 4
+        add r0, r0, r1
+        mov ra9, r0
+        
+        mov r0, ra10
+        mov r1, ra5
+        shl r1, r1, 4
+        add r0, r0, r1
+        mov ra10, r0
+        
+        # subtract 1 to keep going
+        mov r0, ra7
+        sub.setf r0, r0, 1
+        mov ra7, r0
+        brr.anynz -, :row_loop
         nop
         nop
-        # load_a_row i
-        load_b_row i
-        mov rb16 + i, ra16 + i
-        store_c_row i
-    .endr
-    store_c_tile
+        nop
+    :end_rl
     
     # take the value from ra1, add 64 (size of a tile), and store this value
     mov r0, ra1
@@ -111,8 +142,7 @@ mov ra6, unif
     mov r1, 64
     add r0, r0, r1
     mov ra2, r0
-    
-    
+        
     # subtract 1 from r0
     mov r0, ra6
     sub.setf r0, r0, 1
