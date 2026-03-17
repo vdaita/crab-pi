@@ -27,6 +27,7 @@ pub static MATMUL_KERNEL_CODE: &[u8] = include_bytes!("gpu_kernels/matmul_kernel
 pub static DEADBEEF_GPU_CODE: &[u8] = include_bytes!("gpu_kernels/deadbeef.bin");
 pub static EXP_MAX_GPU_CODE: &[u8] = include_bytes!("gpu_kernels/exp_max.bin");
 pub static MANDELBROT_GPU_CODE: &[u8] = include_bytes!("gpu_kernels/mandelbrot.bin");
+pub static DMA_TEST_CODE: &[u8] = include_bytes!("gpu_kernels/dma_test.bin");
 
 const GPU_MEM_FLAG: u32 = 0xC;
 pub const MAX_VC_CORES: usize = 12;

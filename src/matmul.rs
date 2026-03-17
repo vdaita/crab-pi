@@ -115,7 +115,7 @@ fn unpack_kernel(data: &[u32], out: &mut [u32], n: usize, m: usize) {
     }
 }
 
-fn print_matrix(data: &[u32], n: usize, m: usize) {
+pub fn print_matrix(data: &[u32], n: usize, m: usize) {
     for i in 0..n {
         for j in 0..m {
             print!("{} ", data[i * m + j]);

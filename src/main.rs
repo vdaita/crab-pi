@@ -46,9 +46,9 @@ fn main() {
 
     unsafe {enable_fpu();}
     
-    // programs::gpu_test::test_gpu();
+    programs::gpu_test::test_gpu();
     // programs::mandelbrot::mandelbrot();
-    programs::fat32_test::fat32_test();
+    // programs::fat32_test::fat32_test();
 
     done();
 }
