@@ -75,6 +75,58 @@
     mov -, vw_wait
 .endm
 
+.macro mac_tile
+    .rep a_row, 16
+        .rep b_col, 16
+            mov r1, rb0 + a_row
+            nop; nop; nop;
+            mov r5rep, r1 << b_col
+            nop; nop; nop;
+            mul24 r3, r5rep, rb0 + b_col
+            add r3, r3, rb16 + a_row
+            nop; nop; nop;
+            mov rb16 + a_row, r3
+            nop; nop; nop;
+        .endr
+    .endr
+.endm
+
+.macro reset_row_iterators
+    mov ra8, ra0
+    mov ra9, ra1
+    mov ra10, ra2
+    mov ra7, ra11
+.endm
+    
+.macro move_b_right
+    mov r0, ra1
+    mov r1, 64
+    add r0, r0, r1
+    mov ra1, r0
+.endm
+
+.macro move_c_right
+    mov r0, ra2
+    mov r1, 64
+    add r0, r0, r1
+    mov ra2, r0
+.endm
+
+.macro move_b_down
+    mov r0, ra9
+    mov r1, ra4
+    shl r1, r1, 4
+    add r0, r0, r1
+    mov ra9, r0
+.endm
+
+.macro move_c_down
+    mov r0, ra10
+    mov r1, ra5
+    shl r1, r1, 4
+    add r0, r0, r1
+    mov ra10, r0
+.endm
 
 mov ra0, unif
 mov ra1, unif
@@ -91,10 +143,7 @@ mov ra11, ra7
 # Loop through the given columns
 
 :col_loop
-    mov ra8, ra0
-    mov ra9, ra1
-    mov ra10, ra2
-    mov ra7, ra11
+    reset_row_iterators
     
     :row_loop
         load_b_tile
@@ -110,17 +159,8 @@ mov ra11, ra7
         store_c_tile
         
         # increment this to go to the next row
-        mov r0, ra9
-        mov r1, ra4
-        shl r1, r1, 4
-        add r0, r0, r1
-        mov ra9, r0
-        
-        mov r0, ra10
-        mov r1, ra5
-        shl r1, r1, 4
-        add r0, r0, r1
-        mov ra10, r0
+        move_b_down
+        move_c_down
         
         # subtract 1 to keep going
         mov r0, ra7
@@ -133,16 +173,10 @@ mov ra11, ra7
     :end_rl
     
     # take the value from ra1, add 64 (size of a tile), and store this value
-    mov r0, ra1
-    mov r1, 64
-    add r0, r0, r1
-    mov ra1, r0
+    move_b_right
     
     # take the value from ra2, add 64 (size of a tile), and store this value
-    mov r0, ra2
-    mov r1, 64
-    add r0, r0, r1
-    mov ra2, r0
+    move_c_right
         
     # subtract 1 from r0
     mov r0, ra6
