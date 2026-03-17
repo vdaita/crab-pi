@@ -48,6 +48,23 @@ pub struct fat32_fs_t {
 
 static mut INIT_P: bool = false;
 static mut BOOT_SECTOR: fat32_boot_sec_t = fat32_boot_sec_t::zeroed();
+static mut READ_PROGRESS_P: bool = false;
+static mut READ_PROGRESS_EVERY: u32 = 1;
+
+pub fn fat32_read_progress(on_p: bool) -> bool {
+    let old = unsafe { READ_PROGRESS_P };
+    unsafe { READ_PROGRESS_P = on_p; }
+    old
+}
+
+pub fn fat32_read_progress_every(mut n: u32) -> u32 {
+    if n == 0 {
+        n = 1;
+    }
+    let old = unsafe { READ_PROGRESS_EVERY };
+    unsafe { READ_PROGRESS_EVERY = n; }
+    old
+}
 
 fn trace_enabled() -> bool {
     sd::trace_enabled()
@@ -166,9 +183,31 @@ fn read_cluster_chain(fs: &fat32_fs_t, start_cluster: u32, data: *mut u8) {
     let mut curr = start_cluster;
     let bytes_per_cluster = fs.sectors_per_cluster * NBYTES_PER_SECTOR;
     let mut off = 0u32;
+    let progress = unsafe { READ_PROGRESS_P };
+    let progress_every = unsafe { READ_PROGRESS_EVERY };
+    let total_clusters = if progress {
+        get_cluster_chain_length(fs, start_cluster)
+    } else {
+        0
+    };
+    let mut cluster_idx = 0u32;
 
     loop {
         let lba = cluster_to_lba(fs, curr);
+        if progress
+            && (cluster_idx == 0
+                || cluster_idx + 1 == total_clusters
+                || ((cluster_idx + 1) % progress_every) == 0)
+        {
+            crate::println!(
+                "[fat32.read] cluster {}/{}: id={}, lba={}, off={}B",
+                cluster_idx + 1,
+                total_clusters,
+                curr,
+                lba,
+                off
+            );
+        }
         let ok = sd::pi_sd_read(
             unsafe { data.add(off as usize) },
             lba,
@@ -176,6 +215,7 @@ fn read_cluster_chain(fs: &fat32_fs_t, start_cluster: u32, data: *mut u8) {
         );
         demand(ok == 1, "FAT read failed\n");
         off += bytes_per_cluster;
+        cluster_idx += 1;
 
         let next = unsafe { *fs.fat.add(curr as usize) };
         let t = fat32_fat_entry_type(next);
@@ -186,6 +226,10 @@ fn read_cluster_chain(fs: &fat32_fs_t, start_cluster: u32, data: *mut u8) {
             panic!("unexpected FAT entry type");
         }
         curr = next;
+    }
+
+    if progress {
+        crate::println!("[fat32.read] done: {} clusters, {} bytes", cluster_idx, off);
     }
 }
 
@@ -326,6 +370,39 @@ pub fn fat32_read(fs: &fat32_fs_t, directory: &pi_dirent_t, filename: &str) -> *
             data: buf,
             n_alloc: total_bytes,
             n_data: d_ref.nbytes as usize,
+        };
+    }
+    file
+}
+
+pub fn fat32_read_from_dirent(fs: &fat32_fs_t, dirent: &pi_dirent_t) -> *mut pi_file_t {
+    demand(unsafe { INIT_P }, "fat32 not initialized!");
+    demand(dirent.is_dir_p == 0, "fat32_read_from_dirent: expected a file dirent");
+
+    if dirent.nbytes == 0 {
+        let file = unsafe { kmalloc::kmalloc_t::<pi_file_t>(1) };
+        unsafe {
+            *file = pi_file_t {
+                data: ptr::null_mut(),
+                n_alloc: 0,
+                n_data: 0,
+            };
+        }
+        return file;
+    }
+
+    let n_clusters = get_cluster_chain_length(fs, dirent.cluster_id);
+    let bytes_per_cluster = fs.sectors_per_cluster * NBYTES_PER_SECTOR;
+    let total_bytes = (n_clusters * bytes_per_cluster) as usize;
+    let buf = unsafe { kmalloc::kmalloc(total_bytes) };
+    read_cluster_chain(fs, dirent.cluster_id, buf);
+
+    let file = unsafe { kmalloc::kmalloc_t::<pi_file_t>(1) };
+    unsafe {
+        *file = pi_file_t {
+            data: buf,
+            n_alloc: total_bytes,
+            n_data: dirent.nbytes as usize,
         };
     }
     file

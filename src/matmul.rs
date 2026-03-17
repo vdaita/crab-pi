@@ -55,7 +55,7 @@ pub fn cpu_matmul(a: &[f32], b: &[f32], c: &mut [f32], m: usize, n: usize, k: us
     }
 }
 
-fn matmul_with_gpu(gpu: &mut GpuKernel, a: &[f32], b: &[f32], out: &mut [f32], m: usize, n: usize, k: usize) {
+pub fn matmul_with_gpu(gpu: &mut GpuKernel, a: &[f32], b: &[f32], out: &mut [f32], m: usize, n: usize, k: usize) {
     let m16 = pad16(m);
     let n16 = pad16(n);
     let k16 = pad16(k);
