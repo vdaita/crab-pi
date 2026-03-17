@@ -14,6 +14,7 @@
 # ra6: number of a vertical tiles (immutable storage)
 # ra7: number of b horizontal tiles (immutable storage)
 # ra8: number of inner dimension tiles (immutable storage)
+# ra11: per-QPU starting b/c horizontal tile index
 
 
 # ra9 -> current a row (vertical)
@@ -293,19 +294,19 @@ mov ra5, unif
 mov ra6, unif
 mov ra7, unif
 mov ra8, unif
-mov ra11, ra7
+mov ra11, unif
 
 # counters live in ra3-ra5; ra6-ra8 remain immutable tile-count storage
-mov ra3, ra7
+# ra3 is provided as local per-QPU outer column count
 mov ra4, ra6
 mov ra5, ra8
 
 mov ra9, 0
 mov ra10, 0
 mov ra12, 0
-mov ra13, 0
+mov ra13, ra11
 mov ra14, 0
-mov ra15, 0
+mov ra15, ra11
 
 :hor_loop
     a_go_top

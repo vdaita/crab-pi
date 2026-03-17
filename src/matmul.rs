@@ -1,116 +1,35 @@
-use crate::gpu::{GpuKernel, MATMUL_KERNEL_CODE};
+use crate::gpu::{GpuKernel, DMA_TEST_CODE, MAX_DATA_SIZE, MAX_VC_CORES};
 use crate::timer::Timer;
 use crate::{print, println};
 
-fn pack_kernel(data: &[u32], out: &mut [u32], n: usize, m: usize, offset: usize) {
-    let n16 = ((n + 15) / 16) * 16;
-    let m16 = ((m + 15) / 16) * 16;
+fn pad16(x: usize) -> usize {
+    ((x + 15) / 16) * 16
+}
 
-    if out.len() < n16 * m16 {
-        return;
+fn zero_pad_matrix(src: &[u32], dst: &mut [u32], rows: usize, cols: usize, padded_cols: usize) {
+    for v in dst.iter_mut() {
+        *v = 0;
     }
 
-    for x in out.iter_mut().take(n16 * m16) {
-        *x = 0;
-    }
-
-    let num_tiles_n = (n + 15) / 16;
-    let num_tiles_m = (m + 15) / 16;
-
-    for ti in 0..num_tiles_n {
-        for tj in 0..num_tiles_m {
-            let packed_base_index: usize = (ti * num_tiles_m + tj) * 256;
-
-            if tj == num_tiles_m - 1 || ti == num_tiles_n - 1 {
-                for i in 0..16 {
-                    for j in 0..16 {
-                        let data_i = (ti * 16) + i;
-                        let data_j = (tj * 16) + j;
-                        if data_i < n && data_j < m {
-                            let data_index = data_i * m + data_j + offset;
-                            let index_offset = i * 16 + j;
-                            out[packed_base_index + index_offset] = data[data_index];
-                        }
-                    }
-                }
-            } else {
-                for i in 0..16 {
-                    let data_i = (ti * 16) + i;
-                    let data_index = data_i * m + (tj * 16) + offset;
-                    let out_index = packed_base_index + i * 16;
-                    unsafe {
-                        core::ptr::copy_nonoverlapping(
-                            data.as_ptr().add(data_index),
-                            out.as_mut_ptr().add(out_index),
-                            16,
-                        );
-                    }
-                }
-            }
+    for r in 0..rows {
+        unsafe {
+            core::ptr::copy_nonoverlapping(
+                src.as_ptr().add(r * cols),
+                dst.as_mut_ptr().add(r * padded_cols),
+                cols,
+            );
         }
     }
 }
 
-fn pack_transpose_kernel(data: &[u32], out: &mut [u32], n: usize, m: usize) {
-    let num_tiles_n = (n + 15) / 16;
-    let num_tiles_m = (m + 15) / 16;
-
-    let n16 = num_tiles_n * 16;
-    let m16 = num_tiles_m * 16;
-
-    if out.len() < n16 * m16 {
-        return;
-    }
-
-    for x in out.iter_mut().take(n16 * m16) {
-        *x = 0;
-    }
-
-    let mut tile_idx = 0;
-    for tj in 0..num_tiles_m {
-        for ti in 0..num_tiles_n {
-            let packed_base_index = tile_idx * 256;
-            tile_idx += 1;
-
-            for i in 0..16 {
-                let data_i = ti * 16 + i;
-                let data_j = tj * 16;
-                if data_i < n && data_j < m {
-                    let data_index = data_i * m + data_j;
-                    let out_index = packed_base_index + i * 16;
-                    let cols = (16).min(m.saturating_sub(data_j));
-                    unsafe {
-                        core::ptr::copy_nonoverlapping(
-                            data.as_ptr().add(data_index),
-                            out.as_mut_ptr().add(out_index),
-                            cols,
-                        );
-                    }
-                }
-            }
-        }
-    }
-}
-
-fn unpack_kernel(data: &[u32], out: &mut [u32], n: usize, m: usize) {
-    let num_tiles_n = n / 16;
-    let num_tiles_m = m / 16;
-
-    for ti in 0..num_tiles_n {
-        for tj in 0..num_tiles_m {
-            let packed_base_index = (ti * num_tiles_m + tj) * 256;
-            for i in 0..16 {
-                let out_i = ti * 16 + i;
-                let out_index = out_i * m + tj * 16;
-                let in_index = packed_base_index + i * 16;
-                unsafe {
-                    core::ptr::copy_nonoverlapping(
-                        data.as_ptr().add(in_index),
-                        out.as_mut_ptr().add(out_index),
-                        16,
-                    );
-                }
-            }
+fn copy_from_padded(src: &[u32], dst: &mut [u32], rows: usize, cols: usize, padded_cols: usize) {
+    for r in 0..rows {
+        unsafe {
+            core::ptr::copy_nonoverlapping(
+                src.as_ptr().add(r * padded_cols),
+                dst.as_mut_ptr().add(r * cols),
+                cols,
+            );
         }
     }
 }
@@ -136,143 +55,211 @@ pub fn cpu_matmul(a: &[u32], b: &[u32], c: &mut [u32], M: usize, N: usize, K: us
     }
 }
 
+fn matmul_with_gpu(gpu: &mut GpuKernel, a: &[u32], b: &[u32], out: &mut [u32], m: usize, n: usize, k: usize) {
+    let m16 = pad16(m);
+    let n16 = pad16(n);
+    let k16 = pad16(k);
+
+    let a_elems = m16 * k16;
+    let b_elems = k16 * n16;
+    let c_elems = m16 * n16;
+
+    if a_elems > MAX_DATA_SIZE || b_elems > MAX_DATA_SIZE || c_elems > MAX_DATA_SIZE {
+        panic!("matmul dimensions exceed GPU slot capacity after padding");
+    }
+
+    zero_pad_matrix(a, &mut gpu.data[0][..a_elems], m, k, k16);
+    zero_pad_matrix(b, &mut gpu.data[1][..b_elems], k, n, n16);
+    for v in gpu.data[2][..c_elems].iter_mut() {
+        *v = 0;
+    }
+
+    let num_m_tiles = m16 / 16;
+    let num_n_tiles = n16 / 16;
+    let num_k_tiles = k16 / 16;
+
+    let launch_cores = core::cmp::min(MAX_VC_CORES, num_n_tiles);
+    if launch_cores == 0 {
+        return;
+    }
+    let base_cols_per_core = num_n_tiles / launch_cores;
+    let extra_cols = num_n_tiles % launch_cores;
+
+    let mut start_col_tile = 0usize;
+    for core in 0..launch_cores {
+        let local_col_tiles = base_cols_per_core + if core < extra_cols { 1 } else { 0 };
+
+        gpu.unif[core][0] = unsafe { gpu.get_data_ptr(0) };
+        gpu.unif[core][1] = unsafe { gpu.get_data_ptr(1) };
+        gpu.unif[core][2] = unsafe { gpu.get_data_ptr(2) };
+
+        // ra3-ra5: mutable counters. ra3 is this core's local column-tile count.
+        gpu.unif[core][3] = local_col_tiles as u32;
+        gpu.unif[core][4] = 0;
+        gpu.unif[core][5] = 0;
+
+        // ra6-ra8: immutable tile counts.
+        gpu.unif[core][6] = num_m_tiles as u32;
+        gpu.unif[core][7] = num_n_tiles as u32;
+        gpu.unif[core][8] = num_k_tiles as u32;
+
+        // ra11: this core's starting B/C column tile.
+        gpu.unif[core][9] = start_col_tile as u32;
+
+        start_col_tile += local_col_tiles;
+    }
+
+    unsafe {
+        gpu.execute(launch_cores as u32);
+    }
+
+    copy_from_padded(&gpu.data[2][..c_elems], out, m, n, n16);
+}
+
 pub fn matmul(a: &[u32], b: &[u32], out: &mut [u32], m: usize, n: usize, k: usize) {
     unsafe {
-        let gpu_ptr = GpuKernel::init(MATMUL_KERNEL_CODE);
+        let gpu_ptr = GpuKernel::new();
         let gpu = &mut *gpu_ptr;
-
-        let num_m_tiles = m / 16;
-        let num_n_tiles = n / 16;
-        let num_k_tiles = k / 16;
-    
-        // let mut a_slice: [u32; crate::gpu::MAX_DATA_SIZE] = [0; crate::gpu::MAX_DATA_SIZE];
-        let mut b_slice: [u32; crate::gpu::MAX_DATA_SIZE] = [0; crate::gpu::MAX_DATA_SIZE];
-
-        let tile_elems: usize = 16 * 16 as usize;
-        let row_elems: usize = tile_elems * num_k_tiles as usize;
-
-        for m_group in 0..((num_m_tiles + 11) / 12) {
-            for n_tile in 0..num_n_tiles {
-                // a_slice = [0; crate::gpu::MAX_DATA_SIZE];
-                b_slice = [0; crate::gpu::MAX_DATA_SIZE];
-
-                // move rows from a
-                let row_start_tile = m_group * 12;
-                let row_end_tile = core::cmp::min(num_m_tiles, row_start_tile + 12);
-                // core::ptr::copy_nonoverlapping(
-                //     a.as_ptr().add(row_start_tile * 16 * k),
-                //     a_slice.as_mut_ptr(), // .add(local_tile * 16 * k),
-                //     16 * k * (row_end_tile - row_start_tile)
-                // );
-                // for row_tile in row_start_tile..row_end_tile {
-                //     let local_tile = row_tile - row_start_tile;
-                //     core::ptr::copy_nonoverlapping(
-                //         a.as_ptr().add(row_tile * 16 * k),         // source: actual row in a (row_tile * 16 rows * k cols)
-                //         a_slice.as_mut_ptr().add(local_tile * 16 * k), // dest: local 0-based offset
-                //         16 * k,                                     // 16 rows * k elements
-                //     );
-                // }
-                
-                // move column from b
-                for row in 0..k {
-                    core::ptr::copy_nonoverlapping(
-                        b.as_ptr().add(row * n + n_tile * 16),
-                        b_slice.as_mut_ptr().add(row * 16),
-                        16,
-                    );
-                }
-
-                pack_kernel(&a, &mut gpu.data[0], (row_end_tile - row_start_tile) * 16, k, row_start_tile * 16 * k);
-                pack_transpose_kernel(&b_slice, &mut gpu.data[1], k,16);
-
-                let mut c_unpacked: [u32; crate::gpu::MAX_DATA_SIZE] = [0; crate::gpu::MAX_DATA_SIZE];
-                
-                let num_cores = (row_end_tile - row_start_tile); // this is at most 12
-                for core in 0..crate::gpu::MAX_VC_CORES {
-                    let a_offset = core * row_elems * 4;
-                    let c_offset = core * tile_elems * 4;
-                    gpu.unif[core][0] = gpu.get_data_ptr(0) + a_offset as u32;
-                    gpu.unif[core][1] = gpu.get_data_ptr(1);
-                    gpu.unif[core][2] = gpu.get_data_ptr(2) + c_offset as u32;
-                    gpu.unif[core][3] = (row_end_tile - row_start_tile) as u32; 
-                    gpu.unif[core][4] = num_k_tiles as u32;
-                    gpu.unif[core][5] = 1 as u32;
-
-                    // println!("Writing to core: a_offset={}, c_offset={}, a={:x}, b={:x}, c={:x}, m_tiles={}, k_tiles={}, n_tiles={}", 
-                    //     a_offset, 
-                    //     c_offset,
-                    //     gpu.unif[core][0], 
-                    //     gpu.unif[core][1],
-                    //     gpu.unif[core][2],
-                    //     gpu.unif[core][3],
-                    //     gpu.unif[core][4],
-                    //     gpu.unif[core][5]
-                    // );
-                }
-
-                gpu.execute(num_cores as u32);
-                unpack_kernel(&gpu.data[2], &mut c_unpacked, (row_end_tile - row_start_tile) * 16, 16);
-                
-                // move tiles from c
-                
-                for row_tile in 0..(row_end_tile - row_start_tile) {
-                    for row_i in 0..16 {
-                        let abs_row = (row_start_tile + row_tile) * 16 + row_i;
-                        core::ptr::copy_nonoverlapping(
-                            c_unpacked.as_ptr().add((row_tile * 16 + row_i) * 16),
-                            out.as_mut_ptr().add(abs_row * n + n_tile * 16),
-                            16,
-                        );
-                    }
-                }
-            }
-        }
-
+        gpu.load_code(DMA_TEST_CODE);
+        matmul_with_gpu(gpu, a, b, out, m, n, k);
         gpu.release();
     }
 }
 
-pub fn matmul_func_test() {
-    const M: usize = 16;
-    const N: usize = 16;
-    const K: usize = 16;
-
-    let a: [u32; M * K] = core::array::from_fn(|i| (i % 9) as u32);
-    let b: [u32; K * N] = core::array::from_fn(|i| ((i % 9) as u32) + 1);
-    let mut c: [u32; M * N] = [0; M * N];
-    let mut c_cpu: [u32; M * N] = [0; M * N];
+fn run_matmul_case(
+    gpu: &mut GpuKernel,
+    label: &str,
+    m: usize,
+    n: usize,
+    k: usize,
+    a: &[u32],
+    b: &[u32],
+    c: &mut [u32],
+    c_cpu: &mut [u32],
+) -> bool {
+    for v in c.iter_mut() {
+        *v = 0;
+    }
+    for v in c_cpu.iter_mut() {
+        *v = 0;
+    }
 
     let start_matmul = Timer::get_usec();
-    matmul(&a, &b, &mut c, M, N, K);
+    matmul_with_gpu(gpu, a, b, c, m, n, k);
     let matmul_time = Timer::get_usec() - start_matmul;
 
     let start_cpu_matmul = Timer::get_usec();
-    cpu_matmul(&a, &b, &mut c_cpu, M, N, K);
+    cpu_matmul(a, b, c_cpu, m, n, k);
     let cpu_matmul_time = Timer::get_usec() - start_cpu_matmul;
 
-    // println!("CPU matmul:\n");
-    // print_matrix(&c_cpu, M, N);
-    // println!("\n\nGPU matmul:\n");
-    // print_matrix(&c, M, N);
-
-    println!("Amount of time taken: GPU: {}, CPU: {}\n", matmul_time, cpu_matmul_time);
-
-    let mut matches = true;
-    for i in 0..(M * N) {
-        if c[i] != c_cpu[i] {
+    if matmul_time == 0 {
+        println!("Error! matmul_time = 0");
+    } else {
+        let speedup_milli = ((cpu_matmul_time as u64) * 1000) / (matmul_time as u64);
+        let speedup_int = speedup_milli / 1000;
+        let speedup_frac = speedup_milli % 1000;
         println!(
-            "Discrepancy at index {}: expected {}, observed {}",
-            i, c_cpu[i], c[i] 
+            "[{}] shape {}x{} * {}x{} -> {}x{}, GPU: {}, CPU: {}, speedup (CPU/GPU): {}.{:03}x",
+            label,
+            m,
+            k,
+            k,
+            n,
+            m,
+            n,
+            matmul_time,
+            cpu_matmul_time,
+            speedup_int,
+            speedup_frac
         );
-        matches = false;
-        break;
+    }
+
+    for i in 0..(m * n) {
+        if c[i] != c_cpu[i] {
+            println!(
+                "[{}] mismatch at idx {}: expected {}, observed {}",
+                label,
+                i,
+                c_cpu[i],
+                c[i]
+            );
+            return false;
         }
     }
 
-    if matches {
-        println!("Matrix outputs match: YES");
+    println!("[{}] Matrix outputs match: YES", label);
+    true
+}
+
+pub fn matmul_func_test() {
+    let mut all_passed = true;
+    unsafe {
+        let gpu_ptr = GpuKernel::new();
+        let gpu = &mut *gpu_ptr;
+        gpu.load_code(DMA_TEST_CODE);
+
+        {
+            const M: usize = 16;
+            const N: usize = 16;
+            const K: usize = 16;
+            let a: [u32; M * K] = core::array::from_fn(|i| ((i * 13 + 7) % 23) as u32);
+            let b: [u32; K * N] = core::array::from_fn(|i| ((i * 17 + 3) % 19) as u32);
+            let mut c: [u32; M * N] = [0; M * N];
+            let mut c_cpu: [u32; M * N] = [0; M * N];
+            all_passed = run_matmul_case(gpu, "square-16", M, N, K, &a, &b, &mut c, &mut c_cpu) && all_passed;
+        }
+
+        {
+            const M: usize = 32;
+            const N: usize = 256;
+            const K: usize = 64;
+            let a: [u32; M * K] = core::array::from_fn(|i| ((i * 13 + 7) % 23) as u32);
+            let b: [u32; K * N] = core::array::from_fn(|i| ((i * 17 + 3) % 19) as u32);
+            let mut c: [u32; M * N] = [0; M * N];
+            let mut c_cpu: [u32; M * N] = [0; M * N];
+            all_passed = run_matmul_case(gpu, "wide-n-multi-qpu", M, N, K, &a, &b, &mut c, &mut c_cpu) && all_passed;
+        }
+
+        {
+            const M: usize = 31;
+            const N: usize = 47;
+            const K: usize = 19;
+            let a: [u32; M * K] = core::array::from_fn(|i| ((i * 13 + 7) % 23) as u32);
+            let b: [u32; K * N] = core::array::from_fn(|i| ((i * 17 + 3) % 19) as u32);
+            let mut c: [u32; M * N] = [0; M * N];
+            let mut c_cpu: [u32; M * N] = [0; M * N];
+            all_passed = run_matmul_case(gpu, "non-multiple-of-16", M, N, K, &a, &b, &mut c, &mut c_cpu) && all_passed;
+        }
+
+        {
+            const M: usize = 48;
+            const N: usize = 96;
+            const K: usize = 32;
+            let a: [u32; M * K] = core::array::from_fn(|i| ((i * 13 + 7) % 23) as u32);
+            let b: [u32; K * N] = core::array::from_fn(|i| ((i * 17 + 3) % 19) as u32);
+            let mut c: [u32; M * N] = [0; M * N];
+            let mut c_cpu: [u32; M * N] = [0; M * N];
+            all_passed = run_matmul_case(gpu, "rectangular", M, N, K, &a, &b, &mut c, &mut c_cpu) && all_passed;
+        }
+
+        {
+            const M: usize = 7;
+            const N: usize = 13;
+            const K: usize = 5;
+            let a: [u32; M * K] = core::array::from_fn(|i| ((i * 13 + 7) % 23) as u32);
+            let b: [u32; K * N] = core::array::from_fn(|i| ((i * 17 + 3) % 19) as u32);
+            let mut c: [u32; M * N] = [0; M * N];
+            let mut c_cpu: [u32; M * N] = [0; M * N];
+            all_passed = run_matmul_case(gpu, "tiny", M, N, K, &a, &b, &mut c, &mut c_cpu) && all_passed;
+        }
+
+        gpu.release();
+    }
+
+    if all_passed {
+        println!("matmul test suite: ALL PASSED");
     } else {
-        println!("Matrix outputs match: NO");
+        println!("matmul test suite: FAILED");
     }
 }
  

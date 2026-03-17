@@ -14,8 +14,9 @@ fn float_recip(x: f32) -> f32 {
 pub fn mandelbrot() {
     unsafe {
         // ── Initialize GPU ──────────────────────────────────────────────────
-        let gpu_ptr = GpuKernel::init(gpu::MANDELBROT_GPU_CODE);
+        let gpu_ptr = GpuKernel::new();
         let gpu = &mut *gpu_ptr;
+        gpu.load_code(gpu::MANDELBROT_GPU_CODE);
 
         // ── Set uniforms for each QPU core ──────────────────────────────────
         // Slot layout must match what the shader expects:

@@ -4,8 +4,9 @@ use crate::{print, println};
 
 pub fn deadbeef_kernel() {
     unsafe {
-        let gpu_ptr = GpuKernel::init(DEADBEEF_GPU_CODE);
+        let gpu_ptr = GpuKernel::new();
         let gpu = &mut *gpu_ptr;
+        gpu.load_code(DEADBEEF_GPU_CODE);
 
         println!("Memory before running code: {:x} {:x} {:x} {:x}", gpu.data[0][0], gpu.data[0][16], gpu.data[0][32], gpu.data[0][48]);
         gpu.execute(1);
@@ -22,8 +23,9 @@ pub fn exp_max_kernel() {
     
     
     unsafe {
-        let gpu_ptr = GpuKernel::init(EXP_MAX_GPU_CODE);
+        let gpu_ptr = GpuKernel::new();
         let gpu = &mut *gpu_ptr;
+        gpu.load_code(EXP_MAX_GPU_CODE);
 
         let a: [f32; 64] = core::array::from_fn(|i| i as f32);
         let n = a.len(); // copy_nonoverlapping expects element count
@@ -62,8 +64,9 @@ pub fn exp_max_kernel() {
 
 pub fn add_kernel() {
     unsafe {
-        let gpu_ptr = GpuKernel::init(ADD_KERNEL_CODE);
+        let gpu_ptr = GpuKernel::new();
         let gpu = &mut *gpu_ptr;
+        gpu.load_code(ADD_KERNEL_CODE);
 
         let a: [u32; 128] = core::array::from_fn(|i| i as u32);
         let b: [u32; 128] = core::array::from_fn(|i| (i as u32) + 6);
@@ -100,8 +103,9 @@ pub fn add_kernel() {
 
 pub fn test_dma() {
     unsafe {
-        let gpu_ptr = GpuKernel::init(DMA_TEST_CODE);
+        let gpu_ptr = GpuKernel::new();
         let gpu = &mut *gpu_ptr;
+        gpu.load_code(DMA_TEST_CODE);
 
         let a: [u32; 1024] = core::array::from_fn(|i| i as u32); // arrange this as a 
         let b: [u32; 1024] = core::array::from_fn(|i| (i as u32) + 6);
@@ -110,12 +114,13 @@ pub fn test_dma() {
         core::ptr::copy_nonoverlapping(a.as_ptr(), gpu.data[0].as_mut_ptr(), n);
         core::ptr::copy_nonoverlapping(b.as_ptr(), gpu.data[1].as_mut_ptr(), n);
 
-        gpu.unif[0][3] = 32 * 4 as u32;
-        gpu.unif[0][4] = 32 * 4 as u32;
-        gpu.unif[0][5] = 32 * 4 as u32;
+        gpu.unif[0][3] = 2 as u32;
+        gpu.unif[0][4] = 0 as u32;
+        gpu.unif[0][5] = 0 as u32;
         gpu.unif[0][6] = 2 as u32;
         gpu.unif[0][7] = 2 as u32;
         gpu.unif[0][8] = 2 as u32;
+        gpu.unif[0][9] = 0 as u32;
 
         print!("A: ");
         print_matrix(&a, 32, 32);
@@ -141,8 +146,9 @@ pub fn test_dma() {
 
 pub fn test_mini_matmul() {
     unsafe {
-        let gpu_ptr = GpuKernel::init(DMA_TEST_CODE);
+        let gpu_ptr = GpuKernel::new();
         let gpu = &mut *gpu_ptr;
+        gpu.load_code(DMA_TEST_CODE);
         
         const N: usize = 32;
 
@@ -154,12 +160,13 @@ pub fn test_mini_matmul() {
         core::ptr::copy_nonoverlapping(a.as_ptr(), gpu.data[0].as_mut_ptr(), n);
         core::ptr::copy_nonoverlapping(b.as_ptr(), gpu.data[1].as_mut_ptr(), n);
 
-        gpu.unif[0][3] = (N * 4) as u32;
-        gpu.unif[0][4] = (N * 4) as u32;
-        gpu.unif[0][5] = (N * 4) as u32;
+        gpu.unif[0][3] = (N / 16) as u32;
+        gpu.unif[0][4] = 0 as u32;
+        gpu.unif[0][5] = 0 as u32;
         gpu.unif[0][6] = (N / 16) as u32;
         gpu.unif[0][7] = (N / 16) as u32;
         gpu.unif[0][8] = (N / 16) as u32;
+        gpu.unif[0][9] = 0 as u32;
 
         print!("A: ");
         print_matrix(&a, N, N);
@@ -210,9 +217,9 @@ pub fn test_mini_matmul() {
 
 
 pub fn test_gpu() {
-    test_mini_matmul();
+    // test_mini_matmul();
     // test_dma();
-    // crate::matmul::matmul_func_test();
+    crate::matmul::matmul_func_test();
     // exp_max_kernel();
     // add_kernel();
 }

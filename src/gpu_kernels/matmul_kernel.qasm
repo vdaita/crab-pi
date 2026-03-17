@@ -8,19 +8,13 @@
 # ra0: address for a
 # ra1: address for b
 # ra2: address for c
-# ra3: number of bytes in row for a
-# ra4: number of bytes in row for b
-# ra5: number of bytes in row for c
-# ra6: number of columns
-# ra7: number of rows
-#
-#
+# ra3: active counter (outer/column tiles)
+# ra4: active counter (inner/row tiles)
+# ra5: active counter (reserved for k/inner-dimension tiles)
+# ra6: number of a vertical tiles (immutable storage)
+# ra7: number of b horizontal tiles (immutable storage)
+# ra8: number of inner dimension tiles (immutable storage)
 
-# used values for:
-# ra0 -> ra8
-# ra1 -> ra9
-# ra2 -> ra10
-# ra7 -> ra11
 
 # ra9 -> current a row (vertical)
 # ra10 -> current a column (horizontal)
@@ -42,7 +36,10 @@
 .endm
 
 .macro load_a_tile
-    mov r0, ra3
+    mov r0, ra8 # take the inner dimension (rows of a) and shift
+    nop; nop; nop;
+    shl r0, r0, 6 # 4 bytes, 16 elements
+    
     mov r1, 0x90000000
     or r0, r0, r1
     mov vr_setup, r0
@@ -53,7 +50,11 @@
     # add vertical offset
     nop; nop; nop;
     mov r1, ra9
-    mov r2, ra3
+    
+    mov r2, ra8; # take the inner dimension (rows of a) and shift
+    nop; nop; nop;
+    shl r2, r2, 6;
+    
     nop; nop; nop;
     shl r1, r1, 4
     nop; nop; nop;
@@ -84,7 +85,10 @@
 .endm
 
 .macro load_b_tile
-    mov r0, ra4
+    mov r0, ra7
+    nop; nop; nop;
+    shl r0, r0, 6
+    
     mov r1, 0x90000000
     or r0, r0, r1
     mov vr_setup, r0
@@ -96,7 +100,11 @@
     # add vertical offset
     nop; nop; nop;
     mov r1, ra12
-    mov r2, ra4
+
+    mov r2, ra7
+    nop; nop; nop;
+    shl r2, r2, 6
+    
     nop; nop; nop;
     shl r1, r1, 4
     nop; nop; nop;
@@ -126,7 +134,10 @@
 .endm
 
 .macro store_c_tile
-    mov r0, ra5
+    mov r0, ra7
+    nop; nop; nop;
+    shl r0, r0, 6
+    
     mov r1, 64
     sub r0, r0, r1
     mov r1, 0xc0000000
@@ -140,7 +151,13 @@
     # # add vertical offset
     nop; nop; nop;
     mov r1, ra14
-    mov r2, ra5
+    # mov r2, ra5
+    
+    mov r2, ra7
+    nop; nop; nop;
+    shl r2, r2, 6
+    
+    # 
     nop; nop; nop;
     shl r1, r1, 4
     nop; nop; nop;
@@ -175,6 +192,14 @@
     mov ra9, r0
 .endm
 
+.macro a_go_left
+    mov ra10, 0
+.endm
+
+.macro a_go_top
+    mov ra9, 0
+.endm
+
 .macro move_b_right
     mov r0, ra13
     add r0, r0, 1
@@ -187,6 +212,14 @@
     mov ra12, r0
 .endm
 
+.macro b_go_left
+    mov ra13, 0
+.endm
+
+.macro b_go_top
+    mov ra12, 0
+.endm
+
 .macro move_c_right
     mov r0, ra15
     add r0, r0, 1
@@ -197,6 +230,14 @@
     mov r0, ra14
     add r0, r0, 1
     mov ra14, r0
+.endm
+
+.macro c_go_left
+    mov ra15, 0
+.endm
+
+.macro c_go_top
+    mov ra14, 0
 .endm
 
 .macro mac_tile_helper, a_row
@@ -219,6 +260,29 @@
     .endr
 .endm
 
+.macro load_all_a
+    .rep i, 16
+        load_a_row i
+    .endr
+.endm
+
+.macro load_all_b
+    .rep i, 16
+        load_b_row i
+    .endr
+.endm
+
+.macro store_all_c
+    .rep i, 16
+        store_c_row i
+    .endr
+.endm
+
+.macro clear_acc
+    .rep i, 16
+        mov rb16 + i, 0
+    .endr
+.endm
 
 mov ra0, unif
 mov ra1, unif
@@ -228,7 +292,13 @@ mov ra4, unif
 mov ra5, unif
 mov ra6, unif
 mov ra7, unif
+mov ra8, unif
 mov ra11, ra7
+
+# counters live in ra3-ra5; ra6-ra8 remain immutable tile-count storage
+mov ra3, ra7
+mov ra4, ra6
+mov ra5, ra8
 
 mov ra9, 0
 mov ra10, 0
@@ -237,80 +307,64 @@ mov ra13, 0
 mov ra14, 0
 mov ra15, 0
 
-load_a_tile
-load_b_tile
+:hor_loop
+    a_go_top
+    c_go_top
 
-.rep i, 16
-    load_a_row i
-    load_b_row i
-    mov rb16 + i, 0
-.endr
+    mov ra4, ra6
+    :ver_loop
+        a_go_left
+        b_go_top
 
-mac_tile
+        clear_acc
+        mov ra5, ra8
+        :innerloop
+            load_a_tile
+            load_b_tile
 
-.rep i, 16
-    store_c_row i
-.endr
+            load_all_a
+            load_all_b
 
-store_c_tile
+            mac_tile
 
-# load_a_tile
-# Loop through the given columns
+            move_a_right
+            move_b_down
 
-# :col_loop
-#     # mov ra8, ra0
-#     # mov ra9, ra1
-#     # mov ra10, ra2
-#     mov ra7, ra11
+            mov r0, ra5
+            sub.setf r0, r0, 1
+            mov ra5, r0
+            brr.anynz -, :innerloop
+            nop
+            nop
+            nop
+        :endinner
 
-#     mov ra9, 0
-#     mov ra12, 0
-#     mov ra14, 0
+        store_all_c
+        store_c_tile
 
-#     :row_loop
-#         load_b_tile
-#         load_a_tile
-#         # loop downwards, through the rows
-#         .rep i, 16
-#             nop
-#             nop
-#             # load_a_row i
-#             # mov rb16 + i, rb0 + i
-#             load_b_row i
-#             mov rb16 + i, ra16 + i
-#             store_c_row i
-#         .endr
-#         store_c_tile
-        
-#         move_a_down
-#         move_b_down
-#         move_c_down
+        move_a_down
+        move_c_down
 
+        mov r0, ra4
+        sub.setf r0, r0, 1
+        mov ra4, r0
+        brr.anynz -, :ver_loop
+        nop
+        nop
+        nop
+    :end_ver
 
-#         # subtract 1 to keep going
-#         mov r0, ra7
-#         sub.setf r0, r0, 1
-#         mov ra7, r0
-#         brr.anynz -, :row_loop
-#         nop
-#         nop
-#         nop
-#     :end_rl
-    
-#     move_a_right
-#     move_b_right
-#     move_c_right
+    move_b_right
+    move_c_right
 
-
-#     # subtract 1 from r0
-#     mov r0, ra6
-#     sub.setf r0, r0, 1
-#     mov ra6, r0
-#     brr.anynz -, :col_loop
-#     nop
-#     nop
-#     nop
-# :end
+    mov r0, ra3
+    sub.setf r0, r0, 1
+    mov ra3, r0
+    brr.anynz -, :hor_loop
+    nop
+    nop
+    nop
+:end
 
 
 nop

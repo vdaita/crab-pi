@@ -64,10 +64,10 @@ unsafe fn mbox_property(message: &mut [u32]) -> bool {
         core::hint::spin_loop();
     }
 
-    if (message[1] == 0x8000_0000) {
+    if (message[1] & 0x8000_0000) != 0 {
         true
     } else {
-        println!("Message doesnt' have 8000_0000 in first index");
+        println!("Mailbox property call failed: message[1]=0x{:08x}", message[1]);
         for (i, &val) in message.iter().enumerate() {
             println!("  message[{}] = 0x{:08x}", i, val);
         }
@@ -174,7 +174,7 @@ pub struct GpuKernel {
 }
 
 impl GpuKernel {
-    pub unsafe fn init(code: &[u8]) -> *mut GpuKernel {
+    pub unsafe fn new() -> *mut GpuKernel {
         // println!("V3D_SRQCS address: 0x{:08x}", V3D_SRQCS as u32);
         // println!("Initial V3D_SRQCS read: 0x{:08x}", read_volatile(V3D_SRQCS));
         // println!("Initial V3D_DBCFG read: 0x{:08x}", read_volatile(V3D_DBCFG));
@@ -196,6 +196,17 @@ impl GpuKernel {
         }
 
         let vc: u32 = mem_lock(handle);
+        if vc == 0 {
+            mem_free(handle);
+            qpu_enable(0);
+            panic!("Failed to lock GPU memory (bus address is 0)");
+        }
+        if vc < GPU_BASE {
+            mem_unlock(handle);
+            mem_free(handle);
+            qpu_enable(0);
+            panic!("Invalid GPU bus address returned by mem_lock");
+        }
         
         println!("memory address: 0x{:08x}, GPU_BASE: 0x{:08x}", vc, GPU_BASE);
         let ptr = (vc - GPU_BASE) as *mut GpuKernel;
@@ -208,20 +219,7 @@ impl GpuKernel {
 
         (*ptr).handle = handle;
 
-        let dst = (*ptr).code.as_mut_ptr() as *mut u8;
-        let src = code.as_ptr();
-        let len = code.len();
-
-        if len > BYTES_FOR_CODE {
-            panic!("Too many bytes to fit into slot.");
-        }
-
-        unsafe {
-            core::ptr::copy_nonoverlapping(src, dst, len);
-        }
-
-        let code_offset = (&(*ptr).code as *const _ as u32) - (ptr as u32);
-        (*ptr).mail[0] = vc + code_offset;
+        (*ptr).mail[0] = 0;
         
         // let unif_ptr_offset = (&(*ptr).unif_ptr as *const _ as u32) - (ptr as u32);
         // (*ptr).mail[1] = vc + unif_ptr_offset;
@@ -241,6 +239,29 @@ impl GpuKernel {
         ptr
     }
 
+    pub unsafe fn load_code(&mut self, code: &[u8]) {
+        let dst = self.code.as_mut_ptr();
+        let src = code.as_ptr();
+        let len = code.len();
+
+        if len > BYTES_FOR_CODE {
+            panic!("Too many bytes to fit into slot.");
+        }
+
+        core::ptr::write_bytes(dst, 0, BYTES_FOR_CODE);
+        core::ptr::copy_nonoverlapping(src, dst, len);
+
+        let ptr = self as *mut GpuKernel as u32;
+        let code_offset = (&self.code as *const _ as u32) - ptr;
+        self.mail[0] = GPU_BASE + ptr + code_offset;
+    }
+
+    pub unsafe fn init(code: &[u8]) -> *mut GpuKernel {
+        let ptr = Self::new();
+        (*ptr).load_code(code);
+        ptr
+    }
+
     pub unsafe fn get_data_ptr(&mut self, slot: usize) -> u32 {
         return crate::gpu::GPU_BASE + &self.data[slot] as *const _ as u32;
     }
@@ -250,6 +271,9 @@ impl GpuKernel {
     }
 
     pub unsafe fn execute(&mut self, num_cores: u32) {
+        if self.mail[0] == 0 {
+            panic!("GPU code not loaded; call load_code before execute");
+        }
         // println!("Code addr: 0x{:08x}", self.mail[0]);
         // println!("Unif addr: 0x{:08x}", self.mail[1]);
         // println!("Before execution, SRQCS: 0x{:08x}", read_volatile(V3D_SRQCS));
