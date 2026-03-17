@@ -18,11 +18,11 @@ mod kmalloc;
 mod fat32;
 mod fast_hash;
 mod crc;
-mod gpt;
 mod programs {
     pub mod gpu_test;
     pub mod mandelbrot;
     pub mod fat32_test;
+    pub mod matrix_load_test;
 }
 
 unsafe fn enable_fpu() {
@@ -48,11 +48,13 @@ fn main() {
     println!("Hello from Rust on the Pi!");
 
     unsafe {enable_fpu();}
-    
+    fat32::pi_sd_init();
+
     // programs::gpu_test::test_gpu();
-    gpt::gpt_demo();
+    // gpt::gpt_demo();
     // programs::mandelbrot::mandelbrot();
     // programs::fat32_test::fat32_test();
+    programs::matrix_load_test::matrix_load_test();
 
     done();
 }

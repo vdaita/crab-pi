@@ -1,25 +1,29 @@
-use super::model::inv_sqrt;
+pub struct LayerNorm {
+    weight: &'static [f32],
+    bias: &'static [f32],
+    eps: f32,
+}
 
-pub fn layer_norm_rows(input: &[f32], output: &mut [f32], rows: usize, cols: usize, g: &[f32], b: &[f32]) {
-    for r in 0..rows {
-        let row_off = r * cols;
-        let mut mean = 0.0f32;
-        for c in 0..cols {
-            mean += input[row_off + c];
-        }
-        mean /= cols as f32;
+impl LayerNorm {
+    pub fn new(weight: &'static [f32], bias: &'static [f32], eps: f32) -> Self {
+        LayerNorm { weight, bias, eps }
+    }
 
-        let mut var = 0.0f32;
-        for c in 0..cols {
-            let d = input[row_off + c] - mean;
-            var += d * d;
-        }
-        var /= cols as f32;
-        let inv = inv_sqrt(var + 1e-5);
-
-        for c in 0..cols {
-            let n = (input[row_off + c] - mean) * inv;
-            output[row_off + c] = n * g[c] + b[c];
+    pub fn forward(&self, x: &[f32], output: &mut [f32], dim: usize) {
+        for i in (0..x.len()).step_by(dim) {
+            let chunk = &x[i..i + dim];
+            
+            let mean: f32 = chunk.iter().sum::<f32>() / dim as f32;
+            let var: f32 = chunk
+                .iter()
+                .map(|&v| (v - mean).powi(2))
+                .sum::<f32>()
+                / dim as f32;
+            
+            let inv_std = 1.0 / (var + self.eps).sqrt();
+            for j in 0..dim {
+                output[i + j] = (chunk[j] - mean) * inv_std * self.weight[j] + self.bias[j];
+            }
         }
     }
 }

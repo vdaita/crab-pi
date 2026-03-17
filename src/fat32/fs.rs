@@ -375,39 +375,6 @@ pub fn fat32_read(fs: &fat32_fs_t, directory: &pi_dirent_t, filename: &str) -> *
     file
 }
 
-pub fn fat32_read_from_dirent(fs: &fat32_fs_t, dirent: &pi_dirent_t) -> *mut pi_file_t {
-    demand(unsafe { INIT_P }, "fat32 not initialized!");
-    demand(dirent.is_dir_p == 0, "fat32_read_from_dirent: expected a file dirent");
-
-    if dirent.nbytes == 0 {
-        let file = unsafe { kmalloc::kmalloc_t::<pi_file_t>(1) };
-        unsafe {
-            *file = pi_file_t {
-                data: ptr::null_mut(),
-                n_alloc: 0,
-                n_data: 0,
-            };
-        }
-        return file;
-    }
-
-    let n_clusters = get_cluster_chain_length(fs, dirent.cluster_id);
-    let bytes_per_cluster = fs.sectors_per_cluster * NBYTES_PER_SECTOR;
-    let total_bytes = (n_clusters * bytes_per_cluster) as usize;
-    let buf = unsafe { kmalloc::kmalloc(total_bytes) };
-    read_cluster_chain(fs, dirent.cluster_id, buf);
-
-    let file = unsafe { kmalloc::kmalloc_t::<pi_file_t>(1) };
-    unsafe {
-        *file = pi_file_t {
-            data: buf,
-            n_alloc: total_bytes,
-            n_data: dirent.nbytes as usize,
-        };
-    }
-    file
-}
-
 fn find_free_cluster(fs: &fat32_fs_t, mut start_cluster: u32) -> u32 {
     if start_cluster < 3 {
         start_cluster = 3;
@@ -832,4 +799,81 @@ pub fn fat32_write(
 pub fn fat32_flush(_fs: &fat32_fs_t) -> i32 {
     demand(unsafe { INIT_P }, "fat32 not initialized!");
     0
+}
+
+const MBR_PARTITION_TABLE_OFFSET: usize = 446;
+const MBR_PARTITION_COUNT: usize = 4;
+const MBR_PARTITION_ENTRY_BYTES: usize = 16;
+const MBR_SIG_OFFSET: usize = 510;
+
+fn mbr_part_is_fat32(partition_type: u8) -> bool {
+    partition_type == 0x0B || partition_type == 0x0C
+}
+
+fn mbr_partition_empty_raw(entry: *const u8) -> bool {
+    for i in 0..MBR_PARTITION_ENTRY_BYTES {
+        if unsafe { *entry.add(i) } != 0 {
+            return false;
+        }
+    }
+    true
+}
+
+fn mbr_get_partition(mbr: *const u8, partno: usize) -> mbr_partition_ent_t {
+    assert!(partno < MBR_PARTITION_COUNT);
+
+    let mut p = mbr_partition_ent_t {
+        status: 0,
+        chs_first: [0; 3],
+        partition_type: 0,
+        chs_last: [0; 3],
+        lba_start: 0,
+        nsectors: 0,
+    };
+
+    let entry = unsafe {
+        mbr.add(MBR_PARTITION_TABLE_OFFSET + partno * MBR_PARTITION_ENTRY_BYTES)
+    };
+    unsafe {
+        copy_nonoverlapping(
+            entry,
+            (&mut p as *mut mbr_partition_ent_t).cast::<u8>(),
+            MBR_PARTITION_ENTRY_BYTES,
+        );
+    }
+    p
+}
+
+fn mbr_check(mbr: *const u8) -> Option<mbr_partition_ent_t> {
+    let sig_lo = unsafe { *mbr.add(MBR_SIG_OFFSET) };
+    let sig_hi = unsafe { *mbr.add(MBR_SIG_OFFSET + 1) };
+    if sig_lo != 0x55 || sig_hi != 0xAA {
+        return None;
+    }
+
+    let p0 = mbr_get_partition(mbr, 0);
+    if !mbr_part_is_fat32(p0.partition_type) {
+        return None;
+    }
+
+    let p0_raw = unsafe { mbr.add(MBR_PARTITION_TABLE_OFFSET) };
+    if mbr_partition_empty_raw(p0_raw) {
+        return None;
+    }
+
+    for i in 1..MBR_PARTITION_COUNT {
+        let entry = unsafe {
+            mbr.add(MBR_PARTITION_TABLE_OFFSET + i * MBR_PARTITION_ENTRY_BYTES)
+        };
+        if !mbr_partition_empty_raw(entry) {
+            return None;
+        }
+    }
+
+    Some(p0)
+}
+
+pub fn first_fat32_partition_from_mbr() -> Option<mbr_partition_ent_t> {
+    let mbr = sd::pi_sec_read(0, 1) as *const u8;
+    mbr_check(mbr)
 }

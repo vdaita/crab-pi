@@ -43,6 +43,15 @@ pub fn print_matrix(data: &[u32], n: usize, m: usize) {
     }
 }
 
+pub fn print_float_matrix(data: &[f32], n: usize, m: usize) {
+    for i in 0..n {
+        for j in 0..m {
+            print!("{} ", data[i * m + j]);
+        }
+        print!("\n");
+    }
+}
+
 pub fn cpu_matmul(a: &[f32], b: &[f32], c: &mut [f32], m: usize, n: usize, k: usize) {
     for i in 0..m {
         for j in 0..n {
@@ -203,6 +212,8 @@ fn run_matmul_case(
     true
 }
 
+
+
 pub fn matmul_func_test() {
     let mut all_passed = true;
     unsafe {
@@ -274,4 +285,3 @@ pub fn matmul_func_test() {
         println!("matmul test suite: FAILED");
     }
 }
- 

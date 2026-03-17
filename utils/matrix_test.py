@@ -16,7 +16,6 @@ if __name__ == "__main__":
     print(f"Result shape: {result.shape}")
     print(f"Result:\n{result}")
     
-    # Emit little-endian float32 to match Rust f32::from_le_bytes parsing.
     packed_a = matrix_a.astype('<f4', copy=False).tobytes(order='C')
     packed_b = matrix_b.astype('<f4', copy=False).tobytes(order='C')
     
