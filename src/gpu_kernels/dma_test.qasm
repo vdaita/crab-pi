@@ -11,9 +11,14 @@
 # ra3: number of bytes in row for a
 # ra4: number of bytes in row for b
 # ra5: number of bytes in row for c
+# ra6: number of columns
+# ra7: number of rows
 
-# ra6: loop range start along b dimension
-# ra7: loop range end along b dimension
+# original values for:
+# ra0 -> ra8
+# ra1 -> ra9
+# ra2 -> ra10
+# ra7 -> ra11
 
 # rb0-15: loaded tile a
 # ra16-32: loaded tile b
@@ -81,19 +86,44 @@ mov ra6, unif
 # load_a_tile
 
 # Loop through the given columns
-load_b_tile
 
-# loop downwards, through the rows
-.rep i, 16
+:col_loop
+    load_b_tile
+    # loop downwards, through the rows
+    .rep i, 16
+        nop
+        nop
+        # load_a_row i
+        load_b_row i
+        mov rb16 + i, ra16 + i
+        store_c_row i
+    .endr
+    store_c_tile
+    
+    # take the value from ra1, add 64 (size of a tile), and store this value
+    mov r0, ra1
+    mov r1, 64
+    add r0, r0, r1
+    mov ra1, r0
+    
+    # take the value from ra2, add 64 (size of a tile), and store this value
+    mov r0, ra2
+    mov r1, 64
+    add r0, r0, r1
+    mov ra2, r0
+    
+    
+    # subtract 1 from r0
+    mov r0, ra6
+    sub.setf r0, r0, 1
+    mov ra6, r0
+    brr.anynz -, :col_loop
     nop
     nop
-    # load_a_row i
-    load_b_row i
-    mov rb16 + i, ra16 + i
-    store_c_row i
-.endr
+    nop
+:end
 
-store_c_tile
+
 nop
 thrend
 nop
