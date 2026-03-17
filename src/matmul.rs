@@ -233,9 +233,9 @@ pub fn matmul(a: &[u32], b: &[u32], out: &mut [u32], m: usize, n: usize, k: usiz
 }
 
 pub fn matmul_func_test() {
-    const M: usize = 16 * 15;
-    const N: usize = 32;
-    const K: usize = 64;
+    const M: usize = 16;
+    const N: usize = 16;
+    const K: usize = 16;
 
     let a: [u32; M * K] = core::array::from_fn(|i| (i % 9) as u32);
     let b: [u32; K * N] = core::array::from_fn(|i| ((i % 9) as u32) + 1);

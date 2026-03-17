@@ -1,254 +1,319 @@
 .include "vc4.qinc"
 
-.macro load_a_row, a
-    mov vr_setup, vpm_setup(1, 1, h32(a))
-    mov ra10 + a, vpm
+# Variable assignments:
+
+# clobber-able registers: these registers are loaded into and rewritten for computaion
+# r0, r1, r2, r3
+
+# ra0: address for a
+# ra1: address for b
+# ra2: address for c
+# ra3: number of bytes in row for a
+# ra4: number of bytes in row for b
+# ra5: number of bytes in row for c
+# ra6: number of columns
+# ra7: number of rows
+#
+#
+
+# used values for:
+# ra0 -> ra8
+# ra1 -> ra9
+# ra2 -> ra10
+# ra7 -> ra11
+
+# ra9 -> current a row (vertical)
+# ra10 -> current a column (horizontal)
+
+# ra12 -> current b row (vertical)
+# ra13 -> current b column (horizontal)
+
+# ra14 -> current c row (vertical)
+# ra15 -> current c column (horizontal)
+
+# rb0-15: loaded tile a
+# ra16-32: loaded tile b
+# rb16-32: stored tile a
+
+.macro load_a_row, a_row
+    mov vr_setup, vpm_setup(1, 1, h32(a_row))
+    mov rb0 + a_row, vpm
     mov -, vr_wait
 .endm
-
-.macro load_b_row, b
-    mov vr_setup, vpm_setup(1, 1, h32(16 + b))
-    mov rb0, vpm
-    mov -, vr_wait
-.endm
-
 
 .macro load_a_tile
-    mov vr_setup, vdr_setup_1(64)
+    mov r0, ra3
+    mov r1, 0x90000000
+    or r0, r0, r1
+    mov vr_setup, r0
     mov vr_setup, vdr_setup_0(0, 16, 16, vdr_h32(1, 0, 0))
-    mov vr_addr, ra4 # launch dma load
+    # mov vr_addr, ra8
+
+    mov r0, ra0
+    # add vertical offset
+    nop; nop; nop;
+    mov r1, ra9
+    mov r2, ra3
+    nop; nop; nop;
+    shl r1, r1, 4
+    nop; nop; nop;
+    mul24 r1, r1, r2;
+    nop; nop; nop;
+    add r0, r0, r1
+    nop; nop; nop;
+
+
+    # add horizontal offset
+    mov r1, ra10
+    nop; nop; nop;
+    shl r1, r1, 6
+    nop; nop; nop;
+    add r0, r0, r1
+    nop; nop; nop;
+
+    mov vr_addr, r0
+
+    mov -, vr_wait
+.endm
+
+.macro load_b_row, b_row
+    # mov vr_setup, vpm_setup(1, 1, v32(0, 16 + b_row))
+    mov vr_setup, vpm_setup(1, 1, h32(16 + b_row))
+    mov ra16 + b_row, vpm
     mov -, vr_wait
 .endm
 
 .macro load_b_tile
-    mov vr_setup, vdr_setup_1(64)
+    mov r0, ra4
+    mov r1, 0x90000000
+    or r0, r0, r1
+    mov vr_setup, r0
     mov vr_setup, vdr_setup_0(0, 16, 16, vdr_h32(1, 16, 0))
-    mov vr_addr, ra5
+    # mov vr_addr, ra9
+
+    # mov r0, ra9
+    mov r0, ra1
+    # add vertical offset
+    nop; nop; nop;
+    mov r1, ra12
+    mov r2, ra4
+    nop; nop; nop;
+    shl r1, r1, 4
+    nop; nop; nop;
+    mul24 r1, r1, r2;
+    nop; nop; nop;
+    add r0, r0, r1
+    nop; nop; nop;
+
+
+    # add horizontal offset
+    mov r1, ra13
+    nop; nop; nop;
+    shl r1, r1, 6
+    nop; nop; nop;
+    add r0, r0, r1
+    nop; nop; nop;
+
+    mov vr_addr, r0
+
     mov -, vr_wait
 .endm
 
-
-.macro store_c_row, c
-    mov vw_setup, vpm_setup(1, 1, h32(32 + c))
-    mov vpm, rb10 + c
+.macro store_c_row, c_row
+    mov vw_setup, vpm_setup(1, 1, h32(32 + c_row))
+    mov vpm, rb16 + c_row
     mov -, vw_wait
 .endm
 
 .macro store_c_tile
+    mov r0, ra5
+    mov r1, 64
+    sub r0, r0, r1
+    mov r1, 0xc0000000
+    or r0, r0, r1
+    mov vw_setup, r0
     mov vw_setup, vdw_setup_0(16, 16, dma_h32(32, 0))
-    mov vw_addr, ra6
+    # mov vw_addr, ra10
+
+    # mov r0, ra9
+    mov r0, ra2
+    # # add vertical offset
+    nop; nop; nop;
+    mov r1, ra14
+    mov r2, ra5
+    nop; nop; nop;
+    shl r1, r1, 4
+    nop; nop; nop;
+    mul24 r1, r1, r2;
+    nop; nop; nop;
+    add r0, r0, r1
+    nop; nop; nop;
+
+
+    # # add horizontal offset
+    mov r1, ra15
+    nop; nop; nop;
+    shl r1, r1, 6
+    nop; nop; nop;
+    add r0, r0, r1
+    nop; nop; nop;
+
+    mov vw_addr, r0
+
     mov -, vw_wait
 .endm
 
-.macro row_mul, a_row, b_row # need nops because of dependent operations. can't parallelize further because this needs r5rep
-    mov r3, 0
-    nop
-    nop
-    nop
-    mov r1, ra10 + a_row
-    nop
-    nop
-    nop
-    mov r5rep, r1 << b_row
-    nop
-    nop
-    nop
-    mul24 r3, r5rep, rb0
-    nop
-    nop
-    nop
-    add r3, r3, rb10 + a_row
-    nop
-    nop
-    nop
-    # mov rb10 + a_row, r1
-    # mov rb10 + a_row, rb0
-    mov rb10 + a_row, r3
-    nop
-    nop
-    nop
+.macro move_a_right
+    mov r0, ra10
+    add r0, r0, 1
+    mov ra10, r0
 .endm
 
-.macro row_mul_list, b_row
-    row_mul 0, b_row
-    row_mul 1, b_row
-    row_mul 2, b_row
-    row_mul 3, b_row
+.macro move_a_down
+    mov r0, ra9
+    add r0, r0, 1
+    mov ra9, r0
+.endm
 
-    row_mul 4, b_row
-    row_mul 5, b_row
-    row_mul 6, b_row
-    row_mul 7, b_row
-    
-    row_mul 8, b_row
-    row_mul 9, b_row
-    row_mul 10, b_row
-    row_mul 11, b_row
-    
-    row_mul 12, b_row
-    row_mul 13, b_row
-    row_mul 14, b_row
-    row_mul 15, b_row
+.macro move_b_right
+    mov r0, ra13
+    add r0, r0, 1
+    mov ra13, r0
+.endm
+
+.macro move_b_down
+    mov r0, ra12
+    add r0, r0, 1
+    mov ra12, r0
+.endm
+
+.macro move_c_right
+    mov r0, ra15
+    add r0, r0, 1
+    mov ra15, r0
+.endm
+
+.macro move_c_down
+    mov r0, ra14
+    add r0, r0, 1
+    mov ra14, r0
+.endm
+
+.macro mac_tile_helper, a_row
+    mov r1, rb0 + a_row
+    nop; nop; nop;
+    .rep b_row, 16
+        mov r5rep, r1 << b_row
+        nop; nop; nop;
+        mul24 r3, r5rep, ra16 + b_row
+        nop; nop; nop;
+        add r3, r3, rb16 + a_row
+        nop; nop; nop;
+        mov rb16 + a_row, r3
+    .endr
+.endm
+
+.macro mac_tile
+    .rep a_row, 16
+        mac_tile_helper a_row
+    .endr
 .endm
 
 
-.macro process_group
-    load_a_row 0
-    load_a_row 1
-    load_a_row 2
-    load_a_row 3
+mov ra0, unif
+mov ra1, unif
+mov ra2, unif
+mov ra3, unif
+mov ra4, unif
+mov ra5, unif
+mov ra6, unif
+mov ra7, unif
+mov ra11, ra7
 
-    load_a_row 4
-    load_a_row 5
-    load_a_row 6
-    load_a_row 7
+mov ra9, 0
+mov ra10, 0
+mov ra12, 0
+mov ra13, 0
+mov ra14, 0
+mov ra15, 0
 
-    load_a_row 8
-    load_a_row 9
-    load_a_row 10
-    load_a_row 11
+load_a_tile
+load_b_tile
 
-    load_a_row 12
-    load_a_row 13
-    load_a_row 14
-    load_a_row 15
+.rep i, 16
+    load_a_row i
+    load_b_row i
+    mov rb16 + i, 0
+.endr
 
-    load_b_row 0
-    row_mul_list 0
+mac_tile
 
-    load_b_row 1
-    row_mul_list 1
-
-    load_b_row 2
-    row_mul_list 2
-
-    load_b_row 3
-    row_mul_list 3
-
-    load_b_row 4
-    row_mul_list 4
-
-    load_b_row 5
-    row_mul_list 5
-
-    load_b_row 6
-    row_mul_list 6
-
-    load_b_row 7
-    row_mul_list 7
-
-    load_b_row 8
-    row_mul_list 8
-
-    load_b_row 9
-    row_mul_list 9
-
-    load_b_row 10
-    row_mul_list 10
-
-    load_b_row 11
-    row_mul_list 11
-
-    load_b_row 12
-    row_mul_list 12
-
-    load_b_row 13
-    row_mul_list 13
-
-    load_b_row 14
-    row_mul_list 14
-
-    load_b_row 15
-    row_mul_list 15
-
-    store_c_row 0
-    store_c_row 1
-    store_c_row 2
-    store_c_row 3
-
-    store_c_row 4
-    store_c_row 5
-    store_c_row 6
-    store_c_row 7
-
-    store_c_row 8
-    store_c_row 9
-    store_c_row 10
-    store_c_row 11
-
-    store_c_row 12
-    store_c_row 13
-    store_c_row 14
-    store_c_row 15
-.endm
-
-mov ra4, unif # ra4 <- src addresses (a matrix)
-mov ra5, unif # ra5 <- src address 2 (b matrix)
-mov ra6, unif # ra6 <- output address
-
-mov r4, unif # ra4 <- height, which this will iterate through
-mov r2, unif # r2 <- number of tiles in b (k dimension)
-mov ra3, unif # ra2 <- width of b matrix (in tiles)
-
-mov rb31, 1024 # save this to the highest possible register position
-
-# :outer_loop
-    
-
-#      sub.setf r4, r4, 1
-#     brr.anynz -, :outer_looop
-# :end
-
-mov r3, 0
-mov rb10 + 0, 0
-mov rb10 + 1, 0
-mov rb10 + 2, 0
-mov rb10 + 3, 0
-
-mov rb10 + 4, 0
-mov rb10 + 5, 0
-mov rb10 + 6, 0
-mov rb10 + 7, 0
-
-mov rb10 + 8, 0
-mov rb10 + 9, 0
-mov rb10 + 10, 0
-mov rb10 + 11, 0
-
-mov rb10 + 12, 0
-mov rb10 + 13, 0
-mov rb10 + 14, 0
-mov rb10 + 15, 0
-
-:innerloop
-    load_a_tile 
-    nop; nop; 
-    load_b_tile
-    nop; nop;
-    process_group
-    nop; nop;
-
-    add r0, ra4, rb31; nop; nop; nop # shift right
-    mov ra4, r0; nop; nop; nop;
-
-    mul24 r0, rb31, ra3; nop; nop; nop# width of b matrix * the index of the elements
-    add r0, r0, ra5; nop; nop; nop # add this to the current value to shift it down
-    mov ra5, r0; nop; nop; nop # move this there
-
-    sub.setf r2, r2, 1
-    brr.anynz -, :innerloop
-    nop; nop; nop
-:end
+.rep i, 16
+    store_c_row i
+.endr
 
 store_c_tile
 
 # load_a_tile
-# load_b_tile
-# process_group
-# store_c_tile
+# Loop through the given columns
+
+# :col_loop
+#     # mov ra8, ra0
+#     # mov ra9, ra1
+#     # mov ra10, ra2
+#     mov ra7, ra11
+
+#     mov ra9, 0
+#     mov ra12, 0
+#     mov ra14, 0
+
+#     :row_loop
+#         load_b_tile
+#         load_a_tile
+#         # loop downwards, through the rows
+#         .rep i, 16
+#             nop
+#             nop
+#             # load_a_row i
+#             # mov rb16 + i, rb0 + i
+#             load_b_row i
+#             mov rb16 + i, ra16 + i
+#             store_c_row i
+#         .endr
+#         store_c_tile
+        
+#         move_a_down
+#         move_b_down
+#         move_c_down
+
+
+#         # subtract 1 to keep going
+#         mov r0, ra7
+#         sub.setf r0, r0, 1
+#         mov ra7, r0
+#         brr.anynz -, :row_loop
+#         nop
+#         nop
+#         nop
+#     :end_rl
+    
+#     move_a_right
+#     move_b_right
+#     move_c_right
+
+
+#     # subtract 1 from r0
+#     mov r0, ra6
+#     sub.setf r0, r0, 1
+#     mov ra6, r0
+#     brr.anynz -, :col_loop
+#     nop
+#     nop
+#     nop
+# :end
+
 
 nop
 thrend
-nop
 nop
 nop

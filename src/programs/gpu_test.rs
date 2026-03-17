@@ -1,5 +1,5 @@
 use crate::gpu::{GpuKernel, DEADBEEF_GPU_CODE, ADD_KERNEL_CODE, MATMUL_KERNEL_CODE, EXP_MAX_GPU_CODE, DMA_TEST_CODE};
-use crate::matmul::{print_matrix};
+use crate::matmul::{print_matrix, cpu_matmul};
 use crate::{print, println};
 
 pub fn deadbeef_kernel() {
@@ -138,7 +138,79 @@ pub fn test_dma() {
     }
 }
 
+
+pub fn test_mini_matmul() {
+    unsafe {
+        let gpu_ptr = GpuKernel::init(DMA_TEST_CODE);
+        let gpu = &mut *gpu_ptr;
+        
+        const N: usize = 16;
+
+        let a: [u32; N * N] = core::array::from_fn(|i| i as u32); // arrange this as a 
+        let b: [u32; N * N] = core::array::from_fn(|i| (i as u32) + 6);
+        let n = N * N;
+        let num_elem = N;
+
+        core::ptr::copy_nonoverlapping(a.as_ptr(), gpu.data[0].as_mut_ptr(), n);
+        core::ptr::copy_nonoverlapping(b.as_ptr(), gpu.data[1].as_mut_ptr(), n);
+
+        gpu.unif[0][3] = (N * 4) as u32;
+        gpu.unif[0][4] = (N * 4) as u32;
+        gpu.unif[0][5] = (N * 4) as u32;
+        gpu.unif[0][6] = (N / 16) as u32;
+        gpu.unif[0][7] = (N / 16) as u32;
+        gpu.unif[0][8] = (N / 16) as u32;
+
+        print!("A: ");
+        print_matrix(&a, N, N);
+
+        print!("B: ");
+        print_matrix(&b, N, N);
+        
+        let mut c_cpu: [u32; N * N] = [0; N * N];
+        cpu_matmul(&a, &b, &mut c_cpu, N, N, N);
+
+
+        print!("Before: out[0..512] =");
+        print_matrix(&gpu.data[2], N, N);
+        println!("");
+
+        gpu.execute(1);
+
+        print!("After: out[0..512] =");
+        print_matrix(&gpu.data[2], N, N);
+        println!("");
+        
+        print!("Baseline: ");
+        print_matrix(&c_cpu, N, N);
+        println!("");
+        
+        let mut matches = true;
+        for i in 0..(N * N) {
+                if gpu.data[2][i] != c_cpu[i] {
+                println!(
+                    "Discrepancy at index {}: expected {}, observed {}",
+                    i, c_cpu[i], gpu.data[2][i] 
+                );
+                matches = false;
+                break;
+            }
+        }
+        
+        if matches {
+            println!("Matrix outputs match: YES");
+        } else {
+            println!("Matrix outputs match: NO");
+        }
+
+        gpu.release();
+        println!("Finished releasing test_gpu");
+    }
+}
+
+
 pub fn test_gpu() {
+    // test_mini_matmul();
     test_dma();
     // crate::matmul::matmul_func_test();
     // exp_max_kernel();
