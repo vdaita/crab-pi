@@ -41,7 +41,8 @@
 .endm
 
 .macro load_b_row, b_row
-    mov vr_setup, vpm_setup(1, 1, h32(16 + b_row))
+    # mov vr_setup, vpm_setup(1, 1, v32(0, 16 + b_row))
+    mov vr_setup, vpm_setup(1, 1, v32(16, b_row))
     mov ra16 + b_row, vpm
     mov -, vr_wait
 .endm
