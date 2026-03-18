@@ -362,6 +362,7 @@ pub fn fat32_read(fs: &fat32_fs_t, directory: &pi_dirent_t, filename: &str) -> *
     let bytes_per_cluster = fs.sectors_per_cluster * NBYTES_PER_SECTOR;
     let total_bytes = (n_clusters * bytes_per_cluster) as usize;
     let buf = unsafe { kmalloc::kmalloc(total_bytes) };
+    assert!((buf as usize) % 4 == 0, "fat32_read buffer is not 4-byte aligned");
     read_cluster_chain(fs, d_ref.cluster_id, buf);
 
     let file = unsafe { kmalloc::kmalloc_t::<pi_file_t>(1) };

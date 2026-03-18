@@ -13,3 +13,4 @@ doctest = false
 bench = false
 
 [dependencies]
+libm = "0.2"

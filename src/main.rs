@@ -18,6 +18,7 @@ mod kmalloc;
 mod fat32;
 mod fast_hash;
 mod crc;
+mod gpt;
 mod programs {
     pub mod gpu_test;
     pub mod mandelbrot;
@@ -54,7 +55,8 @@ fn main() {
     // gpt::gpt_demo();
     // programs::mandelbrot::mandelbrot();
     // programs::fat32_test::fat32_test();
-    programs::matrix_load_test::matrix_load_test();
+    // programs::matrix_load_test::matrix_load_test();
+    gpt::model::load_model();
 
     done();
 }

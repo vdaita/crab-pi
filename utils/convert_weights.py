@@ -29,21 +29,21 @@ def collect_named_tensors(state):
     add_tensor(files, "POS_EMB", state["pos_emb.weight"])
     for i in range(N_LAYER):
         p = f"blocks.{i}"
-        add_tensor(files, f"L{i:02d}_LN1_W", state[f"{p}.ln1.weight"])
-        add_tensor(files, f"L{i:02d}_LN1_B", state[f"{p}.ln1.bias"])
+        add_tensor(files, f"L{i}LN1_W", state[f"{p}.ln1.weight"])
+        add_tensor(files, f"L{i}LN1_B", state[f"{p}.ln1.bias"])
         c_attn = state[f"{p}.attn.c_attn.weight"]
         q, k, v = c_attn[:n_embd], c_attn[n_embd:2 * n_embd], c_attn[2 * n_embd:]
-        add_tensor(files, f"L{i:02d}_ATTN_Q_W", q, transpose=True)
-        add_tensor(files, f"L{i:02d}_ATTN_K_W", k, transpose=True)
-        add_tensor(files, f"L{i:02d}_ATTN_V_W", v, transpose=True)
-        add_tensor(files, f"L{i:02d}_ATTN_O_W", state[f"{p}.attn.c_proj.weight"], transpose=True)
-        add_tensor(files, f"L{i:02d}_LN2_W", state[f"{p}.ln2.weight"])
-        add_tensor(files, f"L{i:02d}_LN2_B", state[f"{p}.ln2.bias"])
-        add_tensor(files, f"L{i:02d}_MLP_FC_W", state[f"{p}.mlp.fc1.weight"], transpose=True)
-        add_tensor(files, f"L{i:02d}_MLP_PROJ_W", state[f"{p}.mlp.fc2.weight"], transpose=True)
+        add_tensor(files, f"L{i}A_QW", q, transpose=True)
+        add_tensor(files, f"L{i}A_KW", k, transpose=True)
+        add_tensor(files, f"L{i}A_VW", v, transpose=True)
+        add_tensor(files, f"L{i}A_OW", state[f"{p}.attn.c_proj.weight"], transpose=True)
+        add_tensor(files, f"L{i}LN2_W", state[f"{p}.ln2.weight"])
+        add_tensor(files, f"L{i}LN2_B", state[f"{p}.ln2.bias"])
+        add_tensor(files, f"L{i}M_FC_W", state[f"{p}.mlp.fc1.weight"], transpose=True)
+        add_tensor(files, f"L{i}M_P_W", state[f"{p}.mlp.fc2.weight"], transpose=True)
     add_tensor(files, "LN_F_W", state["ln_f.weight"])
     add_tensor(files, "LN_F_B", state["ln_f.bias"])
-    add_tensor(files, "LM_HEAD_W", state["head.weight"], transpose=True)
+    add_tensor(files, "LM_HD_W", state["head.weight"], transpose=True)
     return files
 
 

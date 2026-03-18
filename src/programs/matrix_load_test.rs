@@ -1,42 +1,9 @@
-use crate::fat32::{self, fat32_fs_t, pi_dirent_t};
+use crate::fat32::{self, fat32_fs_t, pi_dirent_t, load_matrix_from_file};
 use crate::kmalloc;
 use crate::println;
-use core::slice;
 use crate::matmul::{matmul_with_gpu,print_float_matrix};
 use crate::gpu::GpuKernel;
 use crate::gpu::{DMA_TEST_CODE};
-
-fn load_matrix_from_file(
-    fs: &fat32_fs_t,
-    root: &pi_dirent_t,
-    filename: &str,
-    expected_f32: usize,
-) -> &'static [f32] {
-    println!("Reading {}", filename);
-    let read_back = fat32::fat32_read(fs, root, filename);
-    assert!(!read_back.is_null());
-
-    let read_ref = unsafe { &*read_back };
-    assert!(read_ref.n_data % 4 == 0, "{} size is not a multiple of 4", filename);
-
-    let n_f32 = read_ref.n_data / 4;
-    assert!(n_f32 == expected_f32, "{} has {} floats, expected {}", filename, n_f32, expected_f32);
-
-    let src = unsafe { slice::from_raw_parts(read_ref.data as *const u8, read_ref.n_data) };
-    let out = unsafe { kmalloc::kmalloc_t::<f32>(n_f32) };
-    for i in 0..n_f32 {
-        let off = i * 4;
-        let bits = [src[off], src[off + 1], src[off + 2], src[off + 3]];
-        unsafe {
-            *out.add(i) = f32::from_le_bytes(bits);
-        }
-    }
-    let got = unsafe { slice::from_raw_parts(out as *const f32, n_f32) };
-
-    println!("First 4 elements: {:?}", &got[..4.min(got.len())]);
-
-    got
-}
 
 pub fn matrix_load_test() {
     unsafe {
@@ -53,7 +20,6 @@ pub fn matrix_load_test() {
 
         println!("Loading the root directory.");
         let root = fat32::fat32_get_root(&fs);
-        let _dir = fat32::fat32_readdir(&fs, &root);
 
         let a_data = load_matrix_from_file(&fs, &root, "A_TEST.BIN", a_row * a_col);
         let b_data = load_matrix_from_file(&fs, &root, "B_TEST.BIN", b_row * b_col);
