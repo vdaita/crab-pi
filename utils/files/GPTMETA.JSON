@@ -1,9 +1,0 @@
-{
-  "repo": "calum/tinystories-gpt2-3M",
-  "original_prefix": "tinygpt",
-  "model_source_file": "checkpoint-395000/pytorch_model.bin",
-  "weights_file": "GPTW.BIN",
-  "tokenizer_file": "GPTTOK.TXT",
-  "layers_file": "GPTLAYRS.JSON",
-  "token_count": 50257
-}

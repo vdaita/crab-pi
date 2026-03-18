@@ -1,155 +1,97 @@
+
+
 import json
-import os
-import sys
-import numpy as np
-from huggingface_hub import HfApi, hf_hub_download
+from pathlib import Path
 
-REPO = "calum/tinystories-gpt2-3M"
-PREFIX = "tinygpt"
-OUT_DIR = os.path.join(os.path.dirname(__file__), "files")
+import torch
+import typer
 
-WEIGHTS_OUT = "GPTW.BIN"
-TOKENIZER_OUT = "GPTTOK.TXT"
-LAYERS_OUT = "GPTLAYRS.JSON"
-META_OUT = "GPTMETA.JSON"
+from train_tiny_model import N_HEAD, N_LAYER, SAVE_PATH
+
+
+def as_f32(t: torch.Tensor) -> torch.Tensor:
+    return t.detach().cpu().to(torch.float32).contiguous()
+
+
+def write_bin(path: Path, t: torch.Tensor) -> None:
+    path.write_bytes(as_f32(t).numpy().astype("<f4", copy=False).tobytes(order="C"))
+
+
+def add_tensor(files, name, tensor, transpose=False):
+    t = tensor.T if transpose else tensor
+    files.append({"name": name, "tensor": t, "shape": list(t.shape), "elements": int(t.numel())})
+
+
+def collect_named_tensors(state):
+    files = []
+    n_embd = state["tok_emb.weight"].shape[1]
+    add_tensor(files, "TOK_EMB", state["tok_emb.weight"])
+    add_tensor(files, "POS_EMB", state["pos_emb.weight"])
+    for i in range(N_LAYER):
+        p = f"blocks.{i}"
+        add_tensor(files, f"L{i:02d}_LN1_W", state[f"{p}.ln1.weight"])
+        add_tensor(files, f"L{i:02d}_LN1_B", state[f"{p}.ln1.bias"])
+        c_attn = state[f"{p}.attn.c_attn.weight"]
+        q, k, v = c_attn[:n_embd], c_attn[n_embd:2 * n_embd], c_attn[2 * n_embd:]
+        add_tensor(files, f"L{i:02d}_ATTN_Q_W", q, transpose=True)
+        add_tensor(files, f"L{i:02d}_ATTN_K_W", k, transpose=True)
+        add_tensor(files, f"L{i:02d}_ATTN_V_W", v, transpose=True)
+        add_tensor(files, f"L{i:02d}_ATTN_O_W", state[f"{p}.attn.c_proj.weight"], transpose=True)
+        add_tensor(files, f"L{i:02d}_LN2_W", state[f"{p}.ln2.weight"])
+        add_tensor(files, f"L{i:02d}_LN2_B", state[f"{p}.ln2.bias"])
+        add_tensor(files, f"L{i:02d}_MLP_FC_W", state[f"{p}.mlp.fc1.weight"], transpose=True)
+        add_tensor(files, f"L{i:02d}_MLP_PROJ_W", state[f"{p}.mlp.fc2.weight"], transpose=True)
+    add_tensor(files, "LN_F_W", state["ln_f.weight"])
+    add_tensor(files, "LN_F_B", state["ln_f.bias"])
+    add_tensor(files, "LM_HEAD_W", state["head.weight"], transpose=True)
+    return files
+
+
+def write_outputs(files, out_dir: Path):
+    out_dir.mkdir(parents=True, exist_ok=True)
+    index = []
+    packed = []
+    offset = 0
+    for entry in files:
+        name, tensor = entry["name"], entry["tensor"]
+        fname = f"{name}.BIN"
+        write_bin(out_dir / fname, tensor)
+        elems = entry["elements"]
+        index.append({"name": name, "file": fname, "shape": entry["shape"], "offset": offset, "elements": elems})
+        packed.append(tensor.reshape(-1))
+        offset += elems
+        print(f"wrote {fname:20s} shape={tuple(entry['shape'])} elems={elems}")
+    flat = torch.cat([as_f32(t) for t in packed], dim=0)
+    write_bin(out_dir / "GPTW.BIN", flat)
+    (out_dir / "GPTLAYRS.JSON").write_text(json.dumps(index, indent=2))
+    meta = {
+        "n_layer": N_LAYER,
+        "n_head": N_HEAD,
+        "n_embd": files[0]["shape"][1],
+        "vocab_size": files[0]["shape"][0],
+        "n_ctx": files[1]["shape"][0],
+        "dtype": "f32_le",
+        "weights_file": "GPTW.BIN",
+        "layer_files": [x["file"] for x in index],
+    }
+    (out_dir / "GPTMETA.JSON").write_text(json.dumps(meta, indent=2))
+    print(f"wrote GPTW.BIN with {flat.numel()} floats")
+    print(f"wrote {out_dir / 'GPTLAYRS.JSON'}")
+    print(f"wrote {out_dir / 'GPTMETA.JSON'}")
+
+
+def main(
+    checkpoint: str = typer.Option(SAVE_PATH, "--checkpoint"),
+    out_dir: str = typer.Option("files", "--out-dir"),
+):
+    ckpt_path = Path(checkpoint)
+    if not ckpt_path.exists():
+        raise typer.BadParameter(f"checkpoint not found: {ckpt_path}")
+    state = torch.load(ckpt_path, map_location="cpu")
+    files = collect_named_tensors(state)
+    write_outputs(files, Path(out_dir))
+
 
 if __name__ == "__main__":
-	os.makedirs(OUT_DIR, exist_ok=True)
-
-	files = HfApi().list_repo_files(REPO)
-	model_candidates = []
-	for f in files:
-		fl = f.lower()
-		if not (fl.endswith(".safetensors") or fl.endswith(".pt") or fl.endswith(".bin") or fl.endswith(".pth")):
-			continue
-		if "optimizer" in fl or "sched" in fl or "trainer" in fl:
-			continue
-		model_candidates.append(f)
-
-	model = None
-	for suffix in (".safetensors", ".bin", ".pth", ".pt"):
-		preferred = next((f for f in model_candidates if f.lower().endswith(suffix) and ("model" in f.lower() or "pytorch" in f.lower() or "checkpoint" in f.lower())), None)
-		if preferred:
-			model = preferred
-			break
-	if model is None:
-		for suffix in (".safetensors", ".bin", ".pth", ".pt"):
-			fallback = next((f for f in model_candidates if f.lower().endswith(suffix)), None)
-			if fallback:
-				model = fallback
-				break
-	if model is None:
-		print("no model file found in repo", REPO)
-		sys.exit(1)
-
-	model_path = hf_hub_download(REPO, filename=model)
-	sd = {}
-	if model_path.endswith(".safetensors"):
-		try:
-			from safetensors.numpy import load_file
-
-			sd = load_file(model_path)
-		except Exception:
-			try:
-				import torch
-
-				obj = torch.load(model_path, map_location="cpu")
-				sd = obj.get("state_dict", obj) if isinstance(obj, dict) else {}
-			except Exception as e:
-				print("failed to load model:", e)
-				sys.exit(1)
-	else:
-		import torch
-
-		obj = torch.load(model_path, map_location="cpu")
-		sd = obj.get("state_dict", obj) if isinstance(obj, dict) else {}
-
-	if not isinstance(sd, dict):
-		print("loaded weights are not a dict")
-		sys.exit(1)
-
-	# write weights and layers
-	layers = {}
-	weights_out_path = os.path.join(OUT_DIR, WEIGHTS_OUT)
-	skipped = []
-	with open(weights_out_path, "wb") as bf:
-		for name in sorted(sd.keys()):
-			val = sd[name]
-			if isinstance(val, dict):
-				skipped.append(name)
-				continue
-			if hasattr(val, "detach"):
-				arr = val.detach().float().cpu().numpy()
-			else:
-				try:
-					arr = np.asarray(val)
-				except Exception:
-					skipped.append(name)
-					continue
-			if not np.issubdtype(arr.dtype, np.number):
-				skipped.append(name)
-				continue
-			layers[name] = list(arr.shape)
-			bf.write(arr.astype("float32").ravel().tobytes())
-	layers_out_path = os.path.join(OUT_DIR, LAYERS_OUT)
-	with open(layers_out_path, "w", encoding="utf-8") as jf:
-		json.dump(layers, jf, indent=2)
-
-	# tokenizer
-	tok = next((f for f in files if f.lower().endswith("tokenizer.json")), None)
-	if tok is None:
-		tok = next((f for f in files if f.lower().endswith("vocab.json")), None)
-	if tok is None:
-		tok = next((f for f in files if "tokenizer" in f.lower() and f.lower().endswith(".json")), None)
-	if tok is None:
-		tok = next((f for f in files if "token" in f.lower() and f.lower().endswith(".json")), None)
-	tokens = []
-	if tok:
-		tok_path = hf_hub_download(REPO, filename=tok)
-		if tok_path.endswith(".json"):
-			try:
-				with open(tok_path, "r", encoding="utf-8") as tf:
-					data = json.load(tf)
-				if "model" in data and "vocab" in data["model"]:
-					tokens = [k for k, _ in sorted(data["model"]["vocab"].items(), key=lambda kv: kv[1])]
-				elif "vocab" in data:
-					tokens = [k for k, _ in sorted(data["vocab"].items(), key=lambda kv: kv[1])]
-			except Exception:
-				tokens = []
-		else:
-			try:
-				with open(tok_path, "r", encoding="utf-8") as tf:
-					tokens = [l.rstrip("\n") for l in tf if l.strip()]
-			except Exception:
-				tokens = []
-
-	if tokens:
-		tok_out_path = os.path.join(OUT_DIR, TOKENIZER_OUT)
-		with open(tok_out_path, "w", encoding="utf-8") as ttf:
-			for t in tokens:
-				ttf.write(t + "\n")
-
-	meta_out_path = os.path.join(OUT_DIR, META_OUT)
-	with open(meta_out_path, "w", encoding="utf-8") as mf:
-		json.dump(
-			{
-				"repo": REPO,
-				"original_prefix": PREFIX,
-				"model_source_file": model,
-				"weights_file": WEIGHTS_OUT,
-				"tokenizer_file": TOKENIZER_OUT,
-				"layers_file": LAYERS_OUT,
-				"token_count": len(tokens),
-			},
-			mf,
-			indent=2,
-		)
-
-	print("wrote SD bundle to", OUT_DIR)
-	print(" -", WEIGHTS_OUT)
-	print(" -", TOKENIZER_OUT)
-	print(" -", LAYERS_OUT)
-	print(" -", META_OUT)
-	if skipped:
-		print("skipped non-numeric entries:", len(skipped))
+    typer.run(main)
 
