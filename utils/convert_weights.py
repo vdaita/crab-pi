@@ -19,6 +19,8 @@ def write_bin(path: Path, t: torch.Tensor) -> None:
 
 def add_tensor(files, name, tensor, transpose=False):
     t = tensor.T if transpose else tensor
+    first4 = t.reshape(-1)[:4].tolist()
+    print(f"{name:12s} first4={first4}")
     files.append({"name": name, "tensor": t, "shape": list(t.shape), "elements": int(t.numel())})
 
 
