@@ -2,6 +2,7 @@
 use crate::fat32::{self};
 use crate::kmalloc;
 use crate::println;
+use crate::print;
 use crate::timer::Timer;
 use libm::{expf, sqrtf, tanhf};
 
@@ -12,28 +13,41 @@ const N_EMBD: usize = 128;
 const HEAD_DIM: usize = N_EMBD / N_HEAD;
 const MAX_GEN_TOKENS: usize = 64;
 
-// Exact vocab order from utils/test_tiny_model.py:
-// chars = sorted(set(text)) over TinyStories training stream.
+
 const TRAIN_CHAR_VOCAB: [char; VOCAB_SIZE] = [
-    '\n', ' ', '!', '"', '$', '&', '\'', '*', ',', '-', '.',
-    '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
-    ':', ';', '?',
-    'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
-    'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
-    '¡', '¦', '©', '«', '±', '³', '»', 'Â', 'Ã', 'â', 'œ', '˜', '“', '”', '€', '™',
+    '\n', ' ', '!', '"', '$', '&', '\'', '*', ',', '-', '.', '0', '1', '2', '3', '4', '5', '6',
+    '7', '8', '9', ':', ';', '?', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
+    'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'a', 'b', 'c', 'd', 'e', 'f',
+    'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y',
+    'z', '¡', '¦', '©', '«', '±', '³', '»', 'Â', 'Ã', 'â', 'œ', '˜', '“', '”', '€', '™',
 ];
 
-struct AttentionScratch<'a> {
+struct BlockWeights<'a> {
+    ln1_w: &'a [f32],
+    ln1_b: &'a [f32],
+    q_w: &'a [f32],
+    k_w: &'a [f32],
+    v_w: &'a [f32],
+    o_w: &'a [f32],
+    ln2_w: &'a [f32],
+    ln2_b: &'a [f32],
+    fc_w: &'a [f32],
+    proj_w: &'a [f32],
+}
+
+struct LayerKvCache<'a> {
+    k: &'a mut [f32],
+    v: &'a mut [f32],
+}
+
+struct StepScratch<'a> {
+    ln1: &'a mut [f32],
     q: &'a mut [f32],
     k: &'a mut [f32],
     v: &'a mut [f32],
     ctx: &'a mut [f32],
-}
-
-struct BlockScratch<'a> {
-    x0: &'a mut [f32],
-    ln1: &'a mut [f32],
     attn: &'a mut [f32],
+    x_attn: &'a mut [f32],
     ln2: &'a mut [f32],
     mlp_h: &'a mut [f32],
     mlp_o: &'a mut [f32],
@@ -50,8 +64,6 @@ fn vocab_find_id(vocab: &[char], ch: char) -> usize {
             return i;
         }
     }
-
-    // Fallback to space if present, else zero.
     for (i, &v) in vocab.iter().enumerate() {
         if v == ' ' {
             return i;
@@ -88,48 +100,30 @@ fn detokenize(ids: &[usize], vocab: &[char], out: &mut [u8]) -> usize {
     cursor
 }
 
-fn add_in_place(dst: &mut [f32], rhs: &[f32]) {
-    assert!(dst.len() == rhs.len());
-    for i in 0..dst.len() {
-        dst[i] += rhs[i];
+fn layer_norm_one(x: &[f32], out: &mut [f32], w: &[f32], b: &[f32]) {
+    assert!(x.len() == N_EMBD && out.len() == N_EMBD);
+    let mean = x.iter().sum::<f32>() / N_EMBD as f32;
+    let mut var = 0.0;
+    for &v in x {
+        let d = v - mean;
+        var += d * d;
+    }
+    var /= N_EMBD as f32;
+    let inv_std = 1.0 / sqrtf(var + 1e-5);
+    for i in 0..N_EMBD {
+        out[i] = (x[i] - mean) * inv_std * w[i] + b[i];
     }
 }
 
-fn layer_norm(x: &[f32], out: &mut [f32], w: &[f32], b: &[f32], rows: usize, dim: usize) {
-    assert!(x.len() == rows * dim && out.len() == rows * dim);
-    assert!(w.len() == dim && b.len() == dim);
-
-    for r in 0..rows {
-        let row = &x[r * dim..(r + 1) * dim];
-        let mean = row.iter().sum::<f32>() / dim as f32;
-
-        let mut var = 0.0;
-        for &v in row {
-            let d = v - mean;
-            var += d * d;
-        }
-        var /= dim as f32;
-
-        let inv_std = 1.0 / sqrtf(var + 1e-5);
-        for i in 0..dim {
-            out[r * dim + i] = (row[i] - mean) * inv_std * w[i] + b[i];
-        }
-    }
-}
-
-fn linear(x: &[f32], out: &mut [f32], w: &[f32], rows: usize, in_dim: usize, out_dim: usize) {
-    assert!(x.len() == rows * in_dim);
+fn linear_one(x: &[f32], w: &[f32], in_dim: usize, out_dim: usize, out: &mut [f32]) {
+    assert!(x.len() == in_dim && out.len() == out_dim);
     assert!(w.len() == in_dim * out_dim);
-    assert!(out.len() == rows * out_dim);
-
-    for r in 0..rows {
-        for c in 0..out_dim {
-            let mut acc = 0.0;
-            for k in 0..in_dim {
-                acc += x[r * in_dim + k] * w[k * out_dim + c];
-            }
-            out[r * out_dim + c] = acc;
+    for c in 0..out_dim {
+        let mut acc = 0.0;
+        for k in 0..in_dim {
+            acc += x[k] * w[k * out_dim + c];
         }
+        out[c] = acc;
     }
 }
 
@@ -142,118 +136,90 @@ fn gelu_in_place(x: &mut [f32]) {
     }
 }
 
-fn causal_attention(
-    x: &[f32],
-    out: &mut [f32],
-    seq_len: usize,
-    q_w: &[f32],
-    k_w: &[f32],
-    v_w: &[f32],
-    o_w: &[f32],
-    scratch: &mut AttentionScratch,
+fn block_step(
+    x_in: &[f32],
+    x_out: &mut [f32],
+    cache_len: usize,
+    w: &BlockWeights,
+    cache: &mut LayerKvCache,
+    scratch: &mut StepScratch,
 ) {
-    let q = &mut scratch.q[..seq_len * N_EMBD];
-    let k = &mut scratch.k[..seq_len * N_EMBD];
-    let v = &mut scratch.v[..seq_len * N_EMBD];
-    let ctx = &mut scratch.ctx[..seq_len * N_EMBD];
+    assert!(x_in.len() == N_EMBD && x_out.len() == N_EMBD);
+    assert!(cache_len < BLOCK_SIZE);
 
-    linear(x, q, q_w, seq_len, N_EMBD, N_EMBD);
-    linear(x, k, k_w, seq_len, N_EMBD, N_EMBD);
-    linear(x, v, v_w, seq_len, N_EMBD, N_EMBD);
+    layer_norm_one(x_in, scratch.ln1, w.ln1_w, w.ln1_b);
+    linear_one(scratch.ln1, w.q_w, N_EMBD, N_EMBD, scratch.q);
+    linear_one(scratch.ln1, w.k_w, N_EMBD, N_EMBD, scratch.k);
+    linear_one(scratch.ln1, w.v_w, N_EMBD, N_EMBD, scratch.v);
+
+    let dst_k = &mut cache.k[cache_len * N_EMBD..(cache_len + 1) * N_EMBD];
+    let dst_v = &mut cache.v[cache_len * N_EMBD..(cache_len + 1) * N_EMBD];
+    dst_k.copy_from_slice(scratch.k);
+    dst_v.copy_from_slice(scratch.v);
 
     let scale = 1.0 / sqrtf(HEAD_DIM as f32);
-
     for h in 0..N_HEAD {
-        for t in 0..seq_len {
-            let mut max_logit = f32::NEG_INFINITY;
-            for tp in 0..=t {
-                let mut dot = 0.0;
-                for d in 0..HEAD_DIM {
-                    let qi = t * N_EMBD + h * HEAD_DIM + d;
-                    let ki = tp * N_EMBD + h * HEAD_DIM + d;
-                    dot += q[qi] * k[ki];
-                }
-                let logit = dot * scale;
-                if logit > max_logit {
-                    max_logit = logit;
-                }
-            }
+        let qh = &scratch.q[h * HEAD_DIM..(h + 1) * HEAD_DIM];
 
-            let mut denom = 0.0;
-            for tp in 0..=t {
-                let mut dot = 0.0;
-                for d in 0..HEAD_DIM {
-                    let qi = t * N_EMBD + h * HEAD_DIM + d;
-                    let ki = tp * N_EMBD + h * HEAD_DIM + d;
-                    dot += q[qi] * k[ki];
-                }
-                denom += expf(dot * scale - max_logit);
-            }
-
+        let mut max_logit = f32::NEG_INFINITY;
+        for t in 0..=cache_len {
+            let kh = &cache.k[t * N_EMBD + h * HEAD_DIM..t * N_EMBD + (h + 1) * HEAD_DIM];
+            let mut dot = 0.0;
             for d in 0..HEAD_DIM {
-                let mut acc = 0.0;
-                for tp in 0..=t {
-                    let mut dot = 0.0;
-                    for dd in 0..HEAD_DIM {
-                        let qi = t * N_EMBD + h * HEAD_DIM + dd;
-                        let ki = tp * N_EMBD + h * HEAD_DIM + dd;
-                        dot += q[qi] * k[ki];
-                    }
-                    let w = expf(dot * scale - max_logit) / denom;
-                    let vi = tp * N_EMBD + h * HEAD_DIM + d;
-                    acc += w * v[vi];
-                }
-                ctx[t * N_EMBD + h * HEAD_DIM + d] = acc;
+                dot += qh[d] * kh[d];
             }
+            let logit = dot * scale;
+            if logit > max_logit {
+                max_logit = logit;
+            }
+        }
+
+        let mut denom = 0.0;
+        for t in 0..=cache_len {
+            let kh = &cache.k[t * N_EMBD + h * HEAD_DIM..t * N_EMBD + (h + 1) * HEAD_DIM];
+            let mut dot = 0.0;
+            for d in 0..HEAD_DIM {
+                dot += qh[d] * kh[d];
+            }
+            denom += expf(dot * scale - max_logit);
+        }
+
+        for d in 0..HEAD_DIM {
+            let mut acc = 0.0;
+            for t in 0..=cache_len {
+                let kh = &cache.k[t * N_EMBD + h * HEAD_DIM..t * N_EMBD + (h + 1) * HEAD_DIM];
+                let vh = &cache.v[t * N_EMBD + h * HEAD_DIM..t * N_EMBD + (h + 1) * HEAD_DIM];
+                let mut dot = 0.0;
+                for dd in 0..HEAD_DIM {
+                    dot += qh[dd] * kh[dd];
+                }
+                let p = expf(dot * scale - max_logit) / denom;
+                acc += p * vh[d];
+            }
+            scratch.ctx[h * HEAD_DIM + d] = acc;
         }
     }
 
-    linear(ctx, out, o_w, seq_len, N_EMBD, N_EMBD);
+    linear_one(scratch.ctx, w.o_w, N_EMBD, N_EMBD, scratch.attn);
+    for i in 0..N_EMBD {
+        scratch.x_attn[i] = x_in[i] + scratch.attn[i];
+    }
+
+    layer_norm_one(scratch.x_attn, scratch.ln2, w.ln2_w, w.ln2_b);
+    linear_one(scratch.ln2, w.fc_w, N_EMBD, 4 * N_EMBD, scratch.mlp_h);
+    gelu_in_place(scratch.mlp_h);
+    linear_one(scratch.mlp_h, w.proj_w, 4 * N_EMBD, N_EMBD, scratch.mlp_o);
+
+    for i in 0..N_EMBD {
+        // Match Python block exactly.
+        x_out[i] = x_in[i] + scratch.mlp_o[i];
+    }
 }
 
-fn block_forward(
-    x: &mut [f32],
-    seq_len: usize,
-    ln1_w: &[f32],
-    ln1_b: &[f32],
-    q_w: &[f32],
-    k_w: &[f32],
-    v_w: &[f32],
-    o_w: &[f32],
-    ln2_w: &[f32],
-    ln2_b: &[f32],
-    fc_w: &[f32],
-    proj_w: &[f32],
-    block_scratch: &mut BlockScratch,
-    attn_scratch: &mut AttentionScratch,
-) {
-    let x0 = &mut block_scratch.x0[..seq_len * N_EMBD];
-    let ln1 = &mut block_scratch.ln1[..seq_len * N_EMBD];
-    let attn = &mut block_scratch.attn[..seq_len * N_EMBD];
-    let ln2 = &mut block_scratch.ln2[..seq_len * N_EMBD];
-    let mlp_h = &mut block_scratch.mlp_h[..seq_len * 4 * N_EMBD];
-    let mlp_o = &mut block_scratch.mlp_o[..seq_len * N_EMBD];
-
-    // Match Python exactly:
-    // return x + mlp(ln2(x + attn(ln1(x))))
-    // i.e. final residual uses original x, not (x + attn(...)).
-    x0.copy_from_slice(x);
-
-    layer_norm(x0, ln1, ln1_w, ln1_b, seq_len, N_EMBD);
-    causal_attention(ln1, attn, seq_len, q_w, k_w, v_w, o_w, attn_scratch);
-
-    for i in 0..(seq_len * N_EMBD) {
-        ln2[i] = x0[i] + attn[i];
-    }
-
-    layer_norm(ln2, ln1, ln2_w, ln2_b, seq_len, N_EMBD);
-    linear(ln1, mlp_h, fc_w, seq_len, N_EMBD, 4 * N_EMBD);
-    gelu_in_place(mlp_h);
-    linear(mlp_h, mlp_o, proj_w, seq_len, 4 * N_EMBD, N_EMBD);
-
-    for i in 0..(seq_len * N_EMBD) {
-        x[i] = x0[i] + mlp_o[i];
-    }
+fn head_logits(x: &[f32], ln_w: &[f32], ln_b: &[f32], head_w: &[f32], out: &mut [f32]) {
+    let ln_out = alloc_f32(N_EMBD);
+    layer_norm_one(x, ln_out, ln_w, ln_b);
+    linear_one(ln_out, head_w, N_EMBD, VOCAB_SIZE, out);
 }
 
 pub fn load_model() {
@@ -267,159 +233,153 @@ pub fn load_model() {
     let root = fat32::fat32_get_root(&fs);
 
     let start_load = Timer::get_usec();
-    let tok_emb = fat32::load_matrix_from_file(&fs, &root, "TOK_EMB.BIN", 92 * 128);
-    let pos_emb = fat32::load_matrix_from_file(&fs, &root, "POS_EMB.BIN", 128 * 128);
+    let tok_emb = fat32::load_matrix_from_file(&fs, &root, "TOK_EMB.BIN", VOCAB_SIZE * N_EMBD);
+    let pos_emb = fat32::load_matrix_from_file(&fs, &root, "POS_EMB.BIN", BLOCK_SIZE * N_EMBD);
 
-    let l00_ln1_w = fat32::load_matrix_from_file(&fs, &root, "L0LN1_W.BIN", 128);
-    let l00_ln1_b = fat32::load_matrix_from_file(&fs, &root, "L0LN1_B.BIN", 128);
-    let l00_attn_q_w = fat32::load_matrix_from_file(&fs, &root, "L0A_QW.BIN", 128 * 128);
-    let l00_attn_k_w = fat32::load_matrix_from_file(&fs, &root, "L0A_KW.BIN", 128 * 128);
-    let l00_attn_v_w = fat32::load_matrix_from_file(&fs, &root, "L0A_VW.BIN", 128 * 128);
-    let l00_attn_o_w = fat32::load_matrix_from_file(&fs, &root, "L0A_OW.BIN", 128 * 128);
-    let l00_ln2_w = fat32::load_matrix_from_file(&fs, &root, "L0LN2_W.BIN", 128);
-    let l00_ln2_b = fat32::load_matrix_from_file(&fs, &root, "L0LN2_B.BIN", 128);
-    let l00_mlp_fc_w = fat32::load_matrix_from_file(&fs, &root, "L0M_FC_W.BIN", 128 * 512);
-    let l00_mlp_proj_w = fat32::load_matrix_from_file(&fs, &root, "L0M_P_W.BIN", 512 * 128);
+    let l00 = BlockWeights {
+        ln1_w: fat32::load_matrix_from_file(&fs, &root, "L0LN1_W.BIN", N_EMBD),
+        ln1_b: fat32::load_matrix_from_file(&fs, &root, "L0LN1_B.BIN", N_EMBD),
+        q_w: fat32::load_matrix_from_file(&fs, &root, "L0A_QW.BIN", N_EMBD * N_EMBD),
+        k_w: fat32::load_matrix_from_file(&fs, &root, "L0A_KW.BIN", N_EMBD * N_EMBD),
+        v_w: fat32::load_matrix_from_file(&fs, &root, "L0A_VW.BIN", N_EMBD * N_EMBD),
+        o_w: fat32::load_matrix_from_file(&fs, &root, "L0A_OW.BIN", N_EMBD * N_EMBD),
+        ln2_w: fat32::load_matrix_from_file(&fs, &root, "L0LN2_W.BIN", N_EMBD),
+        ln2_b: fat32::load_matrix_from_file(&fs, &root, "L0LN2_B.BIN", N_EMBD),
+        fc_w: fat32::load_matrix_from_file(&fs, &root, "L0M_FC_W.BIN", N_EMBD * 4 * N_EMBD),
+        proj_w: fat32::load_matrix_from_file(&fs, &root, "L0M_P_W.BIN", 4 * N_EMBD * N_EMBD),
+    };
 
-    let l01_ln1_w = fat32::load_matrix_from_file(&fs, &root, "L1LN1_W.BIN", 128);
-    let l01_ln1_b = fat32::load_matrix_from_file(&fs, &root, "L1LN1_B.BIN", 128);
-    let l01_attn_q_w = fat32::load_matrix_from_file(&fs, &root, "L1A_QW.BIN", 128 * 128);
-    let l01_attn_k_w = fat32::load_matrix_from_file(&fs, &root, "L1A_KW.BIN", 128 * 128);
-    let l01_attn_v_w = fat32::load_matrix_from_file(&fs, &root, "L1A_VW.BIN", 128 * 128);
-    let l01_attn_o_w = fat32::load_matrix_from_file(&fs, &root, "L1A_OW.BIN", 128 * 128);
-    let l01_ln2_w = fat32::load_matrix_from_file(&fs, &root, "L1LN2_W.BIN", 128);
-    let l01_ln2_b = fat32::load_matrix_from_file(&fs, &root, "L1LN2_B.BIN", 128);
-    let l01_mlp_fc_w = fat32::load_matrix_from_file(&fs, &root, "L1M_FC_W.BIN", 128 * 512);
-    let l01_mlp_proj_w = fat32::load_matrix_from_file(&fs, &root, "L1M_P_W.BIN", 512 * 128);
+    let l01 = BlockWeights {
+        ln1_w: fat32::load_matrix_from_file(&fs, &root, "L1LN1_W.BIN", N_EMBD),
+        ln1_b: fat32::load_matrix_from_file(&fs, &root, "L1LN1_B.BIN", N_EMBD),
+        q_w: fat32::load_matrix_from_file(&fs, &root, "L1A_QW.BIN", N_EMBD * N_EMBD),
+        k_w: fat32::load_matrix_from_file(&fs, &root, "L1A_KW.BIN", N_EMBD * N_EMBD),
+        v_w: fat32::load_matrix_from_file(&fs, &root, "L1A_VW.BIN", N_EMBD * N_EMBD),
+        o_w: fat32::load_matrix_from_file(&fs, &root, "L1A_OW.BIN", N_EMBD * N_EMBD),
+        ln2_w: fat32::load_matrix_from_file(&fs, &root, "L1LN2_W.BIN", N_EMBD),
+        ln2_b: fat32::load_matrix_from_file(&fs, &root, "L1LN2_B.BIN", N_EMBD),
+        fc_w: fat32::load_matrix_from_file(&fs, &root, "L1M_FC_W.BIN", N_EMBD * 4 * N_EMBD),
+        proj_w: fat32::load_matrix_from_file(&fs, &root, "L1M_P_W.BIN", 4 * N_EMBD * N_EMBD),
+    };
 
-    let ln_f_w = fat32::load_matrix_from_file(&fs, &root, "LN_F_W.BIN", 128);
-    let ln_f_b = fat32::load_matrix_from_file(&fs, &root, "LN_F_B.BIN", 128);
-    let lm_head_w = fat32::load_matrix_from_file(&fs, &root, "LM_HD_W.BIN", 128 * 92);
+    let ln_f_w = fat32::load_matrix_from_file(&fs, &root, "LN_F_W.BIN", N_EMBD);
+    let ln_f_b = fat32::load_matrix_from_file(&fs, &root, "LN_F_B.BIN", N_EMBD);
+    let lm_head_w = fat32::load_matrix_from_file(&fs, &root, "LM_HD_W.BIN", N_EMBD * VOCAB_SIZE);
     let end_load = Timer::get_usec();
 
     println!("Finished loading the matrix in {} usec.", end_load - start_load);
 
     let vocab = &TRAIN_CHAR_VOCAB;
-
     let prompt = "Once upon a time";
     let new_tokens = 12usize;
 
     let mut token_ids = [0usize; MAX_GEN_TOKENS];
     let seed_len = tokenize(prompt, vocab, &mut token_ids);
     let mut total_len = seed_len;
+    assert!(seed_len > 0, "empty prompt unsupported in this quick path");
+    assert!(seed_len + new_tokens < BLOCK_SIZE, "increase BLOCK_SIZE or reduce prompt/new_tokens");
 
-    let x = alloc_f32(BLOCK_SIZE * N_EMBD);
-    let x_ln = alloc_f32(BLOCK_SIZE * N_EMBD);
-    let logits = alloc_f32(BLOCK_SIZE * VOCAB_SIZE);
-
-    let mut block_scratch = BlockScratch {
-        x0: alloc_f32(BLOCK_SIZE * N_EMBD),
-        ln1: alloc_f32(BLOCK_SIZE * N_EMBD),
-        attn: alloc_f32(BLOCK_SIZE * N_EMBD),
-        ln2: alloc_f32(BLOCK_SIZE * N_EMBD),
-        mlp_h: alloc_f32(BLOCK_SIZE * 4 * N_EMBD),
-        mlp_o: alloc_f32(BLOCK_SIZE * N_EMBD),
-    };
-    let mut attn_scratch = AttentionScratch {
-        q: alloc_f32(BLOCK_SIZE * N_EMBD),
+    let mut layer0_cache = LayerKvCache {
         k: alloc_f32(BLOCK_SIZE * N_EMBD),
         v: alloc_f32(BLOCK_SIZE * N_EMBD),
-        ctx: alloc_f32(BLOCK_SIZE * N_EMBD),
+    };
+    let mut layer1_cache = LayerKvCache {
+        k: alloc_f32(BLOCK_SIZE * N_EMBD),
+        v: alloc_f32(BLOCK_SIZE * N_EMBD),
     };
 
-    let start_inf = Timer::get_usec();
+    let mut s0 = StepScratch {
+        ln1: alloc_f32(N_EMBD),
+        q: alloc_f32(N_EMBD),
+        k: alloc_f32(N_EMBD),
+        v: alloc_f32(N_EMBD),
+        ctx: alloc_f32(N_EMBD),
+        attn: alloc_f32(N_EMBD),
+        x_attn: alloc_f32(N_EMBD),
+        ln2: alloc_f32(N_EMBD),
+        mlp_h: alloc_f32(4 * N_EMBD),
+        mlp_o: alloc_f32(N_EMBD),
+    };
+    let mut s1 = StepScratch {
+        ln1: alloc_f32(N_EMBD),
+        q: alloc_f32(N_EMBD),
+        k: alloc_f32(N_EMBD),
+        v: alloc_f32(N_EMBD),
+        ctx: alloc_f32(N_EMBD),
+        attn: alloc_f32(N_EMBD),
+        x_attn: alloc_f32(N_EMBD),
+        ln2: alloc_f32(N_EMBD),
+        mlp_h: alloc_f32(4 * N_EMBD),
+        mlp_o: alloc_f32(N_EMBD),
+    };
 
-    for _ in 0..new_tokens {
-        let ctx_start = total_len.saturating_sub(BLOCK_SIZE);
-        let ctx_len = total_len - ctx_start;
+    let h0_in = alloc_f32(N_EMBD);
+    let h0_out = alloc_f32(N_EMBD);
+    let h1_out = alloc_f32(N_EMBD);
+    let logits = alloc_f32(VOCAB_SIZE);
 
-        for t in 0..ctx_len {
-            let tok = token_ids[ctx_start + t];
-            for d in 0..N_EMBD {
-                let te = tok_emb[tok * N_EMBD + d];
-                let pe = pos_emb[t * N_EMBD + d];
-                x[t * N_EMBD + d] = te + pe;
-            }
+    // Prefill caches with prompt tokens.
+    let mut cache_len = 0usize;
+    for pos in 0..seed_len {
+        let tok = token_ids[pos];
+        for d in 0..N_EMBD {
+            h0_in[d] = tok_emb[tok * N_EMBD + d] + pos_emb[pos * N_EMBD + d];
         }
 
-        block_forward(
-            &mut x[..ctx_len * N_EMBD],
-            ctx_len,
-            l00_ln1_w,
-            l00_ln1_b,
-            l00_attn_q_w,
-            l00_attn_k_w,
-            l00_attn_v_w,
-            l00_attn_o_w,
-            l00_ln2_w,
-            l00_ln2_b,
-            l00_mlp_fc_w,
-            l00_mlp_proj_w,
-            &mut block_scratch,
-            &mut attn_scratch,
-        );
-        block_forward(
-            &mut x[..ctx_len * N_EMBD],
-            ctx_len,
-            l01_ln1_w,
-            l01_ln1_b,
-            l01_attn_q_w,
-            l01_attn_k_w,
-            l01_attn_v_w,
-            l01_attn_o_w,
-            l01_ln2_w,
-            l01_ln2_b,
-            l01_mlp_fc_w,
-            l01_mlp_proj_w,
-            &mut block_scratch,
-            &mut attn_scratch,
-        );
+        block_step(h0_in, h0_out, cache_len, &l00, &mut layer0_cache, &mut s0);
+        block_step(h0_out, h1_out, cache_len, &l01, &mut layer1_cache, &mut s1);
+        cache_len += 1;
+    }
 
-        layer_norm(
-            &x[..ctx_len * N_EMBD],
-            &mut x_ln[..ctx_len * N_EMBD],
-            ln_f_w,
-            ln_f_b,
-            ctx_len,
-            N_EMBD,
-        );
-        linear(
-            &x_ln[..ctx_len * N_EMBD],
-            &mut logits[..ctx_len * VOCAB_SIZE],
-            lm_head_w,
-            ctx_len,
-            N_EMBD,
-            VOCAB_SIZE,
-        );
+    let start_inf = Timer::get_usec();
+    let mut per_token_us = [0u32; MAX_GEN_TOKENS];
 
-        let last = &logits[(ctx_len - 1) * VOCAB_SIZE..ctx_len * VOCAB_SIZE];
+    for gen_i in 0..new_tokens {
+        let tok_start = Timer::get_usec();
+
+        // Choose next token from current last hidden state.
+        head_logits(h1_out, ln_f_w, ln_f_b, lm_head_w, logits);
         let mut best_id = 0usize;
         let mut best_val = f32::NEG_INFINITY;
         for i in 0..VOCAB_SIZE {
-            if last[i] > best_val {
-                best_val = last[i];
+            if logits[i] > best_val {
+                best_val = logits[i];
                 best_id = i;
             }
         }
 
-        if total_len < MAX_GEN_TOKENS {
-            token_ids[total_len] = best_id;
-            total_len += 1;
-        } else {
-            break;
+        token_ids[total_len] = best_id;
+        total_len += 1;
+
+        let ch = if best_id < vocab.len() { vocab[best_id] } else { '?' };
+        print!("{}", ch);
+
+        // Feed generated token to extend KV cache for following token.
+        if gen_i + 1 < new_tokens {
+            let pos = total_len - 1;
+            for d in 0..N_EMBD {
+                h0_in[d] = tok_emb[best_id * N_EMBD + d] + pos_emb[pos * N_EMBD + d];
+            }
+            block_step(h0_in, h0_out, cache_len, &l00, &mut layer0_cache, &mut s0);
+            block_step(h0_out, h1_out, cache_len, &l01, &mut layer1_cache, &mut s1);
+            cache_len += 1;
         }
+
+        let tok_end = Timer::get_usec();
+        per_token_us[gen_i] = (tok_end - tok_start) as u32;
     }
+    println!("");
 
     let end_inf = Timer::get_usec();
     let elapsed_us = end_inf - start_inf;
     let generated_tokens = total_len.saturating_sub(seed_len);
     let toks_per_sec = if elapsed_us > 0 {
-        (generated_tokens as u64) * 1_000_000 / (elapsed_us as u64)
+        (generated_tokens as f32) * 1_000_000.0 / (elapsed_us as f32)
     } else {
-        0
+        0.0
     };
 
-    let mut out_text = [0u8; MAX_GEN_TOKENS];
+    let mut out_text = [0u8; MAX_GEN_TOKENS * 4];
     let out_n = detokenize(&token_ids[..total_len], vocab, &mut out_text);
     let out_str = core::str::from_utf8(&out_text[..out_n]).unwrap_or("<invalid utf8>");
 
@@ -428,6 +388,12 @@ pub fn load_model() {
     println!("Seed token ids: {:?}", &token_ids[..seed_len]);
     println!("Generated sequence ids: {:?}", &token_ids[..total_len]);
     println!("Generated tokens: {}", generated_tokens);
-    println!("Tokens/sec: {}", toks_per_sec);
+    println!("Tokens/sec: {:.2}", toks_per_sec);
+    println!("Per-token latency (usec):");
+    for i in 0..generated_tokens {
+        let id = token_ids[seed_len + i];
+        let ch = if id < vocab.len() { vocab[id] } else { '?' };
+        println!("  token {} '{}' -> {} usec", i, ch, per_token_us[i]);
+    }
     println!("Detokenized output: {}", out_str);
 }
