@@ -23,7 +23,7 @@ const V3D_DBQITC: *mut u32 = (V3D_BASE + 0x0e30) as *mut u32;
 
 pub const GPU_BASE: u32 = 0x40000000;
 pub static ADD_KERNEL_CODE: &[u8] = include_bytes!("gpu_kernels/add_kernel.bin");
-pub static MATMUL_KERNEL_CODE: &[u8] = include_bytes!("gpu_kernels/matmul_kernel.bin");
+// pub static MATMUL_KERNEL_CODE: &[u8] = include_bytes!("gpu_kernels/matmul_kernel.bin");
 pub static DEADBEEF_GPU_CODE: &[u8] = include_bytes!("gpu_kernels/deadbeef.bin");
 pub static EXP_MAX_GPU_CODE: &[u8] = include_bytes!("gpu_kernels/exp_max.bin");
 pub static MANDELBROT_GPU_CODE: &[u8] = include_bytes!("gpu_kernels/mandelbrot.bin");
@@ -33,7 +33,7 @@ const GPU_MEM_FLAG: u32 = 0xC;
 pub const MAX_VC_CORES: usize = 12;
 const NUM_DATA_SLOTS: usize = 16;
 const NUM_UNIF_SLOTS: usize = 64;
-pub const MAX_DATA_SIZE: usize = 16384;
+pub const MAX_DATA_SIZE: usize = 128000;
 const BYTES_FOR_CODE: usize = 128000;
 
 unsafe fn mbox_write(channel: u8, data: u32) {

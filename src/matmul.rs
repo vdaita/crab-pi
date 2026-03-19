@@ -96,7 +96,8 @@ pub fn matmul_with_gpu(gpu: &mut GpuKernel, a: &[f32], b: &[f32], out: &mut [f32
     let num_n_tiles = n16 / 16;
     let num_k_tiles = k16 / 16;
 
-    let launch_cores = core::cmp::min(MAX_VC_CORES, num_n_tiles);
+    // let launch_cores = core::cmp::min(MAX_VC_CORES, num_n_tiles);
+    let launch_cores = 1;
     if launch_cores == 0 {
         return;
     }
@@ -274,6 +275,79 @@ pub fn matmul_func_test() {
             let mut c: [f32; M * N] = [0.0; M * N];
             let mut c_cpu: [f32; M * N] = [0.0; M * N];
             all_passed = run_matmul_case(gpu, "tiny", M, N, K, &a, &b, &mut c, &mut c_cpu) && all_passed;
+        }
+
+        {
+            const M: usize = 1;
+            const N: usize = 32;
+            const K: usize = 32;
+            let a: [f32; M * K] = core::array::from_fn(|i| ((i * 29 + 11) % 37) as f32 * 0.1 - 1.5);
+            let b: [f32; K * N] = core::array::from_fn(|i| ((i * 31 + 5) % 41) as f32 * 0.1 - 2.0);
+            let mut c: [f32; M * N] = [0.0; M * N];
+            let mut c_cpu: [f32; M * N] = [0.0; M * N];
+            all_passed = run_matmul_case(gpu, "gpt-gemv-1x32-32x32", M, N, K, &a, &b, &mut c, &mut c_cpu)
+                && all_passed;
+        }
+
+        {
+            const M: usize = 1;
+            const N: usize = 64;
+            const K: usize = 64;
+            let a: [f32; M * K] = core::array::from_fn(|i| ((i * 29 + 11) % 37) as f32 * 0.1 - 1.5);
+            let b: [f32; K * N] = core::array::from_fn(|i| ((i * 31 + 5) % 41) as f32 * 0.1 - 2.0);
+            let mut c: [f32; M * N] = [0.0; M * N];
+            let mut c_cpu: [f32; M * N] = [0.0; M * N];
+            all_passed = run_matmul_case(gpu, "gpt-gemv-1x64-64x64", M, N, K, &a, &b, &mut c, &mut c_cpu)
+                && all_passed;
+        }
+
+        {
+            const M: usize = 1;
+            const N: usize = 128;
+            const K: usize = 128;
+            let a: [f32; M * K] = core::array::from_fn(|i| ((i * 29 + 11) % 37) as f32 * 0.1 - 1.5);
+            let b: [f32; K * N] = core::array::from_fn(|i| ((i * 31 + 5) % 41) as f32 * 0.1 - 2.0);
+            let mut c: [f32; M * N] = [0.0; M * N];
+            let mut c_cpu: [f32; M * N] = [0.0; M * N];
+            all_passed = run_matmul_case(gpu, "gpt-gemv-1x128-128x128", M, N, K, &a, &b, &mut c, &mut c_cpu)
+                && all_passed;
+        }
+
+        {
+            const M: usize = 1;
+            const N: usize = 512;
+            const K: usize = 128;
+            let a: [f32; M * K] = core::array::from_fn(|i| ((i * 29 + 11) % 37) as f32 * 0.1 - 1.5);
+            let b: [f32; K * N] = core::array::from_fn(|i| ((i * 31 + 5) % 41) as f32 * 0.1 - 2.0);
+            let mut c: [f32; M * N] = [0.0; M * N];
+            let mut c_cpu: [f32; M * N] = [0.0; M * N];
+            all_passed = run_matmul_case(gpu, "gpt-gemv-1x128-128x512", M, N, K, &a, &b, &mut c, &mut c_cpu)
+                && all_passed;
+        }
+
+
+        {
+            const M: usize = 1;
+            const N: usize = 64;
+            const K: usize = 32;
+            let a: [f32; M * K] = core::array::from_fn(|i| ((i * 17 + 19) % 43) as f32 * 0.1 - 1.8);
+            let b: [f32; K * N] = core::array::from_fn(|i| ((i * 23 + 7) % 47) as f32 * 0.1 - 2.2);
+            let mut c: [f32; M * N] = [0.0; M * N];
+            let mut c_cpu: [f32; M * N] = [0.0; M * N];
+            all_passed = run_matmul_case(gpu, "gpt-gemv-1x64-64x32", M, N, K, &a, &b, &mut c, &mut c_cpu)
+                && all_passed;
+        }
+
+        {
+            const M: usize = 1;
+            const N: usize = 128;
+            const K: usize = 512;
+            let a: [f32; M * K] = core::array::from_fn(|i| ((i * 17 + 19) % 43) as f32 * 0.1 - 1.8);
+            let b: [f32; K * N] = core::array::from_fn(|i| ((i * 23 + 7) % 47) as f32 * 0.1 - 2.2);
+            let mut c: [f32; M * N] = [0.0; M * N];
+            let mut c_cpu: [f32; M * N] = [0.0; M * N];
+            all_passed = run_matmul_case(gpu, "gpt-gemv-1x512-512x128", M, N, K, &a, &b, &mut c, &mut c_cpu)
+                && all_passed;
         }
 
         gpu.release();

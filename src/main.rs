@@ -51,12 +51,13 @@ fn main() {
     unsafe {enable_fpu();}
     fat32::pi_sd_init();
 
-    // programs::gpu_test::test_gpu();
+    programs::gpu_test::test_gpu();
     // gpt::gpt_demo();
     // programs::mandelbrot::mandelbrot();
     // programs::fat32_test::fat32_test();
     // programs::matrix_load_test::matrix_load_test();
-    gpt::model::load_model();
+    // gpt::model::load_model();
+
 
     done();
 }

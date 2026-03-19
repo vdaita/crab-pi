@@ -30,34 +30,61 @@
 # ra16-32: loaded tile b
 # rb16-32: stored tile a
 
-.macro load_a_row, a_row
-    mov vr_setup, vpm_setup(1, 1, h32(a_row))
-    mov rb0 + a_row, vpm
-    mov -, vr_wait
-.endm
+# .macro load_a_row, a_row
+    
+# .endm
 
-.macro load_a_tile
+# .macro load_a_tile
+.macro load_a_row, a_row
     mov r0, ra8 # take the inner dimension (rows of a) and shift
     nop; nop; nop;
     shl r0, r0, 6 # 4 bytes, 16 elements
     
-    mov r1, 0x90000000
+    # start: old load
+    # mov r1, 0x90000000
+    # or r0, r0, r1
+    # mov vr_setup, r0
+    # mov vr_setup, vdr_setup_0(0, 16, 1, vdr_h32(1, a_row, 0))
+    # end: old load
+
+    mov r3, vdr_setup_0(0, 16, 1, 0)
+    
+    # vdr_h32
+    # reset
+    mov r0, 0
+
+    # (vpitch & 0xf << 2)
+    mov r1, 1
+    mov r2, 0xf
+    and r1, r1, r2
+    shl r1, r1, 12
+
     or r0, r0, r1
+
+    # (y << 4)
+    # mov r1, rb38 # this represents the qpu_num
+    mov r1, a_row
+    mov r2, 4
+    shl r1, r1, r2
+    
+    or r0, r0, r1 # r0 <- (vpitch & 0xf) << 12 | y << 4
+    or r0, r0, r3 # | dma at the end
     mov vr_setup, r0
-    mov vr_setup, vdr_setup_0(0, 16, 16, vdr_h32(1, 0, 0))
-    # mov vr_addr, ra8
 
     mov r0, ra0
     # add vertical offset
     nop; nop; nop;
-    mov r1, ra9
+    mov r1, ra9 # this is current a row, we want to shift down
+    nop; nop; nop;
     
     mov r2, ra8; # take the inner dimension (rows of a) and shift
     nop; nop; nop;
     shl r2, r2, 6;
     
     nop; nop; nop;
-    shl r1, r1, 4
+    shl r1, r1, 4 # deal with the tiles
+    add r1, r1, a_row # add the current row that we are processing
+
     nop; nop; nop;
     mul24 r1, r1, r2;
     nop; nop; nop;
@@ -75,6 +102,10 @@
 
     mov vr_addr, r0
 
+    mov -, vr_wait
+
+    mov vr_setup, vpm_setup(1, 1, h32(a_row))
+    mov rb0 + a_row, vpm
     mov -, vr_wait
 .endm
 
@@ -94,9 +125,7 @@
     or r0, r0, r1
     mov vr_setup, r0
     mov vr_setup, vdr_setup_0(0, 16, 16, vdr_h32(1, 16, 0))
-    # mov vr_addr, ra9
 
-    # mov r0, ra9
     mov r0, ra1
     # add vertical offset
     nop; nop; nop;
@@ -320,7 +349,7 @@ mov ra15, ra11
         clear_acc
         mov ra5, ra8
         :innerloop
-            load_a_tile
+            # load_a_tile
             load_b_tile
 
             load_all_a
