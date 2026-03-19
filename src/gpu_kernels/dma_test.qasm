@@ -224,9 +224,12 @@
     mov vw_setup, r0
 
     # calculate vdw_setup_0
-    mov r3, vdw_setup_0(16, 16, 0)
+    # mov r3, vdw_setup_0(16, 16, 0)
+    mov r3, vdw_setup_0(1, 16, 0)
     mov r0, 0x4000
     mov r1, 32 # r1 -> y
+    # add in the c_row
+    add r1, r1, c_row
     shl r1, r1, 7 # y << 7
     or r0, r0, r1 # 0x4000 | y << 7
     or r0, r0, r3 # the last part
@@ -246,6 +249,9 @@
     
     nop; nop; nop;
     shl r1, r1, 4
+    # now that you have your row * 16, add in your col
+    add r1, r1, c_row
+
     nop; nop; nop;
     mul24 r1, r1, r2;
     nop; nop; nop;
