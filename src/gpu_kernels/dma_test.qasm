@@ -28,7 +28,7 @@
 
 # rb0-15: loaded tile a
 # ra16-32: loaded tile b
-# rb16-32: stored tile a
+# rb16-32: stored tile c
 
 # .macro load_a_row, a_row
     
@@ -196,13 +196,23 @@
     mov -, vr_wait
 .endm
 
-.macro store_c_row, c_row
-    mov vw_setup, vpm_setup(1, 1, h32(32 + c_row))
+.macro store_c_row, c_row 
+    mov r3, vpm_setup(1, 1, 0)
+    mov r1, c_row
+    mov r2, 32
+    add r1, r1, r2
+    mov r2, 0xa00
+    or r1, r1, r2
+    or r0, r1, r3
+    mov vw_setup, r0
     mov vpm, rb16 + c_row
     mov -, vw_wait
-.endm
 
-.macro store_c_tile
+    # mov vw_setup, vpm_setup(1, 1, h32(32 + c_row))
+    # mov vpm, rb16 + c_row
+    # mov -, vw_wait
+    # ---
+
     mov r0, ra7
     nop; nop; nop;
     shl r0, r0, 6
@@ -212,10 +222,18 @@
     mov r1, 0xc0000000
     or r0, r0, r1
     mov vw_setup, r0
-    mov vw_setup, vdw_setup_0(16, 16, dma_h32(32, 0))
-    # mov vw_addr, ra10
 
-    # mov r0, ra9
+    # calculate vdw_setup_0
+    mov r3, vdw_setup_0(16, 16, 0)
+    mov r0, 0x4000
+    mov r1, 32 # r1 -> y
+    shl r1, r1, 7 # y << 7
+    or r0, r0, r1 # 0x4000 | y << 7
+    or r0, r0, r3 # the last part
+    mov vw_setup, r0
+
+    # mov vw_setup, vdw_setup_0(16, 16, dma_h32(32, 0))
+
     mov r0, ra2
     # # add vertical offset
     nop; nop; nop;
@@ -226,7 +244,6 @@
     nop; nop; nop;
     shl r2, r2, 6
     
-    # 
     nop; nop; nop;
     shl r1, r1, 4
     nop; nop; nop;
@@ -242,12 +259,64 @@
     shl r1, r1, 6
     nop; nop; nop;
     add r0, r0, r1
-    nop; nop; nop;
+   nop; nop; nop;
 
-    mov vw_addr, r0
+   mov vw_addr, r0
 
-    mov -, vw_wait
+   mov -, vw_wait
 .endm
+
+# .macro store_c_row, c_row
+#    mov vw_setup, vpm_setup(1, 1, h32(32 + c_row))
+#    mov vpm, rb16 + c_row
+#    mov -, vw_wait
+# .endm
+
+# .macro store_c_tile
+#    mov r0, ra7
+#    nop; nop; nop;
+#    shl r0, r0, 6
+    
+#    mov r1, 64
+#    sub r0, r0, r1
+#    mov r1, 0xc0000000
+#    or r0, r0, r1
+#    mov vw_setup, r0
+#    mov vw_setup, vdw_setup_0(16, 16, dma_h32(32, 0))
+#    # mov vw_addr, ra10
+
+#    # mov r0, ra9
+#    mov r0, ra2
+#    # # add vertical offset
+#    nop; nop; nop;
+#    mov r1, ra14
+#    # mov r2, ra5
+    
+#    mov r2, ra7
+#    nop; nop; nop;
+#    shl r2, r2, 6
+    
+#    nop; nop; nop;
+#    shl r1, r1, 4
+#    nop; nop; nop;
+#    mul24 r1, r1, r2;
+#    nop; nop; nop;
+#    add r0, r0, r1
+#    nop; nop; nop;
+
+
+    # # add horizontal offset
+#    mov r1, ra15
+#    nop; nop; nop;
+#    shl r1, r1, 6
+#    nop; nop; nop;
+#    add r0, r0, r1
+#   nop; nop; nop;
+
+#    mov vw_addr, r0
+
+#   mov -, vw_wait
+# .endm
 
 .macro move_a_right
     mov r0, ra10
