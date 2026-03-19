@@ -62,8 +62,7 @@
     or r0, r0, r1
 
     # (y << 4)
-    # mov r1, rb38 # this represents the qpu_num
-    mov r1, a_row
+    mov r1, rb38 # this represents the qpu_num
     mov r2, 4
     shl r1, r1, r2
     
@@ -104,7 +103,16 @@
 
     mov -, vr_wait
 
-    mov vr_setup, vpm_setup(1, 1, h32(a_row))
+    # mov vr_setup, vpm_setup(1, 1, h32(a_row))
+    mov r3, vpm_setup(1, 1, 0)
+    mov r1, rb38
+    mov r2, 0xa00
+    or r1, r1, r2
+    mov r0, r1
+    or r0, r0, r3 # add the dma stuff back in 
+
+    mov vr_setup, r0
+
     mov rb0 + a_row, vpm
     mov -, vr_wait
 .endm
