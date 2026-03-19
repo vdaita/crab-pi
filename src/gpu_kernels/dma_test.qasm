@@ -40,12 +40,10 @@
     nop; nop; nop;
     shl r0, r0, 6 # 4 bytes, 16 elements
     
-    # start: old load
-    # mov r1, 0x90000000
-    # or r0, r0, r1
-    # mov vr_setup, r0
-    # mov vr_setup, vdr_setup_0(0, 16, 1, vdr_h32(1, a_row, 0))
-    # end: old load
+    mov r1, 0x90000000
+    or r0, r0, r1
+    mov vr_setup, r0
+
 
     mov r3, vdr_setup_0(0, 16, 1, 0)
     
@@ -69,6 +67,10 @@
     or r0, r0, r1 # r0 <- (vpitch & 0xf) << 12 | y << 4
     or r0, r0, r3 # | dma at the end
     mov vr_setup, r0
+
+    # start: old load
+    # mov vr_setup, vdr_setup_0(0, 16, 1, vdr_h32(1, a_row, 0))
+    # end: old load
 
     mov r0, ra0
     # add vertical offset
@@ -150,7 +152,6 @@
     nop; nop; nop;
     add r0, r0, r1
     nop; nop; nop;
-
 
     # add horizontal offset
     mov r1, ra13
