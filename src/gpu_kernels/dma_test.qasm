@@ -120,13 +120,6 @@
 .endm
 
 .macro load_b_row, b_row
-    # mov vr_setup, vpm_setup(1, 1, v32(0, 16 + b_row))
-    mov vr_setup, vpm_setup(1, 1, h32(16 + b_row))
-    mov ra16 + b_row, vpm
-    mov -, vr_wait
-.endm
-
-.macro load_b_tile
     mov r0, ra7
     nop; nop; nop;
     shl r0, r0, 6
@@ -134,7 +127,31 @@
     mov r1, 0x90000000
     or r0, r0, r1
     mov vr_setup, r0
-    mov vr_setup, vdr_setup_0(0, 16, 16, vdr_h32(1, 16, 0))
+
+    mov r3, vdr_setup_0(0, 16, 1, 0)
+
+    # vdr_h32
+    # reset
+    mov r0, 0
+
+    # (vpitch & 0xf << 2)
+    mov r1, 1
+    mov r2, 0xf
+    and r1, r1, r2
+    shl r1, r1, 12
+
+    or r0, r0, r1
+
+    # (y << 4)
+    mov r1, rb38 # this represents the qpu_num
+    mov r2, 16
+    add r1, r1, r2 # b tile lives at y = qpu_num + 16 in VPM
+    mov r2, 4
+    shl r1, r1, r2
+
+    or r0, r0, r1 # r0 <- (vpitch & 0xf) << 12 | y << 4
+    or r0, r0, r3 # | dma at the end
+    mov vr_setup, r0
 
     mov r0, ra1
     # add vertical offset
@@ -147,6 +164,7 @@
     
     nop; nop; nop;
     shl r1, r1, 4
+    add r1, r1, b_row
     nop; nop; nop;
     mul24 r1, r1, r2;
     nop; nop; nop;
@@ -163,6 +181,18 @@
 
     mov vr_addr, r0
 
+    mov -, vr_wait
+
+    # mov vr_setup, vpm_setup(1, 1, v32(0, 16 + b_row))
+    mov r3, vpm_setup(1, 1, 0)
+    mov r1, rb38
+    mov r2, 16
+    add r1, r1, r2
+    mov r2, 0xa00
+    or r1, r1, r2
+    or r0, r1, r3
+    mov vr_setup, r0
+    mov ra16 + b_row, vpm
     mov -, vr_wait
 .endm
 
@@ -359,7 +389,7 @@ mov ra15, ra11
         mov ra5, ra8
         :innerloop
             # load_a_tile
-            load_b_tile
+            # load_b_tile
 
             load_all_a
             load_all_b
@@ -379,7 +409,7 @@ mov ra15, ra11
         :endinner
 
         store_all_c
-        store_c_tile
+        # store_c_tile
 
         move_a_down
         move_c_down
