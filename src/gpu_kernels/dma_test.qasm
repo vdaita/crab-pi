@@ -198,7 +198,7 @@
 
 .macro store_c_row, c_row 
     mov r3, vpm_setup(1, 1, 0)
-    mov r1, c_row
+    mov r1, rb38
     mov r2, 32
     add r1, r1, r2
     mov r2, 0xa00
@@ -229,7 +229,7 @@
     mov r0, 0x4000
     mov r1, 32 # r1 -> y
     # add in the c_row
-    add r1, r1, c_row
+    add r1, r1, rb38
     shl r1, r1, 7 # y << 7
     or r0, r0, r1 # 0x4000 | y << 7
     or r0, r0, r3 # the last part
