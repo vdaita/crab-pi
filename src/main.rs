@@ -45,11 +45,34 @@ unsafe fn enable_fpu() {
     }
 }
 
+unsafe fn enable_caches() {
+    let mut r: u32;
+    unsafe {
+        core::arch::asm!(
+            "mrc p15, 0, {reg}, c1, c0, 0",
+            reg = out(reg) r,
+            options(nostack, nomem)
+        );
+    }
+
+    r |= 1 << 12; // L1 instruction cache
+    r |= 1 << 11; // branch prediction
+
+    unsafe {
+        core::arch::asm!(
+            "mcr p15, 0, {reg}, c1, c0, 0",
+            reg = in(reg) r,
+            options(nostack, nomem)
+        );
+    }
+}
+
 fn main() {    
     uart::init();
     println!("Hello from Rust on the Pi!");
 
     unsafe {enable_fpu();}
+    unsafe {enable_caches();}
     fat32::pi_sd_init();
 
     softmax::softmax_func_test();
