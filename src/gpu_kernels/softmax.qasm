@@ -29,21 +29,28 @@
 .macro add_helper
     .rep elem, 16
         mov r5rep, r1 << elem
-        nop; nop; nop
-        sub r0, r5rep, r3
         nop; nop; nop;
-        fadd r2, r2, r0 # add the sum here
+        fadd r2, r2, r5rep # add the sum here
         nop; nop; nop;
     .endr
 .endm
 
 .macro update_values
+    # we must maximize this now
+    mov r2, rb0 # maximum value seen so far
+    .rep row, 16
+        mov r1, rb0 + row
+        max_helper
+    .endr
+
     ldi r1, 0x3fb8aa3b        # log2(e)
 
     .rep row, 16
         mov r0, rb0 + row
         nop; nop; nop;
-        fmul r0, r0, r1       # x * log2(e)
+        fsub r0, r0, r2
+        nop; nop; nop;
+        fmul r0, r0, r1       # (x - max) * log2(e)
         nop; nop; nop;
         mov ra54, r0 # i guess bruh
         nop; nop; nop;
@@ -53,35 +60,25 @@
         nop; nop; nop;
     .endr
 
-
-    # we must maximize this now
-    mov r2, rb0 # maximum value seen so far
+    mov r2, 0
     .rep row, 16
         mov r1, rb0 + row
-        max_helper
+        add_helper
     .endr
 
-    # mov r3, r2 # pliz store this in r3
-    # mov r2, 0
-    #.rep row, 16
-    #    mov r1, rb0 + row
-    #    add_helper
-    #.endr
-
-    # now we must recip this sum
+    # take the inverse
     mov ra52, r2
     nop; nop; nop;
     mov ra52, r2
     nop; nop; nop;
     mov r2, r4
 
-    # now we must multiply everything by this reciprocal
-     .rep row, 16
+    .rep row, 16
         fmul r0, rb0 + row, r2
         nop; nop; nop;
-        mov rb0 + row, r2
+        mov rb0 + row, r0
         nop; nop; nop;
-     .endr
+    .endr
 .endm
 
 .macro store_tile

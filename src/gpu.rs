@@ -34,7 +34,7 @@ const GPU_MEM_FLAG: u32 = 0xC;
 pub const MAX_VC_CORES: usize = 12;
 const NUM_DATA_SLOTS: usize = 64;
 const NUM_UNIF_SLOTS: usize = 64;
-pub const MAX_DATA_SIZE: usize = 12800;
+pub const MAX_DATA_SIZE: usize = 128000;
 const BYTES_FOR_CODE: usize = 128000;
 
 unsafe fn mbox_write(channel: u8, data: u32) {

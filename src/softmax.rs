@@ -29,6 +29,8 @@ pub fn cpu_softmax(a: &[f32], cpu_out: &mut [f32]) {
         }
     }
 
+    // println!("Max value, CPU softmax calculation: {}", max_val);
+
     let mut sum = 0.0f32;
     for i in 0..a.len() {
         let e = expf(a[i] - max_val);
@@ -36,10 +38,18 @@ pub fn cpu_softmax(a: &[f32], cpu_out: &mut [f32]) {
         sum += e;
     }
 
+    // println!("Intermediate CPU expf result:\n");
+    // print_float_matrix(cpu_out, 1, cpu_out.len());
+
+    // println!("Sum value, CPU softmax calculation: {}", sum);
+
     if sum == 0.0 {
         return;
     }
     let inv_sum = 1.0 / sum;
+
+   // println!("Inverse sum in CPU softmax: {}", inv_sum);
+    
     for v in cpu_out.iter_mut() {
         *v *= inv_sum;
     }
@@ -131,12 +141,12 @@ fn run_exp_case (
     exp_with_gpu(gpu, &mut gpu_out[..input.len()], input.len());
     let gpu_time = Timer::get_usec() - start_gpu;
 
-    println!("Input: ");
-    print_float_matrix(input, 1, input.len());
-    println!("CPU output:");
-    print_float_matrix(&mut cpu_out[..input.len()], 1, input.len());
-    println!("GPU output:");
-    print_float_matrix(&mut gpu_out[..input.len()], 1, input.len());
+    // println!("Input: ");
+    // print_float_matrix(input, 1, input.len());
+    // println!("CPU output:");
+    // print_float_matrix(&mut cpu_out[..input.len()], 1, input.len());
+    // println!("GPU output:");
+    // print_float_matrix(&mut gpu_out[..input.len()], 1, input.len());
 
     println!(
         "[{}] n={}, GPU: {} usec, CPU: {} usec",
@@ -190,12 +200,12 @@ fn run_softmax_case (
     softmax_with_gpu(gpu, &mut gpu_out[..input.len()], input.len());
     let gpu_time = Timer::get_usec() - start_gpu;
 
-    println!("Input: ");
-    print_float_matrix(input, 1, input.len());
-    println!("CPU output:");
-    print_float_matrix(&mut cpu_out[..input.len()], 1, input.len());
-    println!("GPU output:");
-    print_float_matrix(&mut gpu_out[..input.len()], 1, input.len());
+    // println!("Input: ");
+    // print_float_matrix(input, 1, input.len());
+    // println!("CPU output:");
+    // print_float_matrix(&mut cpu_out[..input.len()], 1, input.len());
+    // println!("GPU output:");
+    // print_float_matrix(&mut gpu_out[..input.len()], 1, input.len());
 
     println!(
         "[{}] n={}, GPU: {} usec, CPU: {} usec",
