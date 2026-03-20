@@ -26,6 +26,7 @@ pub static ADD_KERNEL_CODE: &[u8] = include_bytes!("gpu_kernels/add_kernel.bin")
 // pub static MATMUL_KERNEL_CODE: &[u8] = include_bytes!("gpu_kernels/matmul_kernel.bin");
 pub static DEADBEEF_GPU_CODE: &[u8] = include_bytes!("gpu_kernels/deadbeef.bin");
 pub static SOFTMAX_GPU_CODE: &[u8] = include_bytes!("gpu_kernels/softmax.bin");
+pub static EXP_GPU_CODE: &[u8] = include_bytes!("gpu_kernels/exp.bin");
 pub static MANDELBROT_GPU_CODE: &[u8] = include_bytes!("gpu_kernels/mandelbrot.bin");
 pub static DMA_TEST_CODE: &[u8] = include_bytes!("gpu_kernels/dma_test.bin");
 

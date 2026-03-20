@@ -53,6 +53,7 @@ fn main() {
     fat32::pi_sd_init();
 
     softmax::softmax_func_test();
+    // softmax::exp_func_test();
     programs::gpu_test::test_gpu();
     // gpt::gpt_demo();
     // programs::mandelbrot::mandelbrot();
