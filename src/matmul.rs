@@ -256,6 +256,17 @@ pub fn matmul_func_test() {
         }
 
         {
+            const M: usize = 256;
+            const N: usize = 256;
+            const K: usize = 256;
+            let a: [f32; M * K] = core::array::from_fn(|i| ((i * 13 + 7) % 23) as f32 * 0.25);
+            let b: [f32; K * N] = core::array::from_fn(|i| ((i * 17 + 3) % 19) as f32 * 0.25);
+            let mut c: [f32; M * N] = [0.0; M * N];
+            let mut c_cpu: [f32; M * N] = [0.0; M * N];
+            all_passed = run_matmul_case(gpu, "square-256", M, N, K, &a, &b, &mut c, &mut c_cpu) && all_passed;
+        }
+
+        {
             const M: usize = 32;
             const N: usize = 256;
             const K: usize = 64;
