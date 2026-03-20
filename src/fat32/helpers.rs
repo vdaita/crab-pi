@@ -1,7 +1,4 @@
 #![allow(dead_code)]
-#![allow(non_camel_case_types)]
-#![allow(non_snake_case)]
-
 use core::mem::size_of;
 
 pub fn demand(cond: bool, msg: &str) {

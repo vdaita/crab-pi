@@ -7,9 +7,9 @@ from torch.nn import functional as F
 from tqdm.auto import tqdm
 from datasets import load_dataset
 
-BATCH_SIZE, BLOCK_SIZE, MAX_ITERS, EVAL_EVERY, LR = 64, 128, 5000, 500, 3e-4
+BATCH_SIZE, BLOCK_SIZE, MAX_ITERS, EVAL_EVERY, LR = 64, 384, 5000, 500, 3e-4
 DEVICE = "mps" if torch.mps.is_available() else ("cuda" if torch.cuda.is_available() else "cpu")
-N_LAYER, N_HEAD, N_EMBD, DROPOUT = 2, 4, 128, 0.1
+N_LAYER, N_HEAD, N_EMBD, DROPOUT = 2, 4, 96, 0.1
 SAVE_PATH = "char_model.pt"
 app = typer.Typer(add_completion=False)
 

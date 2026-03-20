@@ -1,6 +1,5 @@
 use libm::tanhf;
 
-// Fast tanh-based GELU approximation used by GPT-style MLP blocks.
 pub fn gelu_tanh(x: f32) -> f32 {
 	let c = 0.044715;
 	let k = 0.7978846; // sqrt(2/pi)

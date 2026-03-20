@@ -1,6 +1,4 @@
 #![allow(dead_code)]
-#![allow(non_snake_case)]
-
 use crate::crc;
 use crate::fast_hash;
 use crate::kmalloc;

@@ -400,6 +400,7 @@
 
 .macro mac_tile
     .rep a_row, 16
+        load_a_row a_row
         mac_tile_helper a_row
     .endr
 .endm
@@ -466,7 +467,7 @@ mov ra15, ra11
             # load_a_tile
             # load_b_tile
 
-            load_all_a
+            # load_all_a
             load_all_b
 
             mac_tile

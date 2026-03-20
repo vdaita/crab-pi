@@ -1,4 +1,4 @@
-use crate::gpu::{GpuKernel, DEADBEEF_GPU_CODE, ADD_KERNEL_CODE, EXP_MAX_GPU_CODE, DMA_TEST_CODE};
+use crate::gpu::{GpuKernel, DEADBEEF_GPU_CODE, ADD_KERNEL_CODE, DMA_TEST_CODE};
 use crate::matmul::{print_matrix, cpu_matmul};
 use crate::{print, println};
 
@@ -14,50 +14,6 @@ pub fn deadbeef_kernel() {
 
         gpu.release();
 
-        println!("Finished releasing test_gpu");
-    }
-}
-
-
-pub fn exp_max_kernel() {
-    
-    
-    unsafe {
-        let gpu_ptr = GpuKernel::new();
-        let gpu = &mut *gpu_ptr;
-        gpu.load_code(EXP_MAX_GPU_CODE);
-
-        let a: [f32; 64] = core::array::from_fn(|i| i as f32);
-        let n = a.len(); // copy_nonoverlapping expects element count
-        
-        for (i, &f) in a.iter().enumerate() {
-            // gpu.data[0][i] = f.to_bits();
-            let f_u32: u32 = f.to_bits();
-            gpu.data[0][i] = f_u32;
-        }
-        core::ptr::copy_nonoverlapping(a.as_ptr() as *const u32, gpu.data[0].as_mut_ptr(), n);
-
-        print!("Input: a[0..64] = ");
-        for i in 0..64 {
-            print!(" {}", f32::from_bits(gpu.data[0][i]));
-        }
-        println!("");
-        
-        print!("Before: out[0..64] =");
-        for i in 0..64 {
-            print!(" {}", f32::from_bits(gpu.data[1][i]));
-        }
-        println!("");
-
-        gpu.execute(1);
-
-        print!("After: out[0..64] =");
-        for i in 0..64 {
-            print!(" {}", f32::from_bits(gpu.data[1][i]));
-        }
-        println!("");
-
-        gpu.release();
         println!("Finished releasing test_gpu");
     }
 }

@@ -12,6 +12,7 @@ mod start;
 mod uart;
 mod gpu;
 mod matmul;
+mod softmax;
 mod watchdog;
 mod timer;
 mod kmalloc;
@@ -51,12 +52,13 @@ fn main() {
     unsafe {enable_fpu();}
     fat32::pi_sd_init();
 
-    programs::gpu_test::test_gpu();
+    softmax::softmax_func_test();
+    // programs::gpu_test::test_gpu();
     // gpt::gpt_demo();
     // programs::mandelbrot::mandelbrot();
     // programs::fat32_test::fat32_test();
     // programs::matrix_load_test::matrix_load_test();
-    // gpt::model::load_model();
+    // gpt::model::infer_model();
 
 
     done();
