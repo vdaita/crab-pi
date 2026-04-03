@@ -25,6 +25,7 @@ mod programs {
     pub mod mandelbrot;
     pub mod fat32_test;
     pub mod matrix_load_test;
+    pub mod derive_jit;
 }
 
 unsafe fn enable_fpu() {
@@ -71,18 +72,19 @@ fn main() {
     uart::init();
     println!("Hello from Rust on the Pi!");
 
-    unsafe {enable_fpu();}
-    unsafe {enable_caches();}
-    fat32::pi_sd_init();
+    programs::derive_jit::derive_main();
 
-    softmax::softmax_func_test();
+    // unsafe {enable_fpu();}
+    // unsafe {enable_caches();}
+    // fat32::pi_sd_init();
+    // softmax::softmax_func_test();
     // softmax::exp_func_test();
-    programs::gpu_test::test_gpu();
+    // programs::gpu_test::test_gpu();
     // gpt::gpt_demo();
     // programs::mandelbrot::mandelbrot();
     // programs::fat32_test::fat32_test();
     // programs::matrix_load_test::matrix_load_test();
-    gpt::model::infer_model();
+    // gpt::model::infer_model();
 
 
     done();
