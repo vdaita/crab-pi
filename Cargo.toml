@@ -12,5 +12,8 @@ test = false
 doctest = false
 bench = false
 
+[profile.release]
+opt-level = "z"
+
 [dependencies]
 libm = "0.2"

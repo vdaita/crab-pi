@@ -26,6 +26,7 @@ mod programs {
     pub mod fat32_test;
     pub mod matrix_load_test;
     pub mod derive_jit;
+    pub mod ir;
 }
 
 unsafe fn enable_fpu() {
@@ -71,10 +72,11 @@ unsafe fn enable_caches() {
 fn main() {    
     uart::init();
     println!("Hello from Rust on the Pi!");
+    
+    programs::ir::ir_main();
 
-    programs::derive_jit::derive_main();
-
-    // unsafe {enable_fpu();}
+    // programs::derive_jit::derive_main();
+    // unsafe {enable_fpu()};
     // unsafe {enable_caches();}
     // fat32::pi_sd_init();
     // softmax::softmax_func_test();
