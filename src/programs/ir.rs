@@ -1,32 +1,137 @@
-use crate::arch::dev_barrier;
-use crate::gpio::{read, set_input};
-use crate::print;
+use crate::arch::{dev_barrier, gcc_mb};
+use crate::gpio::{read, set_input, set_output, set_on, set_off};
+use crate::{print, start};
 use crate::println;
 use crate::timer::{Timer};
 use core::cmp::min;
-use core::arch::global_asm;
+use core::arch::{asm, global_asm};
 
 // defined in rpi_constants.h. put the stack for this above the regular stack. 
 global_asm!(r#"
-.align 5
-.global interrupt_vec
-interrupt_vec:
-  ldr pc, =unhandled_reset
-  ldr pc, =unhandled_undefined_instruction
-  ldr pc, =unhandled_swi
-  ldr pc, =unhandled_prefetch_abort
-  ldr pc, =unhandled_data_abort
-  ldr pc, =interrupt_asm
+.globl _interrupt_table
+.globl _interrupt_table_end
+_interrupt_table:
+  @ Q: why can we copy these ldr jumps and have
+  @ them work the same?
+  ldr pc, _reset_asm                    @ 0x0: Q: why this order?[A2-16]
+  ldr pc, _undefined_instruction_asm    @ 0x4
+  ldr pc, _software_interrupt_asm       @ 0x8
+  ldr pc, _prefetch_abort_asm
+  ldr pc, _data_abort_asm
+  ldr pc, _reset_asm
+  ldr pc, _interrupt_asm
+infinite_loop:
+    bl infinite_loop
+fast_interrupt_asm:
+  sub   lr, lr, #4 @First instr of FIQ handler
+  push  {{lr}}
+  push  {{r0-r12}}
+  mov   r0, lr              @ Pass old pc
+  bl    fast_interrupt_vector    @ C function
+  pop   {{r0-r12}}
+  ldm   sp!, {{pc}}^
+_reset_asm:                   .word reset_asm
+_undefined_instruction_asm:   .word undefined_instruction_asm
+_software_interrupt_asm:      .word software_interrupt_asm
+_prefetch_abort_asm:          .word prefetch_abort_asm
+_data_abort_asm:              .word data_abort_asm
+_interrupt_asm:               .word interrupt_asm
+_interrupt_table_end:   @ end of the table.
+
+undefined_instruction_asm:                      @ A2-19
+    bx lr  
+software_interrupt_asm:                         @ A2-20
+    bx lr
+prefetch_abort_asm:
+    bx lr
+data_abort_asm:
+    bx lr
+reset_asm:
+    bx lr
+
 
 interrupt_asm:
-  mov sp, 0x9000000
-  sub lr, lr, #4
-  push {{r0-r12, lr}}
-  mov r0, lr
-  bl interrupt_vector
-  pop {{r0-r12, lr}}
-  movs pc, lr
+  @ NOTE:
+  @  - each mode has its own <sp> that persists when
+  @    we switch out of the mode (i.e., will be the same
+  @    when switch back).
+  @  - <INT_STACK_ADDR> is a physical address we reserve 
+  @   for exception stacks today.  we don't do recursive
+  @   exception/interupts so one stack is enough.
+  mov sp, 0x9000000   @ Q: what if you delete?
+  sub   lr, lr, #4
+
+  @ push regs: beter match a pop
+  push  {{r0-r12,lr}}         @ XXX: pushing too many 
+                            @ registers: only need caller
+                            @ saved.
+
+  mov   r0, lr              @ Pass old pc as arg 0
+  bl    interrupt_vector    @ C function: expects C 
+                            @ calling conventions.
+
+  @ pop regs: better match push (what happens if not?)
+  pop   {{r0-r12,lr}} 	    @ pop integer registers
+                            @ this MUST MATCH the push.
+                            @ very common mistake.
+
+  @ return from interrupt handler: will re-enable general ints.
+  @ Q: what happens if you do "mov" instead?
+  @ Q: what other instructions could we use?
+  movs    pc, lr        @ 1: moves <spsr> into <cpsr> 
+                        @ 2. moves <lr> into the <pc> of that
+                        @    mode.
+
+.globl enable_interrupts
+enable_interrupts:
+    mrs r0, cpsr @ move cpsr to r0
+    bic r0,r0,#(1<<7)	@ clear 7th bit.
+    msr cpsr_c,r0		@ move r0 back to PSR
+    bx lr		        @ return
+
+.globl disable_interrupts
+disable_interrupts:
+    mrs r0,cpsr		       
+    orr r0,r0,#(1<<7)	@ set 7th bit
+    msr cpsr_c,r0
+    bx lr
 "#);
+
+unsafe extern "C" {
+    #[link_name = "enable_interrupts"]
+    fn enable_interrupts_asm();
+    
+    #[link_name = "disable_interrupts"]
+    unsafe fn disable_interrupts_asm();
+
+    #[link_name = "interrupt_asm"]
+    unsafe fn interrupt_asm();
+
+    #[link_name = "_interrupt_table"]
+    static INTERRUPT_TABLE_START: u8;
+
+    #[link_name = "_interrupt_table_end"]
+    static INTERRUPT_TABLE_END: u8;
+}
+
+pub fn move_table() {
+    let start: *const u32 = core::ptr::addr_of!(INTERRUPT_TABLE_START) as *const u32;
+    let end: *const u32 = core::ptr::addr_of!(INTERRUPT_TABLE_END) as *const u32;
+    let len = (end as usize) - (start as usize);
+    let dst = core::ptr::without_provenance_mut::<u32>(0);
+    unsafe {
+        for i in 0..len {
+            core::arch::asm!(
+                "ldr {t}, [{i}]",
+                "str {t}, [{o}]",
+                t = out(reg) _,
+                i = in(reg) start.add(i),
+                o = in(reg) dst.add(i),
+            )
+        }
+        // core::ptr::copy_nonoverlapping(start, dst, len);
+    }
+}
 
 const PIN: u32 = 21;
 const BIG: u32 = 1_000_000_000u32;
@@ -49,6 +154,10 @@ const GPIO_FALLING_ENABLE: u32 = GPIO_BASE + 0x0058;
 const GPIO_EVENT_DETECT: u32 = GPIO_BASE + 0x0040;
 const GPIO_INT0: u32 = 49;
 const IRQ_Enable_2: u32 = 0x2000_b200 + 0x14;
+const IRQ_Disable_1: u32 = 0x2000_b200 + 0x1c;
+const IRQ_Disable_2: u32 = 0x2000_b200 + 0x20;
+
+static mut was_interrupted: u32 = 0;
 
 pub fn get_value() -> (u32, u32) { // (value, length)
     let start_time = Timer::get_usec();
@@ -108,35 +217,84 @@ pub fn gpio_int_falling_edge(pin: u32) {
     dev_barrier();
 }
 
+pub fn gpio_event_clear(pin: u32) {
+    dev_barrier();
+    unsafe {
+        core::ptr::write_volatile(GPIO_EVENT_DETECT as *mut u32, 1 << pin);
+    }
+    dev_barrier();
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn interrupt_vector(pc: u32) {
     println!("in interrupt vector to process a signal. pc={}", pc);
+    unsafe { was_interrupted = 1; }
     process_data();
+    gpio_event_clear(PIN);
+    println!("done with process data. go back to while loop.");
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn fast_interrupt_vector(pc: u32) {
+    println!("in fast interrupt vector. pc={}", pc);
+}
 
-pub fn ir_main() {
+pub fn ir_main() {    
     set_input(PIN);
-    gpio_int_falling_edge(PIN);
+    set_output(27);
+
+    println!("about to install interrupts");
+    unsafe {
+        disable_interrupts_asm();
+        core::ptr::write_volatile(IRQ_Disable_1 as *mut u32, 0xffffffff);
+        core::ptr::write_volatile(IRQ_Disable_2 as *mut u32,  0xffffffff);
+        println!("Just disabled interrupts.");
+    }
+    dev_barrier();
+
+    gcc_mb();
+    move_table();
+    gcc_mb();
+    println!("Just moved tables.");
+
+    gpio_event_clear(PIN);
+    // gpio_int_falling_edge(PIN);
     gpio_int_rising_edge(PIN);
+    println!("Just finished setting gpio_int_falling_edge");
+
+    unsafe {
+        enable_interrupts_asm();
+    }
+    println!("Just enabled interrupts");
 
     let mut prev_run: u32 = 0;
     while (true) {
-        Timer::delay_us(100);
+        // unsafe {
+        //     if(was_interrupted == 1) {
+        //         disable_interrupts_asm();
+        //     }
+        // }
+        Timer::delay_us(100000);
+        unsafe { disable_interrupts_asm(); }
         let curr_run = Timer::get_usec();
         println!("While loop, delay since previous = {}", curr_run - prev_run);
         prev_run = curr_run;
+        unsafe { enable_interrupts_asm(); }
     }
 }
 
 pub fn process_data(){
     let (mut prev_value, mut prev_time) = (0u32, 0u32);
+    let start_time = Timer::get_usec();
     while(true) {
         let (curr_value, curr_time) = get_value();
         if (prev_value == 0 && curr_value == 1 && is_around(prev_time, 9000) && is_around(curr_time, 4500)) {
             break;
         }
-        
+        // if(curr_time - start_time >= 1000000) {
+        //     println!("nothing happened for a second");
+        //     return;
+        // }
         (prev_value, prev_time) = (curr_value, curr_time);
     }
 
@@ -153,15 +311,15 @@ pub fn process_data(){
     }
 
     if(is_close_match(&signal_values, &signal_length, PREV_SIGNAL_VALUES, PREV_SIGNAL_LENGTHS)) {
-        println!("it's prev");
+        println!("BUTTON NAME: it's prev");
     } else if (is_close_match(&signal_values, &signal_length, NEXT_SIGNAL_VALUES, NEXT_SIGNAL_LENGTHS)) {
-        println!("it's next");
+        println!("BUTTON NAME: it's next");
     } else if (is_close_match(&signal_values, &signal_length, PLAY_PAUSE_SIGNAL_VALUES, PLAY_PAUSE_SIGNAL_LENGTHS)) {
-        println!("it's play pause");
+        println!("BUTTON NAME: it's play pause");
     } else if (is_close_match(&signal_values, &signal_length, EQ_SIGNAL_VALUES, EQ_SIGNAL_LENGTHS)) {
-        println!("it's eq");
+        println!("BUTTON NAME: it's eq");
     } else {
-        println!("idk");
+        println!("BUTTON NAME: idk");
     }
     
     print!("let signal_values = [");
@@ -183,6 +341,10 @@ pub fn process_data(){
         print!(", ");
     }
     print!("];\n");
+
+    Timer::delay_us(2000);
+
+    println!("done with process_data!");
 }
 
 // pub fn ir_main() {
