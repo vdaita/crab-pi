@@ -75,7 +75,6 @@ fn main() {
     uart::init();
     println!("Hello from Rust on the Pi!");
 
-    
     programs::ckmalloc_test::test_ckmalloc();
 
     // programs::ir::ir_main();

@@ -24,7 +24,9 @@ SECTIONS {
         . = ALIGN(__WORD_ALIGN);
     }
     .data ALIGN(__WORD_ALIGN) : {
+        PROVIDE(__data_start__ = .);
         *(.data*)
+        PROVIDE(__data_end__ = .);
         . = ALIGN(__WORD_ALIGN);
     }
     .bss ALIGN(__WORD_ALIGN) : {

@@ -6,7 +6,7 @@ use core::arch::global_asm;
 
 use crate::kmalloc::{HEAP_CURR, HEAP_END};
 use crate::{kmalloc, println};
-use crate::start::{bss_start, bss_end, stack_init};
+use crate::start::{bss_start, bss_end, stack_init, data_start, data_end};
 
 #[derive(PartialEq, PartialOrd, Eq, Ord)]
 enum CheckBlockState {
@@ -28,11 +28,12 @@ union Header {
     x: Align
 }
 
+#[derive(Copy, Clone)]
 #[repr(C)]
-struct SourceLocation {
-    file: &'static str,
-    func: &'static str,
-    lineno: u32
+pub struct SourceLocation {
+    pub file: &'static str,
+    pub func: &'static str,
+    pub lineno: u32,
 }
 
 #[repr(C)]
@@ -125,6 +126,8 @@ pub fn kr_free(ap: *mut u8) {
             ) {
                 break;
             }
+
+            p = (*p).s.ptr;
         }
 
         // join to upper nbr
@@ -184,7 +187,7 @@ pub fn ckalloc(nbytes: usize, l: SourceLocation) -> *mut u8 {
             panic!("kr_malloc returned null.");
         }
 
-        core::ptr::write_bytes(buf, 0u8, nbytes + ckheader_size);
+        core::ptr::write_bytes(buf as *mut u8, 0u8, nbytes + ckheader_size);
         let mut header_ptr: *mut CheckHeader = buf as *mut CheckHeader;
         let mut header: &mut CheckHeader = &mut *header_ptr;
 
@@ -249,12 +252,12 @@ pub fn ckfree(addr: *mut u32, l: SourceLocation) {
 fn ck_mark(p: *const u32, e: *const u32) {
     unsafe {
         assert!(p < e);
-        assert_eq!((p as u32) % 4, 0);
-        assert_eq!((e as u32) % 4, 0);
+        assert_eq!((p as usize) % 4, 0);
+        assert_eq!((e as usize) % 4, 0);
 
         let mut curr_p = p;
         while curr_p < e { 
-            let possible_ptr = (*p) as *const u32;
+            let possible_ptr = (*curr_p) as *const u32;
             let alloced_ptr: *mut CheckHeader = ck_ptr_is_alloced(possible_ptr);
             if (!alloced_ptr.is_null()) {
                 let check_header = &mut *alloced_ptr;
@@ -290,11 +293,12 @@ fn ck_mark_all(sp: *mut u32) {
         }
 
         let mut stack_top: usize = STACK_ADDR;
-        ck_mark(stack_top as *mut u32, sp);
+        ck_mark(sp, stack_top as *mut u32);
         ck_mark( bss_start(), bss_end());
 
         assert!(HEAP_CURR != 0);
         assert!(HEAP_END != 0);
+        ck_mark(data_start(), data_end());
         // ck_mark("heap", HEAP_CURR as *mut u32, HEAP_END as *mut u32);
     }
 }
@@ -307,12 +311,12 @@ fn ck_sweep_leak() -> u32 {
 
         let mut curr_alloc = ck_alloc_list;
         while !curr_alloc.is_null() {
-            if ((*curr_alloc).refs_start > 0) {
+            if ((*curr_alloc).refs_start == 0 && (*curr_alloc).refs_middle == 0) {
                 errors += 1;
-            }
-            if ((*curr_alloc).refs_middle > 0) {
+            } else if ((*curr_alloc).refs_middle == 0) {
                 maybe_errors += 1;
             }
+
             nblocks += 1;
 
             curr_alloc = (*curr_alloc).next;
@@ -354,27 +358,29 @@ fn ck_sweep_free() -> usize {
     }
 }
 
-fn ck_find_leaks_fn(sp: *mut u32) -> u32 {
+#[unsafe(no_mangle)]
+pub extern "C" fn ck_find_leaks_fn(sp: *mut u32) -> u32 {
     ck_mark_all(sp);
     return ck_sweep_leak();
 }
 
-fn ck_gc_fn(sp: *mut u32) -> usize {
+#[unsafe(no_mangle)]
+pub extern "C" fn ck_gc_fn(sp: *mut u32) -> usize {
     ck_mark_all(sp);
     return ck_sweep_free();
 }
 
 unsafe extern "C" {
     fn ck_find_leaks_tramp() -> u32;
-    fn ck_gc_tramp() -> u32;
+    fn ck_gc_tramp() -> usize;
 }
 
-pub fn ck_find_leaks() {
-    unsafe { ck_find_leaks_tramp(); }
+pub fn ck_find_leaks() -> u32 {
+    unsafe { ck_find_leaks_tramp() }
 }
 
-pub fn ck_gc() {
-    unsafe{ ck_gc_tramp(); }
+pub fn ck_gc() -> usize {
+    unsafe{ ck_gc_tramp() }
 }
 
 global_asm!(r#"
