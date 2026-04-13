@@ -75,10 +75,10 @@ pub fn kr_malloc(nbytes: usize) -> *mut u32 {
 
         p = (*prevp).s.ptr;
         loop {
-            if (*p).s.size >= nunits { 
-                if (*p).s.size == nunits {
+            if (*p).s.size >= nunits { // big enough
+                if (*p).s.size == nunits { // exactly the right size
                     (*prevp).s.ptr = (*p).s.ptr;
-                } else {
+                } else { // allocate the tail end of this block
                     (*p).s.size -= nunits;
                     p = p.add((*p).s.size as usize);
                     (*p).s.size = nunits;
@@ -88,7 +88,7 @@ pub fn kr_malloc(nbytes: usize) -> *mut u32 {
                 return (p.add(1).cast::<u32>());
             }
 
-            if core::ptr::eq(p,freep) {
+            if p == freep {
                 p = kmalloc::kmalloc(nunits).cast::<Header>();
                 if p.is_null() {
                     return core::ptr::null_mut();
@@ -107,8 +107,9 @@ pub fn kr_free(ap: *mut u8) {
         let mut p: *mut Header;
 
         bp = (ap as *mut Header).sub(1);
+        p = freep;
         loop {
-            p = freep;
+            println!("kr_free loop: visiting/checking {:p}", p);
 
             if (
                 (bp > p) && 
@@ -128,6 +129,7 @@ pub fn kr_free(ap: *mut u8) {
             }
 
             p = (*p).s.ptr;
+            println!("kr_free loop: moving to where this is pointed to: {:p}", (*p).s.ptr);
         }
 
         // join to upper nbr
@@ -200,8 +202,9 @@ pub fn ckalloc(nbytes: usize, l: SourceLocation) -> *mut u8 {
         header.next = ck_alloc_list;
         ck_alloc_list = header_ptr;
 
-        assert!(ck_ptr_is_alloced(buf) != core::ptr::null_mut());
-        return buf.cast::<CheckHeader>().add(1).cast::<u8>();
+        let data_start = header_ptr.add(1).cast::<u8>();
+        assert!(data_start != core::ptr::null_mut());
+        return data_start
     }
 }
 
@@ -216,6 +219,7 @@ fn ck_list_remove(header: *mut CheckHeader) {
 
         let mut p: *mut CheckHeader = (*prev).next;
         while(!p.is_null()) {
+            // println!("ck_list_remove: checking {:p}", p);
             if (p == header) {
                 (*prev).next = (*p).next;
                 return;
@@ -245,11 +249,13 @@ pub fn ckfree(addr: *mut u32, l: SourceLocation) {
         (*h).state = CheckBlockState::FREED;
 
         ck_list_remove(h);
+        println!("ckfree: finished removing {:p} from list", addr);
         kr_free(h as *mut u8);
     }
 }
 
-fn ck_mark(p: *const u32, e: *const u32) {
+fn ck_mark(region: &str, p: *const u32, e: *const u32) {
+    println!("Running ck_mark on region {}, with pointer ranges start={:p}, end={:p}", region, p, e);
     unsafe {
         assert!(p < e);
         assert_eq!((p as usize) % 4, 0);
@@ -270,9 +276,11 @@ fn ck_mark(p: *const u32, e: *const u32) {
                     check_header.refs_middle += 1;
                 }
 
+                println!("Found reference to alloced region region={}, current_ptr={:p}, range_start={:p}, range_end={:p}", region, curr_p, start_ptr, end_ptr);
+
                 if(check_header.mark == 0) {
                     check_header.mark = 1;
-                    ck_mark(start_ptr, end_ptr);                    
+                    ck_mark(region, start_ptr, end_ptr);                    
                 }
             }
 
@@ -293,12 +301,12 @@ fn ck_mark_all(sp: *mut u32) {
         }
 
         let mut stack_top: usize = STACK_ADDR;
-        ck_mark(sp, stack_top as *mut u32);
-        ck_mark( bss_start(), bss_end());
+        ck_mark("stack", sp, stack_top as *mut u32);
+        ck_mark( "bss", bss_start(), bss_end());
 
         assert!(HEAP_CURR != 0);
         assert!(HEAP_END != 0);
-        ck_mark(data_start(), data_end());
+        ck_mark("global", data_start(), data_end());
         // ck_mark("heap", HEAP_CURR as *mut u32, HEAP_END as *mut u32);
     }
 }
@@ -380,6 +388,7 @@ pub fn ck_find_leaks() -> u32 {
 }
 
 pub fn ck_gc() -> usize {
+    println!("Calling GC!");
     unsafe{ ck_gc_tramp() }
 }
 

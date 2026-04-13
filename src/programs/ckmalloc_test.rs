@@ -11,8 +11,16 @@ struct Root {
     tag: u32,
 }
 
+#[used]
+#[unsafe(no_mangle)]
 static mut GLOBAL_P: *mut u8 = ptr::null_mut();
+
+#[used]
+#[unsafe(no_mangle)]
 static mut ROOT_P: *mut Root = ptr::null_mut();
+
+#[used]
+#[unsafe(no_mangle)]
 static mut MIDDLE_P: *mut u8 = ptr::null_mut();
 
 fn scrub_stack() {
@@ -62,6 +70,8 @@ fn test_alloc_free_reverse_order() {
         allocs[i] = alloc_one(i + 1);
     }
 
+    println!("Finished allocating allocs for the list (test 2).");
+
     for i in (0..N).rev() {
         free_one(allocs[i]);
     }
@@ -80,6 +90,12 @@ fn alloc_global_root() {
     unsafe {
         GLOBAL_P = alloc_one(4);
         ptr::write_bytes(GLOBAL_P, 0x11, 4);
+        // GLOBAL_P = core::hint::black_box(GLOBAL_P);
+        compiler_fence(Ordering::SeqCst);
+
+        // println!("GLOBAL_P slot is at {:p}", &raw const GLOBAL_P);
+        // println!("GLOBAL_P value is {:p}", core::hint::black_box(GLOBAL_P));
+        // println!("GLOBAL_P lives at {:p}", &raw const GLOBAL_P);
     }
 }
 
