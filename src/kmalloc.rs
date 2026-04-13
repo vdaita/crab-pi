@@ -7,8 +7,8 @@ unsafe extern "C" {
     static __dram_end__: u8;
 }
 
-static mut HEAP_CURR: usize = 0;
-static mut HEAP_END: usize = 0;
+pub static mut HEAP_CURR: usize = 0;
+pub static mut HEAP_END: usize = 0;
 
 #[inline(always)]
 const fn align_up(x: usize, align: usize) -> usize {

@@ -1,0 +1,399 @@
+#![allow(dead_code)]
+use core::ffi::c_long;
+use core::mem::size_of;
+use core::ptr::addr_of_mut;
+use core::arch::global_asm;
+
+use crate::kmalloc::{HEAP_CURR, HEAP_END};
+use crate::{kmalloc, println};
+use crate::start::{bss_start, bss_end, stack_init};
+
+#[derive(PartialEq, PartialOrd, Eq, Ord)]
+enum CheckBlockState {
+    ALLOCED = 11,
+    FREED = 12,
+}
+
+type Align = c_long;
+#[derive(Copy, Clone)]
+#[repr(C)]
+struct HeaderFields {
+    ptr: *mut Header,
+    size: usize
+}
+
+#[repr(C)]
+union Header {
+    s: HeaderFields,
+    x: Align
+}
+
+#[repr(C)]
+struct SourceLocation {
+    file: &'static str,
+    func: &'static str,
+    lineno: u32
+}
+
+#[repr(C)]
+struct CheckHeader {
+    next: *mut CheckHeader,
+    nbytes_alloc: usize,
+
+    state: CheckBlockState,
+    block_id: u32,
+    alloc_loc: SourceLocation,
+    
+    refs_start: u32, // number of pointers to the start of the block
+    refs_middle: u32, // number of pointers to the middle of the block
+    mark: u16, // 0 initialize
+
+    rz1: [u8; 128]
+}
+
+static mut base: Header = Header { x: 0 };
+static mut freep: *mut Header = core::ptr::null_mut();
+static mut block_id: u32 = 1;
+static STACK_ADDR: usize = 0x0800_0000;
+
+
+pub fn kr_malloc(nbytes: usize) -> *mut u8 {
+    unsafe {
+        let mut p: *mut Header;
+        let mut prevp: *mut Header;
+        let nunits: usize = ((nbytes + size_of::<Header>() - 1) / size_of::<Header>()) + 1;
+        
+        prevp = freep;
+        if(prevp.is_null()) {
+            let base_ptr: *mut Header = addr_of_mut!(base);
+            prevp = base_ptr;
+            freep = base_ptr;
+            base.s.ptr = base_ptr;
+            base.s.size = 0;
+        }
+
+        p = (*prevp).s.ptr;
+        loop {
+            if (*p).s.size >= nunits { 
+                if (*p).s.size == nunits {
+                    (*prevp).s.ptr = (*p).s.ptr;
+                } else {
+                    (*p).s.size -= nunits;
+                    p = p.add((*p).s.size as usize);
+                    (*p).s.size = nunits;
+                }
+
+                freep = prevp;
+                return (p.add(1)) as *mut u8;
+            }
+
+            if core::ptr::eq(p,freep) {
+                p = kmalloc::kmalloc(nunits).cast::<Header>();
+                if p.is_null() {
+                    return core::ptr::null_mut();
+                }
+            }
+        
+            prevp = p;
+            p = (*p).s.ptr;
+        }
+    }
+}
+
+pub fn kr_free(ap: *mut u8) {
+    unsafe {
+        let mut bp: *mut Header;
+        let mut p: *mut Header;
+
+        bp = (ap as *mut Header).sub(1);
+        loop {
+            p = freep;
+
+            if (
+                (bp > p) && 
+                (bp < (*p).s.ptr)
+            ) {
+                break;
+            }
+
+            if (
+                (p >= (*p).s.ptr) &&
+                (
+                    (bp > p) ||
+                    (bp < (*p).s.ptr)
+                )
+            ) {
+                break;
+            }
+        }
+
+        // join to upper nbr
+        if(
+            core::ptr::eq(bp.cast::<u8>().add((*bp).s.size), (*p).s.ptr.cast::<u8>()) 
+        ) {
+            (*bp).s.size += (*((*p).s.ptr)).s.size;
+            (*bp).s.ptr = (*((*p).s.ptr)).s.ptr;
+        } else {
+            (*bp).s.ptr = (*p).s.ptr;
+        }
+
+        // join to lower nbr
+        if(
+            core::ptr::eq(p.add((*p).s.size), bp)
+        ) {
+            (*p).s.size += (*bp).s.size;
+            (*p).s.ptr = (*bp).s.ptr;
+        } else {
+            (*p).s.ptr = bp;
+        }
+
+        freep = p;
+    }
+}
+
+static mut ck_alloc_list: *mut CheckHeader = core::ptr::null_mut();
+
+fn ck_ptr_is_alloced(addr: *mut u8) -> *mut CheckHeader {
+    unsafe {
+        let mut h: *mut CheckHeader = ck_alloc_list;
+        loop {
+            if (h.is_null()) {
+                break;
+            }
+
+            if((*h).state != CheckBlockState::ALLOCED) {
+                panic!("Error! Should only have allocated blocks in the allocated list!");
+            }
+
+            let data_ptr: *mut u8 = h.add(1).cast::<u8>();
+            if(data_ptr <= addr && addr < data_ptr.byte_add((*h).nbytes_alloc)) {
+                return h;
+            }
+
+            h = (*h).next;
+        }
+        return core::ptr::null_mut();
+    }
+} 
+
+pub fn ckalloc(nbytes: usize, l: SourceLocation) -> *mut u8 {
+    let ckheader_size = size_of::<CheckHeader>();
+    unsafe {
+        let mut buf = kr_malloc(nbytes + ckheader_size);
+        if (buf.is_null()) {
+            panic!("kr_malloc returned null.");
+        }
+
+        core::ptr::write_bytes(buf, 0u8, nbytes + ckheader_size);
+        let mut header_ptr: *mut CheckHeader = buf as *mut CheckHeader;
+        let mut header: &mut CheckHeader = &mut *header_ptr;
+
+        header.nbytes_alloc = nbytes;
+        header.state = CheckBlockState::ALLOCED;
+        header.alloc_loc = l;
+        header.block_id = block_id;
+        block_id = block_id + 1;
+
+        header.next = ck_alloc_list;
+        ck_alloc_list = header_ptr;
+
+        assert!(ck_ptr_is_alloced(buf) != core::ptr::null_mut());
+        return buf.cast::<CheckHeader>().add(1).cast::<u8>();
+    }
+}
+
+fn ck_list_remove(header: *mut CheckHeader) {
+    unsafe {
+        assert!(!ck_alloc_list.is_null());
+        let mut prev: *mut CheckHeader = ck_alloc_list;
+        if(prev == header) {
+            ck_alloc_list = (*ck_alloc_list).next;
+            return;
+        }
+
+        let mut p: *mut CheckHeader = (*prev).next;
+        while(!p.is_null()) {
+            if (p == header) {
+                (*prev).next = (*p).next;
+                return;
+            }
+            prev = p;
+            p = (*p).next;
+        }
+        panic!("Did not find {:p} in list.", header);
+    }   
+}
+
+pub fn ckfree(addr: *mut u8, l: SourceLocation) {
+    unsafe {
+        let h: *mut CheckHeader = ck_ptr_is_alloced(addr);
+        if h.is_null() {
+            panic!("Freeing bogus pointer: {:p}", addr);
+        }
+
+        let blk_start: *mut u8 = h.add(1).cast::<u8>();
+        if(blk_start != addr) {
+            panic!("not freeing using start pointer: have {:p}, need {:p}", addr, blk_start);
+        }
+
+        if((*h).state != CheckBlockState::ALLOCED) {
+            panic!("Freeing unallocated memory");
+        }
+        (*h).state = CheckBlockState::FREED;
+
+        ck_list_remove(h);
+        kr_free(h as *mut u8);
+    }
+}
+
+fn ck_mark(donde: &str, p: *const u32, e: *const u32) {
+    unsafe {
+        assert!(p < e);
+        assert_eq!((p as u32) % 4, 0);
+        assert_eq!((e as u32) % 4, 0);
+
+        let mut curr_alloc= ck_alloc_list;
+        while !curr_alloc.is_null() {
+            let mut alloc_start = curr_alloc.add(1).cast::<u32>();
+            let mut alloc_end = curr_alloc.add(1).byte_add(
+                (*curr_alloc).nbytes_alloc
+            ).cast::<u32>();
+
+            let mut curr_p = p;
+            while curr_p < e {
+                let possible_ptr = (*curr_p) as *mut u32;
+
+                if (possible_ptr == alloc_start) {
+                    (*curr_alloc).refs_start += 1;
+                    (*curr_alloc).mark += 1;
+                }
+                if (alloc_start < possible_ptr && possible_ptr < alloc_end) {
+                    (*curr_alloc).refs_middle += 1;
+                    (*curr_alloc).mark += 1;
+                }
+
+                curr_p = curr_p.add(1);
+            }
+
+            curr_alloc = (*curr_alloc).next;
+        }
+    }
+}
+
+fn ck_mark_all(sp: *mut u32) {
+    unsafe {
+        let mut curr_alloc = ck_alloc_list;
+        while !curr_alloc.is_null() {
+            (*curr_alloc).mark = 0;
+            (*curr_alloc).refs_start = 0;
+            (*curr_alloc).refs_middle = 0;
+
+            curr_alloc = (*curr_alloc).next;
+        }
+
+        let mut stack_top: usize = STACK_ADDR;
+        ck_mark("start", sp, stack_top as *mut u32);
+        ck_mark("bss", bss_start(), bss_end());
+
+        assert!(HEAP_CURR != 0);
+        assert!(HEAP_END != 0);
+        ck_mark("heap", HEAP_CURR as *mut u32, HEAP_END as *mut u32);
+        // TODO: mark the heap
+    }
+}
+
+fn ck_sweep_leak() -> u32 {
+    unsafe {
+        let mut nblocks: u32 = 0;
+        let mut errors: u32 = 0;
+        let mut maybe_errors: u32 = 0;
+
+        let mut curr_alloc = ck_alloc_list;
+        while !curr_alloc.is_null() {
+            if ((*curr_alloc).refs_start > 0) {
+                errors += 1;
+            }
+            if ((*curr_alloc).refs_middle > 0) {
+                maybe_errors += 1;
+            }
+            nblocks += 0;
+        }
+        
+        if (errors == 0 && maybe_errors == 0) {
+            println!("GC: No leaks found!");
+        } else {
+            println!("GC: Errors: {} errors, {} maybe errors", errors, maybe_errors);
+        }
+        
+        return errors + maybe_errors;
+    }
+}
+
+fn ck_sweep_free() -> u32 {
+    unsafe {
+        let mut nblocks: u32 = 0;
+        let mut nfreed: u32 = 0;
+        let mut nbytes_freed: u32 = 0;
+
+        let mut curr_alloc = ck_alloc_list;
+        while !curr_alloc.is_null() {
+            if((*curr_alloc).refs_start == 0 && (*curr_alloc).refs_middle == 0) {
+                ckfree(curr_alloc.add(1) as *mut u8, SourceLocation {
+                    file: "gc",
+                    func: "gc",
+                    lineno: 0
+                });
+                nfreed += 1;
+                nbytes_freed += (*curr_alloc).nbytes_alloc;
+            }
+            nblocks += 1;
+
+            curr_alloc = (*curr_alloc).next;
+        }
+
+        return nbytes_freed;
+    }
+}
+
+fn ck_find_leaks_fn(sp: *mut u32) -> u32 {
+    ck_mark_all(sp);
+    return ck_sweep_leak();
+}
+
+fn ck_gc_fn(sp: *mut u32) -> u32 {
+    ck_mark_all(sp);
+    return ck_sweep_free();
+}
+
+unsafe extern "C" {
+    unsafe fn ck_find_leaks_tramp() -> u32;
+    unsafe fn ck_gc_tramp() -> u32;
+}
+
+pub fn ck_find_leaks() {
+    unsafe { ck_find_leaks_tramp(); }
+}
+
+pub fn ck_gc_tramp() {
+    unsafe{ ck_gc_tramp(); }
+}
+
+global_asm!(r#"
+.globl ck_find_leaks_tramp
+.type ck_find_leaks_tramp, %function
+ck_find_leaks_tramp:
+    push {{r4, r5, r6, r7, r8, r9, r10, r11, lr}}
+    mov r0, sp
+    bl ck_find_leaks_fn
+    pop {{r4, r5, r6, r7, r8, r9, r10, r11, pc}}
+"#);
+
+global_asm!(r#"
+.globl ck_gc_tramp
+.type ck_gc_tramp, %function
+ck_gc_tramp:
+    push {{r4, r5, r6, r7, r8, r9, r10, r11, lr}}
+    mov r0, sp
+    bl ck_gc_fn
+    pop {{r4, r5, r6, r7, r8, r9, r10, r11, pc}}
+"#);
