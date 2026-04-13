@@ -46,7 +46,7 @@ struct CheckHeader {
     
     refs_start: u32, // number of pointers to the start of the block
     refs_middle: u32, // number of pointers to the middle of the block
-    mark: u16, // 0 initialize
+    mark: u16, // 0 initialize -> this basically is the visited variable
 
     rz1: [u8; 128]
 }
@@ -57,7 +57,7 @@ static mut block_id: u32 = 1;
 static STACK_ADDR: usize = 0x0800_0000;
 
 
-pub fn kr_malloc(nbytes: usize) -> *mut u8 {
+pub fn kr_malloc(nbytes: usize) -> *mut u32 {
     unsafe {
         let mut p: *mut Header;
         let mut prevp: *mut Header;
@@ -84,7 +84,7 @@ pub fn kr_malloc(nbytes: usize) -> *mut u8 {
                 }
 
                 freep = prevp;
-                return (p.add(1)) as *mut u8;
+                return (p.add(1).cast::<u32>());
             }
 
             if core::ptr::eq(p,freep) {
@@ -153,7 +153,7 @@ pub fn kr_free(ap: *mut u8) {
 
 static mut ck_alloc_list: *mut CheckHeader = core::ptr::null_mut();
 
-fn ck_ptr_is_alloced(addr: *mut u8) -> *mut CheckHeader {
+fn ck_ptr_is_alloced(addr: *const u32) -> *mut CheckHeader {
     unsafe {
         let mut h: *mut CheckHeader = ck_alloc_list;
         loop {
@@ -165,7 +165,7 @@ fn ck_ptr_is_alloced(addr: *mut u8) -> *mut CheckHeader {
                 panic!("Error! Should only have allocated blocks in the allocated list!");
             }
 
-            let data_ptr: *mut u8 = h.add(1).cast::<u8>();
+            let data_ptr: *const u32 = h.add(1).cast::<u32>();
             if(data_ptr <= addr && addr < data_ptr.byte_add((*h).nbytes_alloc)) {
                 return h;
             }
@@ -224,14 +224,14 @@ fn ck_list_remove(header: *mut CheckHeader) {
     }   
 }
 
-pub fn ckfree(addr: *mut u8, l: SourceLocation) {
+pub fn ckfree(addr: *mut u32, l: SourceLocation) {
     unsafe {
         let h: *mut CheckHeader = ck_ptr_is_alloced(addr);
         if h.is_null() {
             panic!("Freeing bogus pointer: {:p}", addr);
         }
 
-        let blk_start: *mut u8 = h.add(1).cast::<u8>();
+        let blk_start: *mut u32 = h.add(1).cast::<u32>();
         if(blk_start != addr) {
             panic!("not freeing using start pointer: have {:p}, need {:p}", addr, blk_start);
         }
@@ -246,36 +246,34 @@ pub fn ckfree(addr: *mut u8, l: SourceLocation) {
     }
 }
 
-fn ck_mark(donde: &str, p: *const u32, e: *const u32) {
+fn ck_mark(p: *const u32, e: *const u32) {
     unsafe {
         assert!(p < e);
         assert_eq!((p as u32) % 4, 0);
         assert_eq!((e as u32) % 4, 0);
 
-        let mut curr_alloc= ck_alloc_list;
-        while !curr_alloc.is_null() {
-            let mut alloc_start = curr_alloc.add(1).cast::<u32>();
-            let mut alloc_end = curr_alloc.add(1).byte_add(
-                (*curr_alloc).nbytes_alloc
-            ).cast::<u32>();
-
-            let mut curr_p = p;
-            while curr_p < e {
-                let possible_ptr = (*curr_p) as *mut u32;
-
-                if (possible_ptr == alloc_start) {
-                    (*curr_alloc).refs_start += 1;
-                    (*curr_alloc).mark += 1;
-                }
-                if (alloc_start < possible_ptr && possible_ptr < alloc_end) {
-                    (*curr_alloc).refs_middle += 1;
-                    (*curr_alloc).mark += 1;
+        let mut curr_p = p;
+        while curr_p < e { 
+            let possible_ptr = (*p) as *const u32;
+            let alloced_ptr: *mut CheckHeader = ck_ptr_is_alloced(possible_ptr);
+            if (!alloced_ptr.is_null()) {
+                let check_header = &mut *alloced_ptr;
+                let start_ptr: *const u32 = alloced_ptr.add(1).cast::<u32>();
+                let end_ptr: *const u32 = alloced_ptr.add(1).byte_add(check_header.nbytes_alloc).cast::<u32>();
+                
+                if (possible_ptr == start_ptr) {
+                    check_header.refs_start += 1;
+                } else if (start_ptr < possible_ptr && possible_ptr < end_ptr) {
+                    check_header.refs_middle += 1;
                 }
 
-                curr_p = curr_p.add(1);
+                if(check_header.mark == 0) {
+                    check_header.mark = 1;
+                    ck_mark(start_ptr, end_ptr);                    
+                }
             }
 
-            curr_alloc = (*curr_alloc).next;
+            curr_p = curr_p.add(1);
         }
     }
 }
@@ -292,13 +290,12 @@ fn ck_mark_all(sp: *mut u32) {
         }
 
         let mut stack_top: usize = STACK_ADDR;
-        ck_mark("start", sp, stack_top as *mut u32);
-        ck_mark("bss", bss_start(), bss_end());
+        ck_mark(stack_top as *mut u32, sp);
+        ck_mark( bss_start(), bss_end());
 
         assert!(HEAP_CURR != 0);
         assert!(HEAP_END != 0);
-        ck_mark("heap", HEAP_CURR as *mut u32, HEAP_END as *mut u32);
-        // TODO: mark the heap
+        // ck_mark("heap", HEAP_CURR as *mut u32, HEAP_END as *mut u32);
     }
 }
 
@@ -316,7 +313,9 @@ fn ck_sweep_leak() -> u32 {
             if ((*curr_alloc).refs_middle > 0) {
                 maybe_errors += 1;
             }
-            nblocks += 0;
+            nblocks += 1;
+
+            curr_alloc = (*curr_alloc).next;
         }
         
         if (errors == 0 && maybe_errors == 0) {
@@ -329,26 +328,26 @@ fn ck_sweep_leak() -> u32 {
     }
 }
 
-fn ck_sweep_free() -> u32 {
+fn ck_sweep_free() -> usize {
     unsafe {
         let mut nblocks: u32 = 0;
-        let mut nfreed: u32 = 0;
-        let mut nbytes_freed: u32 = 0;
+        let mut nfreed: usize = 0;
+        let mut nbytes_freed: usize = 0;
 
         let mut curr_alloc = ck_alloc_list;
         while !curr_alloc.is_null() {
+            let next = (*curr_alloc).next;
             if((*curr_alloc).refs_start == 0 && (*curr_alloc).refs_middle == 0) {
-                ckfree(curr_alloc.add(1) as *mut u8, SourceLocation {
+                nfreed += 1;
+                nbytes_freed += (*curr_alloc).nbytes_alloc;
+                ckfree(curr_alloc.add(1).cast::<u32>(), SourceLocation {
                     file: "gc",
                     func: "gc",
                     lineno: 0
                 });
-                nfreed += 1;
-                nbytes_freed += (*curr_alloc).nbytes_alloc;
             }
             nblocks += 1;
-
-            curr_alloc = (*curr_alloc).next;
+            curr_alloc = next;
         }
 
         return nbytes_freed;
@@ -360,21 +359,21 @@ fn ck_find_leaks_fn(sp: *mut u32) -> u32 {
     return ck_sweep_leak();
 }
 
-fn ck_gc_fn(sp: *mut u32) -> u32 {
+fn ck_gc_fn(sp: *mut u32) -> usize {
     ck_mark_all(sp);
     return ck_sweep_free();
 }
 
 unsafe extern "C" {
-    unsafe fn ck_find_leaks_tramp() -> u32;
-    unsafe fn ck_gc_tramp() -> u32;
+    fn ck_find_leaks_tramp() -> u32;
+    fn ck_gc_tramp() -> u32;
 }
 
 pub fn ck_find_leaks() {
     unsafe { ck_find_leaks_tramp(); }
 }
 
-pub fn ck_gc_tramp() {
+pub fn ck_gc() {
     unsafe{ ck_gc_tramp(); }
 }
 
