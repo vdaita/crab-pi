@@ -30,6 +30,11 @@ mod programs {
     pub mod ir;
     pub mod ckmalloc_test;
 }
+mod os {
+    pub mod interrupts;
+    pub mod virtmem;
+    pub mod elf_loader;
+}
 
 unsafe fn enable_fpu() {
     unsafe {
