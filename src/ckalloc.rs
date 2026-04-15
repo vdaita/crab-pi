@@ -8,6 +8,9 @@ use crate::kmalloc::{HEAP_CURR, HEAP_END};
 use crate::{kmalloc, println};
 use crate::start::{bss_start, bss_end, stack_init, data_start, data_end};
 
+const RZ_SENTINAL: u8 = 0x11;
+const RZ_SIZE: usize = 128;
+
 #[derive(PartialEq, PartialOrd, Eq, Ord)]
 enum CheckBlockState {
     ALLOCED = 11,
@@ -49,7 +52,7 @@ struct CheckHeader {
     refs_middle: u32, // number of pointers to the middle of the block
     mark: u16, // 0 initialize -> this basically is the visited variable
 
-    rz1: [u8; 128]
+    redzone1: [u8; RZ_SIZE],
 }
 
 static mut base: Header = Header { x: 0 };
@@ -171,7 +174,7 @@ fn ck_ptr_is_alloced(addr: *const u32) -> *mut CheckHeader {
             }
 
             let data_ptr: *const u32 = h.add(1).cast::<u32>();
-            if(data_ptr <= addr && addr < data_ptr.byte_add((*h).nbytes_alloc)) {
+            if(data_ptr <= addr && addr < data_ptr.byte_add((*h).nbytes_alloc)) { // TODO: make sure that the redzone allocator for this also being handled
                 return h;
             }
 
@@ -184,7 +187,7 @@ fn ck_ptr_is_alloced(addr: *const u32) -> *mut CheckHeader {
 pub fn ckalloc(nbytes: usize, l: SourceLocation) -> *mut u8 {
     let ckheader_size = size_of::<CheckHeader>();
     unsafe {
-        let mut buf = kr_malloc(nbytes + ckheader_size);
+        let mut buf = kr_malloc(nbytes + ckheader_size + RZ_SIZE);
         if (buf.is_null()) {
             panic!("kr_malloc returned null.");
         }
@@ -200,11 +203,46 @@ pub fn ckalloc(nbytes: usize, l: SourceLocation) -> *mut u8 {
         block_id = block_id + 1;
 
         header.next = ck_alloc_list;
+        for i in 0..RZ_SIZE {
+            header.redzone1[i] = RZ_SENTINAL;
+        }
+
         ck_alloc_list = header_ptr;
 
         let data_start = header_ptr.add(1).cast::<u8>();
         assert!(data_start != core::ptr::null_mut());
+
+        let data_end = data_start.byte_add(nbytes);
+        let mut rz2_ptr = data_end;
+        for i in 0..RZ_SIZE {
+            // println!("updating position {:p} from {} to {}", rz2_ptr, (*rz2_ptr), RZ_SENTINAL);
+            (*rz2_ptr) = RZ_SENTINAL;
+            rz2_ptr = rz2_ptr.add(1);
+        }
+
+        ck_check_redzone(header, "ckalloc");
+
         return data_start
+    }
+}
+
+pub fn ck_check_redzone(h: *mut CheckHeader, from: &str) {
+    unsafe {
+        // check the redzone start
+        for i in 0..RZ_SIZE {
+            if (*h).redzone1[i] != RZ_SENTINAL {
+                panic!("Redzone (start) data has been modified at pointer={:p}, index={}, value={}, from={}!", core::ptr::addr_of_mut!((*h).redzone1[i]), i, ((*h).redzone1[i]), from);
+            }
+        }
+
+        // check the redzone end
+        let mut rz_curr_ptr = h.add(1).byte_add((*h).nbytes_alloc).cast::<u8>();
+        for i in 0..RZ_SIZE {
+            if (*rz_curr_ptr) != RZ_SENTINAL {
+                panic!("Redzone (end) data has been modified at pointer={:p}, index={}, value={}, from={}!", rz_curr_ptr, i, (*rz_curr_ptr), from);
+            }
+            rz_curr_ptr = rz_curr_ptr.add(1);
+        }
     }
 }
 
@@ -234,6 +272,8 @@ fn ck_list_remove(header: *mut CheckHeader) {
 pub fn ckfree(addr: *mut u32, l: SourceLocation) {
     unsafe {
         let h: *mut CheckHeader = ck_ptr_is_alloced(addr);
+        ck_check_redzone(h, "ckfree");
+
         if h.is_null() {
             panic!("Freeing bogus pointer: {:p}", addr);
         }

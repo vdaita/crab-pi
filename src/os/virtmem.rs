@@ -1,3 +1,5 @@
+use crate::kmalloc::{kmalloc, kmalloc_aligned};
+
 
 #[derive(Debug, Clone, Copy)]
 pub struct Cp15CtrlReg1 {
@@ -103,23 +105,39 @@ pub fn mmu_reset() {
     // );
 }
 
+static mut null_pt: *mut u8 = core::ptr::null_mut();
+
 pub fn mmu_init() {
     mmu_reset();
-
-
 }
 
 pub fn domain_access_ctrl_get() -> u32 {
     return 0;
 }
 
+pub fn domain_access_ctrl_set(domain_reg: u32) {
+    return;
+}
+
 pub fn pin_mmu_init(domain_reg: u32) {
-
+    mmu_init();
+    unsafe { null_pt = kmalloc_aligned(4096 * 4, 1 << 14); }
+    domain_access_ctrl_set(domain_reg);
 }
 
-pub fn tlb_contains_va(result: *const u32, va: u32) {
+// pub fn tlb_contains_va(va: u32) -> (*mut u32, bool) {
+//     assert(mmu_is_enabled());
+//     assert(bits_get(va, 0, 2) == 0);
+//     va_to_pa_set(va);
 
-}
+//     let translation = va_to_pa_result_get();
+//     let translation_aborted: bool = (translation & 1);
+//     if translation_aborted {
+//         return (translation, translation_aborted);
+//     } else {
+//         return ((translation & !0x3FF) | (va & 0x3FF), translation_aborted);
+//     }
+// }
 
 pub fn pin_mmu_sec(idx: u32, va: u32, pa: u32, e: Pin) {
 
