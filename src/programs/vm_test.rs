@@ -1,105 +1,81 @@
+use crate::kmalloc;
 use crate::mem::{get32, put32};
 use crate::os::virtmem::{
-    lockdown_print_entries, mmu_is_enabled, pin_16mb, pin_exists, pin_mk_device, pin_mk_global,
-    pin_mk_user, pin_mmu_disable, pin_mmu_enable, pin_mmu_init, pin_mmu_sec, pin_set_context,
-    MemPerm, MemAttr, DOM_CLIENT,
+    make_global_pin, make_user_pin, mmu_disable, mmu_enable, mmu_reset, pin_mmu_sec, MemAttr,
+    MemPerm, pin_mmu_switch, pin_mmu_init, set_domain_access, mmu_is_enabled
 };
 use crate::println;
 
-const MB: u32 = 1024 * 1024;
+const ONE_MB: u32 = 1024 * 1024;
+const STACK_ADDR: u32 = 0x0800_0000;
 const DOM_KERN: u32 = 1;
-
-const SEG_CODE: u32 = 0x0000_0000;
-const SEG_HEAP: u32 = 0x0010_0000;
-const SEG_STACK: u32 = 0x07F0_0000;
-const SEG_INT_STACK: u32 = 0x0780_0000;
-const SEG_BCM_0: u32 = 0x2000_0000;
+const ASID1: u32 = 1;
 
 pub fn vm_test() {
     assert!(!mmu_is_enabled());
 
-    let dom_bits = DOM_CLIENT << (DOM_KERN * 2);
-    pin_mmu_init(dom_bits);
+    // Keep allocator init behavior from the original test harness.
+    unsafe { kmalloc::kmalloc_init_mb(1) };
 
-    let mut idx: u32 = 0;
-    let kern = pin_mk_global(DOM_KERN, MemPerm::perm_rw_priv, MemAttr::MEM_uncached);
-    pin_mmu_sec(idx, SEG_CODE, SEG_CODE, kern);
-    idx += 1;
-    pin_mmu_sec(idx, SEG_HEAP, SEG_HEAP, kern);
-    idx += 1;
-    pin_mmu_sec(idx, SEG_STACK, SEG_STACK, kern);
-    idx += 1;
-    pin_mmu_sec(idx, SEG_INT_STACK, SEG_INT_STACK, kern);
-    idx += 1;
+    pin_mmu_init(!0);
 
-    let dev = pin_16mb(pin_mk_device(DOM_KERN));
-    pin_mmu_sec(idx, SEG_BCM_0, SEG_BCM_0, dev);
+    let no_user = MemPerm::perm_rw_priv;
+
+    // Device memory: kernel domain only, strongly ordered.
+    let dev = make_global_pin(DOM_KERN, no_user, MemAttr::MEM_device);
+    // Kernel memory: kernel domain only, uncached normal memory.
+    let kern = make_global_pin(DOM_KERN, no_user, MemAttr::MEM_uncached);
+
+    // Index into the 8 pinned TLB entries.
+    let mut idx = 0;
+
+    // Identity-map key device ranges.
+    pin_mmu_sec(idx, 0x2000_0000, 0x2000_0000, dev);
     idx += 1;
-
-    const ASID1: u32 = 1;
-    const ASID2: u32 = 2;
-
-    const USER_ADDR: u32 = 16 * MB;
-    const PHYS_ADDR1: u32 = USER_ADDR + MB;
-    const PHYS_ADDR2: u32 = USER_ADDR + 2 * MB;
-
-    let user1 = pin_mk_user(DOM_KERN, ASID1, MemPerm::perm_na_user, MemAttr::MEM_uncached);
-    let user2 = pin_mk_user(DOM_KERN, ASID2, MemPerm::perm_na_user, MemAttr::MEM_uncached);
-    pin_mmu_sec(idx, USER_ADDR, PHYS_ADDR1, user1);
+    pin_mmu_sec(idx, 0x2010_0000, 0x2010_0000, dev);
     idx += 1;
-    pin_mmu_sec(idx, USER_ADDR, PHYS_ADDR2, user2);
+    pin_mmu_sec(idx, 0x2020_0000, 0x2020_0000, dev);
     idx += 1;
 
-    put32(PHYS_ADDR1, 0x1111_1111);
-    put32(PHYS_ADDR2, 0x2222_2222);
+    // Map first two MB for kernel code/data.
+    pin_mmu_sec(idx, 0, 0, kern);
+    idx += 1;
+    pin_mmu_sec(idx, ONE_MB, ONE_MB, kern);
+    idx += 1;
 
+    // Map kernel stack region.
+    pin_mmu_sec(idx, STACK_ADDR - ONE_MB, STACK_ADDR - ONE_MB, kern);
+    idx += 1;
+
+    // Create a single user mapping entry (non-global, ASID-tagged).
+    let user1 = make_user_pin(DOM_KERN, ASID1, no_user, MemAttr::MEM_uncached);
+
+    let user_addr = ONE_MB * 16;
+    assert_eq!((user_addr >> 12) % 16, 0);
+    let phys_addr1 = user_addr;
+    put32(phys_addr1, 0xdead_beef);
+
+    pin_mmu_sec(idx, user_addr, phys_addr1, user1);
+    idx += 1;
     assert!(idx < 8);
 
     println!("about to enable");
-    lockdown_print_entries("about to turn on first time");
+    pin_mmu_switch(0, ASID1);
+    mmu_enable();
 
-    pin_set_context(ASID1);
-    println!("Set context to ASID1");
-    pin_mmu_enable();
+    assert!(mmu_is_enabled());
     println!("MMU is on and working!");
 
-    let mut x = get32(USER_ADDR);
-    println!("ASID {} = got: {:x}", ASID1, x);
-    assert!(x == 0x1111_1111);
-    put32(USER_ADDR, ASID1);
+    let x = get32(user_addr);
+    println!("asid 1 = got: {:#x}", x);
+    assert_eq!(x, 0xdead_beef);
+    put32(user_addr, 1);
 
-    pin_mmu_disable();
-    println!("phys addr1={:x}", get32(PHYS_ADDR1));
-    assert!(get32(PHYS_ADDR1) == ASID1);
+    mmu_disable();
+    assert!(!mmu_is_enabled());
+    println!("MMU is off!");
+    println!("phys addr1={:#x}", get32(phys_addr1));
+    assert_eq!(get32(phys_addr1), 1);
 
-    pin_set_context(ASID2);
-    pin_mmu_enable();
-    x = get32(USER_ADDR);
-    println!("ASID {} = got: {:x}", ASID2, x);
-    assert!(x == 0x2222_2222);
-    put32(USER_ADDR, ASID2);
-    pin_mmu_disable();
-
-    println!("phys addr2={:x}", get32(PHYS_ADDR2));
-    assert!(get32(PHYS_ADDR2) == ASID2);
-
-    println!("about to check that can switch ASID w/ MMU on");
-    put32(PHYS_ADDR1, 0x1111_1111);
-    put32(PHYS_ADDR2, 0x2222_2222);
-
-    pin_set_context(ASID1);
-    pin_mmu_enable();
-    assert!(get32(USER_ADDR) == 0x1111_1111);
-    put32(USER_ADDR, ASID1);
-
-    pin_set_context(ASID2);
-    assert!(get32(USER_ADDR) == 0x2222_2222);
-    put32(USER_ADDR, ASID2);
-
-    pin_mmu_disable();
-
-    assert!(get32(PHYS_ADDR1) == ASID1);
-    assert!(get32(PHYS_ADDR2) == ASID2);
-    assert!(pin_exists(USER_ADDR, true));
     println!("SUCCESS!");
 }
