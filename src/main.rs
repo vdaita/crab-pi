@@ -21,6 +21,7 @@ mod fast_hash;
 mod crc;
 mod gpt;
 mod ckalloc;
+mod bit_utils;
 mod programs {
     pub mod gpu_test;
     pub mod mandelbrot;
@@ -29,11 +30,13 @@ mod programs {
     pub mod derive_jit;
     pub mod ir;
     pub mod ckmalloc_test;
+    pub mod vm_test;
 }
 mod os {
     pub mod interrupts;
     pub mod virtmem;
     pub mod elf_loader;
+    pub mod threads;
 }
 
 unsafe fn enable_fpu() {
@@ -80,8 +83,8 @@ fn main() {
     uart::init();
     println!("Hello from Rust on the Pi!");
 
-    programs::ckmalloc_test::test_ckmalloc();
-
+    programs::vm_test::vm_test();
+    // programs::ckmalloc_test::test_ckmalloc();
     // programs::ir::ir_main();
     // programs::derive_jit::derive_main();
     // unsafe {enable_fpu()};
