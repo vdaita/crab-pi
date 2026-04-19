@@ -156,25 +156,22 @@ impl ElfLoader {
         let current_position = (asid + 16) * ONE_MB;
 
         let elf_header_ptr: *mut ElfHeader = unsafe { (*file).data as *mut ElfHeader };
-        let elf_header = unsafe { *elf_header_ptr };
 
-        let first_program_header: *mut ProgramHeader = unsafe {
-            ((*file).data as *mut u8).add(elf_header.e_phoff as usize) as *mut ProgramHeader
+        let first_program_header_ptr: *mut ProgramHeader = unsafe {
+            elf_header_ptr.add(1) as *mut ProgramHeader
         };
 
-        for prog_header_idx in 0..elf_header.e_phnum {
-            let program_header_ptr: *mut ProgramHeader = unsafe {
-                first_program_header.add(prog_header_idx as usize)
-            };
-            let program_header: ProgramHeader = unsafe { *program_header_ptr };
+        unsafe {
+            for prog_header_idx in 0..(*elf_header_ptr).e_phnum {
+                let program_header_ptr: *mut ProgramHeader = unsafe {
+                    first_program_header_ptr.add(prog_header_idx as usize)
+                };
 
-            self.pin_next(program_header.p_vaddr, current_position, user);
-
-            unsafe {
+                self.pin_next((*program_header_ptr).p_vaddr, current_position, user);
                 core::ptr::copy_nonoverlapping(
-                    ((*file).data as *mut u8).add(program_header.p_offset as usize),
-                    program_header.p_paddr as *mut u8,
-                    program_header.p_memsz as usize,
+                    ((*file).data as *mut u8).add((*program_header_ptr).p_offset as usize),
+                    (*program_header_ptr).p_paddr as *mut u8,
+                    (*program_header_ptr).p_memsz as usize,
                 );
             }
         }
@@ -186,7 +183,7 @@ impl ElfLoader {
 
         let mut context: ProgramContext = ProgramContext {
             sp: STACK_ADDR,
-            lr: elf_header.e_entry,
+            lr: (*elf_header_ptr).e_entry,
             arg0: arg1,
             arg1: arg2,
             arg2: arg3,

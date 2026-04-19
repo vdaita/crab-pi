@@ -83,7 +83,8 @@ fn main() {
     uart::init();
     println!("Hello from Rust on the Pi!");
 
-    programs::vm_test::vm_test();
+    os::interrupts::test_interrupts();
+    // programs::vm_test::vm_test();
     // programs::ckmalloc_test::test_ckmalloc();
     // programs::ir::ir_main();
     // programs::derive_jit::derive_main();

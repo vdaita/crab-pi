@@ -8,18 +8,18 @@ use core::arch::{asm, global_asm};
 
 // defined in rpi_constants.h. put the stack for this above the regular stack. 
 global_asm!(r#"
-.globl _interrupt_table
-.globl _interrupt_table_end
-_interrupt_table:
+.globl _interrupt_table_ir
+.globl _interrupt_table_end_ir
+_interrupt_table_ir:
   @ Q: why can we copy these ldr jumps and have
   @ them work the same?
-  ldr pc, _reset_asm                    @ 0x0: Q: why this order?[A2-16]
-  ldr pc, _undefined_instruction_asm    @ 0x4
-  ldr pc, _software_interrupt_asm       @ 0x8
-  ldr pc, _prefetch_abort_asm
-  ldr pc, _data_abort_asm
-  ldr pc, _reset_asm
-  ldr pc, _interrupt_asm
+    ldr pc, _reset_asm_ir                    @ 0x0: Q: why this order?[A2-16]
+    ldr pc, _undefined_instruction_asm_ir    @ 0x4
+    ldr pc, _software_interrupt_asm_ir       @ 0x8
+    ldr pc, _prefetch_abort_asm_ir
+    ldr pc, _data_abort_asm_ir
+    ldr pc, _reset_asm_ir
+    ldr pc, _interrupt_asm_ir
 infinite_loop:
     bl infinite_loop
 fast_interrupt_asm:
@@ -27,30 +27,30 @@ fast_interrupt_asm:
   push  {{lr}}
   push  {{r0-r12}}
   mov   r0, lr              @ Pass old pc
-  bl    fast_interrupt_vector    @ C function
+    bl    fast_interrupt_vector_ir    @ C function
   pop   {{r0-r12}}
   ldm   sp!, {{pc}}^
-_reset_asm:                   .word reset_asm
-_undefined_instruction_asm:   .word undefined_instruction_asm
-_software_interrupt_asm:      .word software_interrupt_asm
-_prefetch_abort_asm:          .word prefetch_abort_asm
-_data_abort_asm:              .word data_abort_asm
-_interrupt_asm:               .word interrupt_asm
-_interrupt_table_end:   @ end of the table.
+_reset_asm_ir:                   .word reset_asm_ir
+_undefined_instruction_asm_ir:   .word undefined_instruction_asm_ir
+_software_interrupt_asm_ir:      .word software_interrupt_asm_ir
+_prefetch_abort_asm_ir:          .word prefetch_abort_asm_ir
+_data_abort_asm_ir:              .word data_abort_asm_ir
+_interrupt_asm_ir:               .word interrupt_asm_ir
+_interrupt_table_end_ir:   @ end of the table.
 
-undefined_instruction_asm:                      @ A2-19
+undefined_instruction_asm_ir:                      @ A2-19
     bx lr  
-software_interrupt_asm:                         @ A2-20
+software_interrupt_asm_ir:                         @ A2-20
     bx lr
-prefetch_abort_asm:
+prefetch_abort_asm_ir:
     bx lr
-data_abort_asm:
+data_abort_asm_ir:
     bx lr
-reset_asm:
+reset_asm_ir:
     bx lr
 
 
-interrupt_asm:
+interrupt_asm_ir:
   @ NOTE:
   @  - each mode has its own <sp> that persists when
   @    we switch out of the mode (i.e., will be the same
@@ -67,7 +67,7 @@ interrupt_asm:
                             @ saved.
 
   mov   r0, lr              @ Pass old pc as arg 0
-  bl    interrupt_vector    @ C function: expects C 
+    bl    interrupt_vector_ir    @ C function: expects C 
                             @ calling conventions.
 
   @ pop regs: better match push (what happens if not?)
@@ -82,15 +82,15 @@ interrupt_asm:
                         @ 2. moves <lr> into the <pc> of that
                         @    mode.
 
-.globl enable_interrupts
-enable_interrupts:
+.globl enable_interrupts_ir
+enable_interrupts_ir:
     mrs r0, cpsr @ move cpsr to r0
     bic r0,r0,#(1<<7)	@ clear 7th bit.
     msr cpsr_c,r0		@ move r0 back to PSR
     bx lr		        @ return
 
-.globl disable_interrupts
-disable_interrupts:
+.globl disable_interrupts_ir
+disable_interrupts_ir:
     mrs r0,cpsr		       
     orr r0,r0,#(1<<7)	@ set 7th bit
     msr cpsr_c,r0
@@ -98,26 +98,26 @@ disable_interrupts:
 "#);
 
 unsafe extern "C" {
-    #[link_name = "enable_interrupts"]
+    #[link_name = "enable_interrupts_ir"]
     fn enable_interrupts_asm();
     
-    #[link_name = "disable_interrupts"]
+    #[link_name = "disable_interrupts_ir"]
     unsafe fn disable_interrupts_asm();
 
-    #[link_name = "interrupt_asm"]
+    #[link_name = "interrupt_asm_ir"]
     unsafe fn interrupt_asm();
 
-    #[link_name = "_interrupt_table"]
+    #[link_name = "_interrupt_table_ir"]
     static INTERRUPT_TABLE_START: u8;
 
-    #[link_name = "_interrupt_table_end"]
+    #[link_name = "_interrupt_table_end_ir"]
     static INTERRUPT_TABLE_END: u8;
 }
 
 pub fn move_table() {
     let start: *const u32 = core::ptr::addr_of!(INTERRUPT_TABLE_START) as *const u32;
     let end: *const u32 = core::ptr::addr_of!(INTERRUPT_TABLE_END) as *const u32;
-    let len = (end as usize) - (start as usize);
+    let len = ((end as usize) - (start as usize)) / 4;
     let dst = core::ptr::without_provenance_mut::<u32>(0);
     unsafe {
         for i in 0..len {
@@ -226,7 +226,7 @@ pub fn gpio_event_clear(pin: u32) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn interrupt_vector(pc: u32) {
+pub extern "C" fn interrupt_vector_ir(pc: u32) {
     println!("in interrupt vector to process a signal. pc={}", pc);
     unsafe { was_interrupted = 1; }
     process_data();
@@ -235,7 +235,7 @@ pub extern "C" fn interrupt_vector(pc: u32) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn fast_interrupt_vector(pc: u32) {
+pub extern "C" fn fast_interrupt_vector_ir(pc: u32) {
     println!("in fast interrupt vector. pc={}", pc);
 }
 
