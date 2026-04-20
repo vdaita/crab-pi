@@ -76,7 +76,7 @@ impl ThreadManager {
     }
         
     pub fn thread_yield(&mut self) {
-         match self.running_queue.pop_unblock() {
+         match self.running_queue.pop_nonblock() {
              Some(thread_ptr) => {
                  let old_thread: *mut Thread = self.current_thread;
                  self.running_queue.push(old_thread);
