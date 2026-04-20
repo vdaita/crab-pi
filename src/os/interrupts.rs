@@ -272,6 +272,6 @@ pub fn test_interrupts() {
     unsafe { disable_interrupts_asm(); }
     println!("disabled interrups, svc write returned.");
 
-    println!("passing value test: {}", ret);
+    // println!("passing value test: {}", ret);
     // println!("disabled interrupts, svc write returned: {}", r0 as i32);
 }

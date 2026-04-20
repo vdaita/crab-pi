@@ -269,7 +269,7 @@ fn ck_list_remove(header: *mut CheckHeader) {
     }   
 }
 
-pub fn ckfree(addr: *mut u32, l: SourceLocation) {
+pub fn ckfree(addr: *mut u32) {
     unsafe {
         let h: *mut CheckHeader = ck_ptr_is_alloced(addr);
         ck_check_redzone(h, "ckfree");
@@ -392,11 +392,7 @@ fn ck_sweep_free() -> usize {
             if((*curr_alloc).refs_start == 0 && (*curr_alloc).refs_middle == 0) {
                 nfreed += 1;
                 nbytes_freed += (*curr_alloc).nbytes_alloc;
-                ckfree(curr_alloc.add(1).cast::<u32>(), SourceLocation {
-                    file: "gc",
-                    func: "gc",
-                    lineno: 0
-                });
+                ckfree(curr_alloc.add(1).cast::<u32>());
             }
             nblocks += 1;
             curr_alloc = next;
