@@ -4,25 +4,16 @@ use crate::timer::Timer;
 use crate::bit_utils::{bit_get, bit_set, bits_get};
 use crate::println;
 
-#[repr(C)]
-struct i2c_config {
-    control: u32,
-    status: u32,
-    dlen: u32,
-    dev_addr: u32,
-    fifo: u32,
-    clock_div: u32,
-    clock_delay: u32,
-    clock_stretch_timeout: u32
-}
-
-static mut i2c: *mut i2c_config = (0x20804000) as *mut i2c_config;
-const I2C_BASE: u32 = 0x7E80_4000;
+const I2C_BASE: u32 = 0x2080_4000;
 const I2C_C: u32 = I2C_BASE + 0x0;
 const I2C_S: u32 = I2C_BASE + 0x4;
+const I2C_DLEN: u32 = I2C_BASE + 0x8;
 const I2C_A: u32 = I2C_BASE + 0xc; // slave address
 const I2C_FIFO: u32 = I2C_BASE + 0x10;
-const I2C_DLEN: u32 = I2C_BASE + 0x14;
+const I2C_DIV: u32 = I2C_BASE + 0x14;
+const I2C_DEL: u32 = I2C_BASE + 0x18;
+const I2C_CLKT: u32 = I2C_BASE + 0x1c;
+
 
 const USER_CTRL: u8 = 0x6a;
 const ACCEL_XOUT_H: u8 = 0x3b;
@@ -146,11 +137,21 @@ fn i2c_read(addr: u32, nbytes: usize) -> [u8; 32] {
 }
 
 fn i2c_init() {
-    set_function(0, 0x5); // FSEL_ALT0
-    set_function(1, 0x5); // FSEL_ALT1
+    set_function(0, 0x4);
+    set_function(1, 0x4);
+    set_function(2, 0x4); // FSEL_ALT0
+    set_function(3, 0x4); // FSEL_ALT0
     put32(I2C_C, 1 << 15); // C register, p 29
     put32(I2C_S, 1 << 9 | 1 << 8 | 1 << 1); // S register, p 31 - clearing CLKT and ERR and DONE
-    assert!(get32(I2C_S) == 0); // S register, p 31 - assert! that there are no errors.
+    Timer::delay_ms(10);
+
+    println!("cdiv value: {:0x}", get32(I2C_DIV));
+    println!("clkt value: {:0x}", get32(I2C_CLKT));
+    
+    let status = get32(I2C_S);
+    println!("Status register: {:0b}", status);
+    assert!(bit_get(status, 8) == 0); // S register, p 31 - assert! that there are no errors.
+    assert!(bit_get(status, 9) == 0)
 }
 
 fn reg_read(addr: u32, reg: u8) -> u8 {
@@ -162,6 +163,13 @@ fn reg_read(addr: u32, reg: u8) -> u8 {
 fn reg_write(addr: u32, reg: u8, val: u8) { 
     let data: [u8; 2] = [reg, val];
     i2c_write(addr, &data, 2);
+}
+
+fn reg_read_multiple(addr: u32, reg: u8, nbytes: u8) -> [u8; 32] {
+    let data: [u8; 1] = [reg];
+    i2c_write(addr, &data, 1);
+    let result = i2c_read(addr, nbytes as usize);
+    result
 }
 
 fn mpu6050_reset(dev_addr: u32) {
@@ -183,35 +191,32 @@ fn mpu6050_reset(dev_addr: u32) {
     reg_write(dev_addr, IMU_INT_ENABLE,  1);
 }
 
-fn mpu6050_read(dev_addr: u32) {
-
-    while (reg_read(dev_addr, IMU_INT_STATUS) == 0) {
-        
+fn mpu6050_read_accelerometer(dev_addr: u32) {
+    while reg_read(dev_addr, IMU_INT_STATUS) == 0 {
+        // wait for interrupt
     }
 
-    let x_high = reg_read(dev_addr, ACCEL_XOUT_H);
-    let x_low = reg_read(dev_addr, ACCEL_XOUT_L);
-    
-    let y_high = reg_read(dev_addr, ACCEL_YOUT_H);
-    let y_low = reg_read(dev_addr, ACCEL_YOUT_L);
-
-    let z_high = reg_read(dev_addr, ACCEL_ZOUT_H);
-    let z_low = reg_read(dev_addr, ACCEL_ZOUT_L);
-
-    let x_val: i16 = ((x_high as u16) << 8 | (x_low as u16)) as i16;
-    let y_val: i16 = ((y_high as u16) << 8 | (y_low as u16)) as i16;
-    let z_val: i16 = ((z_high as u16) << 8 | (z_low as u16)) as i16;
+    let accel_data = reg_read_multiple(dev_addr, ACCEL_XOUT_H, 6);
+    let x_val: i16 = ((accel_data[0] as u16) << 8 | (accel_data[1] as u16)) as i16;
+    let y_val: i16 = ((accel_data[2] as u16) << 8 | (accel_data[3] as u16)) as i16;
+    let z_val: i16 = ((accel_data[4] as u16) << 8 | (accel_data[5] as u16)) as i16;
 
     println!("X: {}, Y: {}, Z: {}", x_val, y_val, z_val);
 }
 
+pub fn imu_accelerometer_test(dev_addr: u32) {
+    for i in 0..100 {
+        mpu6050_read_accelerometer(dev_addr);
+        Timer::delay_ms(100);
+    }
+}
+
 pub fn imu_test() {
     println!("Testing the IMU.");
+    i2c_init();
+
     let dev_addr: u32 = 0b1101000;
     mpu6050_reset(dev_addr);
 
-    for i in 0..100 {
-        mpu6050_read(dev_addr);
-        Timer::delay_ms(100);
-    }
+    imu_accelerometer_test(dev_addr);
 }

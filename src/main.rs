@@ -30,15 +30,15 @@ mod programs {
     pub mod derive_jit;
     pub mod ir;
     pub mod ckmalloc_test;
-    pub mod vm_test;
+    // pub mod vm_test;
     pub mod imu;
 }
-mod os {
-    pub mod interrupts;
-    pub mod virtmem;
-    pub mod elf_loader;
-    // pub mod threads;
-}
+// mod os {
+//     pub mod interrupts;
+//     pub mod virtmem;
+//     pub mod elf_loader;
+//     // pub mod threads;
+// }
 
 unsafe fn enable_fpu() {
     unsafe {
