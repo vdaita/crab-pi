@@ -31,12 +31,13 @@ mod programs {
     pub mod ir;
     pub mod ckmalloc_test;
     pub mod vm_test;
+    pub mod imu;
 }
 mod os {
     pub mod interrupts;
     pub mod virtmem;
     pub mod elf_loader;
-    pub mod threads;
+    // pub mod threads;
 }
 
 unsafe fn enable_fpu() {
@@ -83,7 +84,8 @@ fn main() {
     uart::init();
     println!("Hello from Rust on the Pi!");
 
-    os::interrupts::test_interrupts();
+    programs::imu::imu_test();
+    // os::interrupts::test_interrupts();
     // programs::vm_test::vm_test();
     // programs::ckmalloc_test::test_ckmalloc();
     // programs::ir::ir_main();

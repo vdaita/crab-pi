@@ -47,12 +47,7 @@ fn alloc_one(nbytes: usize) -> *mut u8 {
 
 fn free_one(p: *mut u8) {
     ckalloc::ckfree(
-        p.cast::<u32>(),
-        SourceLocation {
-            file: "src/programs/ckmalloc_test.rs",
-            func: "free_one",
-            lineno: line!(),
-        },
+        p.cast::<u32>()
     );
 }
 

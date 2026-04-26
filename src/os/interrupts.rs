@@ -1,10 +1,11 @@
 use crate::arch::{dev_barrier, gcc_mb};
 use crate::gpio::{read, set_input, set_output, set_on, set_off};
-use crate::{print, start};
+use crate::{bit_utils, print, start};
 use crate::println;
 use crate::timer::{Timer};
 use core::arch::{asm, global_asm};
 use crate::mem::{get32, put32};
+use crate::gpio;
 
 // defined in rpi_constants.h. put the stack for this above the regular stack. 
 global_asm!(r#"
@@ -40,15 +41,24 @@ _interrupt_table_end:   @ end of the table.
 
 undefined_instruction_asm:                      @ A2-19
     bx lr  
-software_interrupt_asm:                         @ A2-20
-    mov sp, 0x10000000
-    push {{r0-r12, lr}}
-    mov r0, lr
-    mov r1, sp
-    bl software_interrupt_vector
-    pop {{r0-r12, lr}}
+software_interrupt_asm:
+    push {{r0, r1}}
+    mov r0, #(1 << 27)
+    ldr r1, =0x2020001C
+    str r0, [r1]
+    pop {{r0, r1}}
     movs pc, lr
-    bx lr
+@ software_interrupt_asm:                         @ A2-20
+    @ mov sp, 0x10000000
+    @ push {{r0-r12, lr}}
+    @
+    @ mov r0, lr
+    @ sub r0, r0, #4
+    @ 
+    @ mov r1, sp
+    @ bl software_interrupt_vector
+    @ pop {{r0-r12, lr}}
+    @ movs pc, lr
 prefetch_abort_asm:
     bx lr
 data_abort_asm:
@@ -135,6 +145,10 @@ const ARM_TIMER_COUNTER: usize = ARM_TIMER_BASE + 0x20;
 
 const ARM_TIMER_IRQ: u32 = (1 << 0); // timer interrupt number
 
+const PARTHIV_PIN: u32 = 27;
+const CPSR_USER_MODE: u32 = 0b10000;
+const CPSR_SUPER_MODE: u32 = 0b10011;
+
 unsafe extern "C" {
     #[link_name = "enable_interrupts"]
     fn enable_interrupts_asm();
@@ -192,48 +206,60 @@ pub extern "C" fn fast_interrupt_vector(pc: u32) {
 #[unsafe(no_mangle)]
 pub extern "C" fn software_interrupt_vector(pc: u32, sp: u32) {
     dev_barrier();
-    // For SVC, lr points to the next instruction, so SVC is at pc - 4.
-    let instr = unsafe { core::ptr::read_volatile((pc.wrapping_sub(4)) as *const u32) };
-    println!("SWI called: pc={:p}, instr={:0x}, sp={:p}", pc as *const u32, instr, sp as *const u32);
-
-    if (instr != 0xef00_0000) {
-        println!("not a SVC instruction");
-        return;
-    }
-
-    // Linux ARM EABI: r7 holds syscall number, 
+    gpio::set_on(PARTHIV_PIN);
+    let instr = unsafe { core::ptr::read_volatile(pc as *const u32) };
+    println!("SWI called: pc={:p}, instr={:0x}, sp={:p},", pc as *const u32, instr, sp as *const u32);
     let nr = unsafe { core::ptr::read_volatile((sp + 7 * 4) as *const u32) };
-    
-    // r0-r2 carry write(fd, buf, len).
-    let arg0 = unsafe { core::ptr::read_volatile((sp + 0 * 4) as *const u32) };
-    let arg1 = unsafe { core::ptr::read_volatile((sp + 1 * 4) as *const u32) };
-    let arg2 = unsafe { core::ptr::read_volatile((sp + 2 * 4) as *const u32) };
-
-    let ret: i32 = match nr {
-        4 => {
-            // sys_write(fd, buf, len): support stdout/stderr only.
-            let fd = arg0;
-            let buf_ptr = arg1 as *const u8;
-            let len = arg2 as usize;
-            if (fd == 1 || fd == 2) && !buf_ptr.is_null() {
-                let bytes = unsafe { core::slice::from_raw_parts(buf_ptr, len) };
-                crate::uart::write_bytes(bytes);
-                crate::uart::flush();
-                len as i32
-            } else {
-                -1
-            }
-        }
-        _ => {
-            println!("unknown SVC: {}", nr);
-            -38 // -ENOSYS
-        }
-    };
-
-    // Return value in r0 by updating saved frame before pop {r0-r12, lr}.
-    unsafe { core::ptr::write_volatile(sp as *mut u32, ret as u32) };
+    gpio::set_off(PARTHIV_PIN);
     dev_barrier();
-}
+} 
+
+// #[unsafe(no_mangle)]
+// pub extern "C" fn software_interrupt_vector(pc: u32, sp: u32) {
+//     dev_barrier();
+//     // For SVC, lr points to the next instruction, so SVC is at pc - 4.
+//     let instr = unsafe { core::ptr::read_volatile((pc.wrapping_sub(4)) as *const u32) };
+//     println!("SWI called: pc={:p}, instr={:0x}, sp={:p}", pc as *const u32, instr, sp as *const u32);
+
+//     if (instr != 0xef00_0000) {
+//         println!("not a SVC instruction");
+//         return;
+//     }
+
+//     // Linux ARM EABI: r7 holds syscall number, 
+//     let nr = unsafe { core::ptr::read_volatile((sp + 7 * 4) as *const u32) };
+    
+//     // r0-r2 carry write(fd, buf, len).
+//     let arg0 = unsafe { core::ptr::read_volatile((sp + 0 * 4) as *const u32) };
+//     let arg1 = unsafe { core::ptr::read_volatile((sp + 1 * 4) as *const u32) };
+//     let arg2 = unsafe { core::ptr::read_volatile((sp + 2 * 4) as *const u32) };
+
+//     let ret = 1;
+//     // let ret: i32 = match nr {
+//     //     4 => {
+//     //         // sys_write(fd, buf, len): support stdout/stderr only.
+//     //         let fd = arg0;
+//     //         let buf_ptr = arg1 as *const u8;
+//     //         let len = arg2 as usize;
+//     //         if (fd == 1 || fd == 2) && !buf_ptr.is_null() {
+//     //             let bytes = unsafe { core::slice::from_raw_parts(buf_ptr, len) };
+//     //             crate::uart::write_bytes(bytes);
+//     //             crate::uart::flush();
+//     //             len as i32
+//     //         } else {
+//     //             -1
+//     //         }
+//     //     }
+//     //     _ => {
+//     //         println!("unknown SVC: {}", nr);
+//     //         -38 // -ENOSYS
+//     //     }
+//     // };
+
+//     // Return value in r0 by updating saved frame before pop {r0-r12, lr}.
+//     unsafe { core::ptr::write_volatile(sp as *mut u32, ret as u32) };
+//     dev_barrier();
+// }
 
 pub fn start_interrupts() {
     println!("about to install interrupts");
@@ -254,23 +280,71 @@ pub fn start_interrupts() {
     println!("just enabled interrupts");
 }
 
+pub fn switch_to_user_mode() {
+    let mut cpsr: u32;
+    unsafe {
+        asm!(
+            "mrs {0}, cpsr",
+            out(reg) cpsr,
+            options(nomem, nostack, preserves_flags),
+        );
+    };
+    cpsr = bit_utils::bits_clr(cpsr, 0, 4) | CPSR_USER_MODE;
+    cpsr = bit_utils::bits_clr(cpsr, 28, 31); // clear carry flags
+    cpsr = bit_utils::bit_clr(cpsr, 7); // enable interrupts
+    unsafe {
+        asm!(
+            "msr cpsr, {0}",
+            in(reg) cpsr,
+            options(nomem, nostack, preserves_flags)
+        )
+    };
+}
+
+pub fn switch_to_super_mode() {
+    let mut cpsr: u32;
+    unsafe {
+        asm!(
+            "mrs {0}, cpsr",
+            out(reg) cpsr,
+            options(nomem, nostack, preserves_flags)
+        );
+    };
+    cpsr = bit_utils::bits_clr(cpsr, 0, 4) | CPSR_SUPER_MODE;
+    cpsr = bit_utils::bit_set(cpsr, 7); // re-enable interrupts
+    
+    unsafe {
+        asm!(
+            "msr cpsr, {0}",
+            in(reg) cpsr,
+            options(nomem, nostack, preserves_flags)
+        )
+    }
+}
+
 pub fn test_interrupts() {
     start_interrupts();
-
+    gpio::set_output(PARTHIV_PIN);
+    
+    switch_to_user_mode();
+    
     let mut r0: u32 = 1; // for standard out
     let test_str = "testing interrupt\n";
     unsafe {
         asm!(
             "svc 0",
-            in("r0") r0,
+            inout("r0") r0 => r0,
             in("r1") test_str.as_ptr(),
             in("r2") test_str.len(),
             in("r7") 4u32,
             options(nostack)
         )
     }
-    unsafe { disable_interrupts_asm(); }
-    println!("disabled interrups, svc write returned.");
+    
+    switch_to_super_mode();
+    
+    // unsafe { disable_interrupts_asm(); }
+    println!("returned from SWI instruction {}", r0);
 
     // println!("passing value test: {}", ret);
     // println!("disabled interrupts, svc write returned: {}", r0 as i32);

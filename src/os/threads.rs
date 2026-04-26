@@ -151,6 +151,7 @@ pub fn get_thread_manager() -> &'static mut ThreadManager {
     }
 }
 
+
 #[unsafe(no_mangle)]
 pub extern "C" fn rpi_exit(exit_code: u32) {
     let thread_manager = get_thread_manager();
