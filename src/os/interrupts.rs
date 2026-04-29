@@ -21,8 +21,6 @@ _interrupt_table:
   ldr pc, _data_abort_asm
   ldr pc, _reset_asm
   ldr pc, _interrupt_asm
-infinite_loop:
-    bl infinite_loop
 fast_interrupt_asm:
   sub   lr, lr, #4 @First instr of FIQ handler
   push  {{lr}}
@@ -39,26 +37,29 @@ _data_abort_asm:              .word data_abort_asm
 _interrupt_asm:               .word interrupt_asm
 _interrupt_table_end:   @ end of the table.
 
+undefined_instruction_asm_user:
+    movs pc, lr
+
 undefined_instruction_asm:                      @ A2-19
     bx lr  
-software_interrupt_asm:
-    push {{r0, r1}}
-    mov r0, #(1 << 27)
-    ldr r1, =0x2020001C
-    str r0, [r1]
-    pop {{r0, r1}}
+@ software_interrupt_asm:
+@    push {{r0-r12, lr}}
+@    mov r0, #(1 << 27)
+@    ldr r1, =0x2020001C
+@    str r0, [r1]
+@    pop {{r0-r12, lr}}
+@    movs pc, lr
+software_interrupt_asm:                         @ A2-20
+    mov sp, 0x10000000
+    push {{r0-r12, lr}}
+    
+    mov r0, lr
+    sub r0, r0, #4
+     
+    mov r1, sp
+    bl software_interrupt_vector
+    pop {{r0-r12, lr}}
     movs pc, lr
-@ software_interrupt_asm:                         @ A2-20
-    @ mov sp, 0x10000000
-    @ push {{r0-r12, lr}}
-    @
-    @ mov r0, lr
-    @ sub r0, r0, #4
-    @ 
-    @ mov r1, sp
-    @ bl software_interrupt_vector
-    @ pop {{r0-r12, lr}}
-    @ movs pc, lr
 prefetch_abort_asm:
     bx lr
 data_abort_asm:
@@ -112,6 +113,21 @@ disable_interrupts:
     orr r0,r0,#(1<<7)	@ set 7th bit
     msr cpsr_c,r0
     bx lr
+
+.globl switch_to_user_mode
+switch_to_user_mode:
+    mrs r0, cpsr
+    bic r0, r0, #0b11111  @ clear mode bits (bits 0-4)
+    orr r0, r0, #0b10000  @ set user mode
+    @ bic r0, r0, #0b10000000  @ enable IRQs (clear I bit)
+
+    push {{sp}}
+    ldm sp, {{sp}}^
+    add sp, sp, #4 @ moves the stack pointer up so that we get rid of the stack pointer we just wrote
+
+    push {{r0}}
+    push {{lr}}
+    rfe sp
 "#);
 
 
@@ -159,6 +175,9 @@ unsafe extern "C" {
     #[link_name = "interrupt_asm"]
     unsafe fn interrupt_asm();
 
+    #[link_name = "switch_to_user_mode"]
+    unsafe fn switch_to_user_mode();
+
     #[link_name = "_interrupt_table"]
     static INTERRUPT_TABLE_START: u8;
 
@@ -183,6 +202,11 @@ pub fn move_table() {
         }
         // core::ptr::copy_nonoverlapping(start, dst, len);
     }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn print_asm(val: u32) {
+    println!("ASM print val: {}", val);
 }
 
 #[unsafe(no_mangle)]
@@ -211,6 +235,20 @@ pub extern "C" fn software_interrupt_vector(pc: u32, sp: u32) {
     println!("SWI called: pc={:p}, instr={:0x}, sp={:p},", pc as *const u32, instr, sp as *const u32);
     let nr = unsafe { core::ptr::read_volatile((sp + 7 * 4) as *const u32) };
     gpio::set_off(PARTHIV_PIN);
+
+    let mut lr: u32;
+    unsafe {
+        asm!(
+            "mov {0}, lr",
+            out(reg) lr,
+            options(nomem,  nostack)
+        );
+    }
+    println!("lr: {:p}", lr as *const u32);
+    println!("sp: {:p}", sp as *const u32);
+
+    print_cpsr();
+
     dev_barrier();
 } 
 
@@ -280,53 +318,104 @@ pub fn start_interrupts() {
     println!("just enabled interrupts");
 }
 
-pub fn switch_to_user_mode() {
+pub fn print_cpsr() {
     let mut cpsr: u32;
     unsafe {
         asm!(
             "mrs {0}, cpsr",
             out(reg) cpsr,
-            options(nomem, nostack, preserves_flags),
+            options(nomem, nostack),
         );
     };
-    cpsr = bit_utils::bits_clr(cpsr, 0, 4) | CPSR_USER_MODE;
-    cpsr = bit_utils::bits_clr(cpsr, 28, 31); // clear carry flags
-    cpsr = bit_utils::bit_clr(cpsr, 7); // enable interrupts
-    unsafe {
-        asm!(
-            "msr cpsr, {0}",
-            in(reg) cpsr,
-            options(nomem, nostack, preserves_flags)
-        )
-    };
+    println!("cpsr: {:0b}", cpsr);
 }
 
-pub fn switch_to_super_mode() {
-    let mut cpsr: u32;
-    unsafe {
-        asm!(
-            "mrs {0}, cpsr",
-            out(reg) cpsr,
-            options(nomem, nostack, preserves_flags)
-        );
-    };
-    cpsr = bit_utils::bits_clr(cpsr, 0, 4) | CPSR_SUPER_MODE;
-    cpsr = bit_utils::bit_set(cpsr, 7); // re-enable interrupts
+
+// pub fn switch_to_super_mode() {
+//     let mut cpsr: u32;
+//     unsafe {
+//         asm!(
+//             "mrs {0}, cpsr",
+//             out(reg) cpsr,
+//             options(nomem, nostack)
+//         );
+//     };
+//     cpsr = bit_utils::bits_clr(cpsr, 0, 4) | CPSR_SUPER_MODE;
+//     cpsr = bit_utils::bit_set(cpsr, 7); // re-enable interrupts
     
+//     unsafe {
+//         asm!(
+//             "msr cpsr, {0}",
+//             in(reg) cpsr,
+//             options(nomem, nostack)
+//         )
+//     }
+// }
+
+#[inline(always)]
+pub fn get_stack_pointer() -> u32 {
+    let sp: u32;
     unsafe {
         asm!(
-            "msr cpsr, {0}",
-            in(reg) cpsr,
-            options(nomem, nostack, preserves_flags)
-        )
+            "mov {0}, sp",
+            out(reg) sp
+        );
+    }
+    return sp;
+}
+
+#[inline(always)]
+pub fn report() {
+    unsafe {
+        let sp: u32 = get_stack_pointer();
+
+        for i in 0..8 {
+            print!("sp + {}={:0x}, ", i * 4, *((sp + 4 * i) as *const u32));
+        }
+        
+        // print out the link register and program counter as well
+        let lr: u32;
+        let pc: u32;
+        unsafe {
+            asm!(
+                "mov {0}, lr",
+                "mov {1}, pc",
+                out(reg) lr,
+                out(reg) pc
+            );
+        }
+
+        print!("lr = {}, pc = {}", lr, pc);
+        print!("\n");
     }
 }
 
 pub fn test_interrupts() {
     start_interrupts();
     gpio::set_output(PARTHIV_PIN);
-    
-    switch_to_user_mode();
+
+    // println!("Address of this function: {:p}", test_interrupts as *const u32);
+    let here: u32;
+    unsafe {
+        asm!(
+            "adr {0}, .",  // "." means current instruction address
+            out(reg) here,
+        );
+    }
+    println!("Expected link register: {:0x}", (here + 8)); // next instruction is the switch to user mode function, and then the instruction after that.
+
+    // report();
+
+    println!("Stack pointer: {:0x}", get_stack_pointer());
+
+    unsafe { switch_to_user_mode(); }
+    println!("Switched to user mode!");
+    print_cpsr();
+
+    println!("Switched to user mode.");
+    println!("Address of this function: {:p}", test_interrupts as *const u32);
+
+    // here print out the stack
     
     let mut r0: u32 = 1; // for standard out
     let test_str = "testing interrupt\n";
@@ -340,11 +429,21 @@ pub fn test_interrupts() {
             options(nostack)
         )
     }
+
+    println!("Finished running SWI handler.");
+    let sp:u32;
+    unsafe{::core::arch::asm!("mov {t},sp",t=out(reg)sp)}
+    println!("Stack pointer: {sp:08x}");
+    // println!("Stack pointer: {:0x}", get_stack_pointer());
+
+    // report();
+
+    // here print out the stack
     
-    switch_to_super_mode();
+    // switch_to_super_mode();
     
     // unsafe { disable_interrupts_asm(); }
-    println!("returned from SWI instruction {}", r0);
+    // println!("returned from SWI instruction {}", r0);
 
     // println!("passing value test: {}", ret);
     // println!("disabled interrupts, svc write returned: {}", r0 as i32);

@@ -28,17 +28,17 @@ mod programs {
     pub mod fat32_test;
     pub mod matrix_load_test;
     pub mod derive_jit;
-    pub mod ir;
+    // pub mod ir;
     pub mod ckmalloc_test;
     // pub mod vm_test;
     pub mod imu;
 }
-// mod os {
-//     pub mod interrupts;
-//     pub mod virtmem;
-//     pub mod elf_loader;
-//     // pub mod threads;
-// }
+mod os {
+    pub mod interrupts;
+    pub mod virtmem;
+    pub mod elf_loader;
+    // pub mod threads;
+}
 
 unsafe fn enable_fpu() {
     unsafe {
@@ -53,7 +53,6 @@ unsafe fn enable_fpu() {
             // Enable FPU
             "mov r0, #0x40000000",
             "fmxr fpexc, r0",
-            options(nostack, nomem)
         );
     }
 }
@@ -81,10 +80,13 @@ unsafe fn enable_caches() {
 }
 
 fn main() {    
+    unsafe { enable_fpu(); }
+
     uart::init();
     println!("Hello from Rust on the Pi!");
 
-    programs::imu::imu_test();
+
+    // programs::imu::imu_test();
     // os::interrupts::test_interrupts();
     // programs::vm_test::vm_test();
     // programs::ckmalloc_test::test_ckmalloc();

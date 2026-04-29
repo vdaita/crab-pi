@@ -46,7 +46,6 @@ struct Thread {
     stack: [u32; MAX_STACK_SIZE]
 }
 
-static mut THREAD_MANAGER: Option<ThreadManager> = None;
 pub struct ThreadManager {
     running_queue: CircularQueue<*mut Thread, MAX_THREADS>,
     
@@ -142,19 +141,12 @@ impl ThreadManager {
     }
 }
 
-pub fn get_thread_manager() -> &'static mut ThreadManager {
-    unsafe {
-        if THREAD_MANAGER.is_none() {
-            THREAD_MANAGER = Some(ThreadManager::new());
-        }
-        THREAD_MANAGER.as_mut().unwrap()
-    }
-}
 
+static mut thread_manager: ThreadManager = ThreadManager::new();
 
 #[unsafe(no_mangle)]
 pub extern "C" fn rpi_exit(exit_code: u32) {
-    let thread_manager = get_thread_manager();
+    let mut thread_manager = ThreadManager::new();
     let next_thread = match (thread_manager.running_queue.is_empty()) {
         true => {
             println!("Returning to scheduler");
