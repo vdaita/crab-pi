@@ -2,7 +2,7 @@ use crate::kmalloc;
 use crate::mem::{get32, put32};
 use crate::os::virtmem::{
     make_global_pin, make_user_pin, mmu_disable, mmu_enable, mmu_reset, pin_mmu_sec, MemAttr,
-    MemPerm, pin_mmu_switch, pin_mmu_init, set_domain_access, mmu_is_enabled
+    MemPerm, pin_mmu_switch, pin_mmu_init, set_domain_access, mmu_is_enabled, make_global_pin_16mb
 };
 use crate::println;
 
@@ -13,6 +13,8 @@ const ASID1: u32 = 1;
 
 pub fn vm_test() {
     assert!(!mmu_is_enabled());
+    mmu_disable();
+    mmu_reset();
 
     // Keep allocator init behavior from the original test harness.
     unsafe { kmalloc::kmalloc_init_mb(1) };
@@ -22,26 +24,30 @@ pub fn vm_test() {
     let no_user = MemPerm::perm_rw_priv;
 
     // Device memory: kernel domain only, strongly ordered.
-    let dev = make_global_pin(DOM_KERN, no_user, MemAttr::MEM_device);
+    // let dev = make_global_pin(DOM_KERN, no_user, MemAttr::MEM_device);
+    let dev = make_global_pin_16mb(DOM_KERN, no_user, MemAttr::MEM_device);
     // Kernel memory: kernel domain only, uncached normal memory.
-    let kern = make_global_pin(DOM_KERN, no_user, MemAttr::MEM_uncached);
+    let kern = make_global_pin_16mb(DOM_KERN, no_user, MemAttr::MEM_uncached);
 
     // Index into the 8 pinned TLB entries.
     let mut idx = 0;
 
     // Identity-map key device ranges.
-    pin_mmu_sec(idx, 0x2000_0000, 0x2000_0000, dev);
+    // pin_mmu_sec(idx, 0x2000_0000, 0x2000_0000, dev);
+    // idx += 1;
+    // pin_mmu_sec(idx, 0x2010_0000, 0x2010_0000, dev);
+    // idx += 1;
+    // pin_mmu_sec(idx, 0x2020_0000, 0x2020_0000, dev);
+    // idx += 1;
+    pin_mmu_sec(idx, 0x2000_0000, 0x2000_0000,dev);
     idx += 1;
-    pin_mmu_sec(idx, 0x2010_0000, 0x2010_0000, dev);
-    idx += 1;
-    pin_mmu_sec(idx, 0x2020_0000, 0x2020_0000, dev);
-    idx += 1;
+    
 
     // Map first two MB for kernel code/data.
     pin_mmu_sec(idx, 0, 0, kern);
     idx += 1;
-    pin_mmu_sec(idx, ONE_MB, ONE_MB, kern);
-    idx += 1;
+    // pin_mmu_sec(idx, ONE_MB, ONE_MB, kern);
+    // idx += 1;
 
     // Map kernel stack region.
     pin_mmu_sec(idx, STACK_ADDR - ONE_MB, STACK_ADDR - ONE_MB, kern);

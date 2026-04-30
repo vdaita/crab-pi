@@ -30,7 +30,7 @@ mod programs {
     pub mod derive_jit;
     // pub mod ir;
     pub mod ckmalloc_test;
-    // pub mod vm_test;
+    pub mod vm_test;
     pub mod imu;
 }
 mod os {
@@ -85,7 +85,10 @@ fn main() {
     uart::init();
     println!("Hello from Rust on the Pi!");
 
-    os::threads::test_threads();
+    fat32::pi_sd_init();
+    // programs::fat32_test::fat32_test();
+    os::elf_loader::test_elf_loader();
+    // os::threads::test_threads();
     // programs::imu::imu_test();
     // os::interrupts::test_interrupts();
     // programs::vm_test::vm_test();

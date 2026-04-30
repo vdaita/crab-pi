@@ -65,7 +65,18 @@ pub fn make_global_pin(dom: u32, ap_perm: MemPerm, mem_attr: MemAttr) -> Pin {
         G: 1,
         asid: 0,
         dom,
-        pagesize: 0,
+        pagesize: 0b11,
+        AP_perm: ap_perm,
+        mem_attr,
+    }
+}
+
+pub fn make_global_pin_16mb(dom: u32, ap_perm: MemPerm, mem_attr: MemAttr) -> Pin {
+    Pin {
+        G: 1,
+        asid: 0,
+        dom,
+        pagesize: 0b00,
         AP_perm: ap_perm,
         mem_attr,
     }
@@ -76,7 +87,18 @@ pub fn make_user_pin(dom: u32, asid: u32, ap_perm: MemPerm, mem_attr: MemAttr) -
         G: 0,
         asid,
         dom,
-        pagesize: 0,
+        pagesize: 0b11,
+        AP_perm: ap_perm,
+        mem_attr,
+    }
+}
+
+pub fn make_user_pin_16mb(dom: u32, asid: u32, ap_perm: MemPerm, mem_attr: MemAttr) -> Pin {
+    Pin {
+        G: 0,
+        asid,
+        dom,
+        pagesize: 0b00,
         AP_perm: ap_perm,
         mem_attr,
     }
@@ -224,7 +246,7 @@ pub fn mmu_disable() {
 }
 
 pub fn pin_mmu_sec(idx: u32, va: u32, pa: u32, e: Pin) {
-    println!("about to map {} -> {}", va, pa);
+    println!("about to map 0x{:0x} -> 0x{:0x} at index {}", va, pa, idx);
     cpsr_int_disable();
 
     let mut va_ent: u32 = (va & 0xFFFFF000) | ((e.G & 1) << 9);

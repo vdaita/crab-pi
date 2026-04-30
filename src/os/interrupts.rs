@@ -128,6 +128,11 @@ switch_to_user_mode:
     push {{r0}}
     push {{lr}}
     rfe sp
+
+.globl switch_to_super_mode
+switch_to_super_mode:
+
+
 "#);
 
 
@@ -176,7 +181,7 @@ unsafe extern "C" {
     unsafe fn interrupt_asm();
 
     #[link_name = "switch_to_user_mode"]
-    unsafe fn switch_to_user_mode();
+    pub unsafe fn switch_to_user_mode();
 
     #[link_name = "_interrupt_table"]
     static INTERRUPT_TABLE_START: u8;

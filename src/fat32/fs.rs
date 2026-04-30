@@ -838,6 +838,8 @@ fn mbr_get_partition(mbr: *const u8, partno: usize) -> mbr_partition_ent_t {
             (&mut p as *mut mbr_partition_ent_t).cast::<u8>(),
             MBR_PARTITION_ENTRY_BYTES,
         );
+        p.lba_start = u32::from_le(p.lba_start);
+        p.nsectors = u32::from_le(p.nsectors);
     }
     p
 }
