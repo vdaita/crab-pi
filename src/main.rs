@@ -37,7 +37,7 @@ mod os {
     pub mod interrupts;
     pub mod virtmem;
     pub mod elf_loader;
-    // pub mod threads;
+    pub mod threads;
 }
 
 unsafe fn enable_fpu() {
@@ -85,7 +85,7 @@ fn main() {
     uart::init();
     println!("Hello from Rust on the Pi!");
 
-
+    os::threads::test_threads();
     // programs::imu::imu_test();
     // os::interrupts::test_interrupts();
     // programs::vm_test::vm_test();

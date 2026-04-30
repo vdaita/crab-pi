@@ -11,7 +11,7 @@ static mut GARBAGE_ROOM: [u32; 128] = [0; 128];
 global_asm!(r#"
 .globl context_switch
 .type context_switch, %function
-context_switch
+context_switch:
      push {{r4-r11, lr}}
      str sp, [r0]
      mov sp, r1
@@ -142,33 +142,91 @@ impl ThreadManager {
 }
 
 
-static mut thread_manager: ThreadManager = ThreadManager::new();
+static mut thread_manager: *mut ThreadManager = core::ptr::null_mut();
 
 #[unsafe(no_mangle)]
 pub extern "C" fn rpi_exit(exit_code: u32) {
-    let mut thread_manager = ThreadManager::new();
-    let next_thread = match (thread_manager.running_queue.is_empty()) {
-        true => {
-            println!("Returning to scheduler");
-            thread_manager.scheduler_thread
-        }
-        false => {
-            thread_manager.running_queue.pop_nonblock().unwrap()
-        }
-    };
-    
-    let finished_thread = thread_manager.current_thread;
-    thread_manager.current_thread = next_thread;
-    ckfree(finished_thread as *mut u32);
-    
     unsafe {
-        context_switch(
-            core::ptr::addr_of_mut!(GARBAGE_ROOM) as *mut u32, // you don't actually care where this is written to, as long as someone else ain't reading it
-            (*next_thread).sp
-        );
+        if (thread_manager.is_null()) {
+            panic!("Thread manager is null when running rpi_exit, this is unexpected");
+        }
+
+        let next_thread = match ((*thread_manager).running_queue.is_empty()) {
+            true => {
+                println!("Returning to scheduler");
+                (*thread_manager).scheduler_thread
+            }
+            false => {
+                (*thread_manager).running_queue.pop_nonblock().unwrap()
+            }
+        };
+        
+        let finished_thread = (*thread_manager).current_thread;
+        (*thread_manager).current_thread = next_thread;
+        ckfree(finished_thread as *mut u32);
+        
+        unsafe {
+            context_switch(
+                core::ptr::addr_of_mut!(GARBAGE_ROOM) as *mut u32, // you don't actually care where this is written to, as long as someone else ain't reading it
+                (*next_thread).sp
+            );
+        }
     }
 }
 
 pub fn test_threads() {
-    
+    unsafe { 
+        thread_manager = ckalloc(
+            core::mem::size_of::<ThreadManager>(),
+            SourceLocation {
+                file: "threads.rs",
+                func: "test_threads",
+                lineno: 0
+            }
+        ) as *mut ThreadManager;
+        core::ptr::write(thread_manager, ThreadManager::new());
+
+        // Test function 1: Simple counter
+        fn thread_func1() {
+            for i in 0..5 {
+                println!("Thread 1: iteration {}", i);
+                unsafe { (*thread_manager).thread_yield(); }
+            }
+            println!("Thread 1: completed!");
+        }
+        
+        // Test function 2: Another counter
+        fn thread_func2() {
+            for i in 0..3 {
+                println!("  Thread 2: iteration {}", i);
+                unsafe { (*thread_manager).thread_yield(); }
+            }
+            println!("  Thread 2: completed!");
+        }
+        
+        // Test function 3: With argument usage
+        fn thread_func3() {
+            for i in 0..4 {
+                println!("    Thread 3: iteration {}", i);
+                unsafe { (*thread_manager).thread_yield(); }
+            }
+            println!("    Thread 3: completed!");
+        }
+        
+        println!("=== Starting Thread Test ===\n");
+        
+        // Fork some threads
+        (*thread_manager).thread_fork(thread_func1, core::ptr::null());
+        (*thread_manager).thread_fork(thread_func2, core::ptr::null());
+        (*thread_manager).thread_fork(thread_func3, core::ptr::null());
+        
+        println!("Forked 3 threads, starting scheduler...\n");
+        
+        // Start the scheduler - this will run until all threads complete
+        (*thread_manager).thread_start();
+        
+        println!("\n=== All threads completed ===");
+        ckfree(thread_manager as *mut u32);
+        thread_manager = core::ptr::null_mut();
+    }
 }
