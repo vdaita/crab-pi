@@ -21,6 +21,7 @@ mod fast_hash;
 mod crc;
 mod gpt;
 mod ckalloc;
+// mod profiler;
 mod bit_utils;
 mod programs {
     pub mod gpu_test;
@@ -85,6 +86,7 @@ fn main() {
     uart::init();
     println!("Hello from Rust on the Pi!");
 
+    // profiler::test_profiler();
     fat32::pi_sd_init();
     // programs::fat32_test::fat32_test();
     os::elf_loader::test_elf_loader();
@@ -106,8 +108,6 @@ fn main() {
     // programs::fat32_test::fat32_test();
     // programs::matrix_load_test::matrix_load_test();
     // gpt::model::infer_model();
-
-
     done();
 }
 

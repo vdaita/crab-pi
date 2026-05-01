@@ -150,10 +150,7 @@ impl ElfLoader {
     }
 
     unsafe fn run(&mut self, prog_name: &str, arg1: u32, arg2: u32, arg3: u32, asid: u32) {
-        self.init_kernel_state();
-
         fat32::pi_sd_init();
-
         let partition = fat32::first_fat32_partition_from_mbr().expect("valid first FAT32 partition");
         let fs = fat32::fat32_mk(&partition);
         let root = fat32::fat32_get_root(&fs);
@@ -167,19 +164,8 @@ impl ElfLoader {
             ((*file).data as *mut u8).add((*elf_header_ptr).e_phoff as usize) as *mut ProgramHeader;
 
         println!("number of program headers: {}", (*elf_header_ptr).e_phnum);
-
-        // Allocate 16MB of physical memory for this process
-        let phys_base = (asid + 1) * (16 * ONE_MB);
-        
-        // Map virtual address 0 -> physical base using a single 16MB page
-        let user_16mb = virtmem::make_user_pin_16mb(
-            DOM_KERN,
-            asid,
-            MemPerm::perm_rw_priv,
-            virtmem::MemAttr::MEM_uncached,
-        );
-        self.pin_next(0, phys_base, user_16mb);
-
+        // let phys_base = (asid + 1) * (16 * ONE_MB);
+        let phys_base = 0x0;
         // Load all segments into this 16MB region
         for prog_header_idx in 0..(*elf_header_ptr).e_phnum {
             let program_header_ptr: *mut ProgramHeader = first_program_header_ptr.add(prog_header_idx as usize);
@@ -188,13 +174,10 @@ impl ElfLoader {
                 continue;
             }
 
-            let vaddr = (*program_header_ptr).p_vaddr;
-            let paddr = phys_base + vaddr;  // Physical address = base + offset
-            
-            println!("Loading segment: VA {:#x} -> PA {:#x}, filesz={:#x}, memsz={:#x}",
-                    vaddr, paddr, (*program_header_ptr).p_filesz, (*program_header_ptr).p_memsz);
-
+            let paddr = phys_base + (*program_header_ptr).p_paddr;
+            // let paddr = phys_base + vaddr;  // Physical address = base + offset
             // Copy segment data
+            println!("About to copy segment {} to address {}", prog_header_idx, paddr);
             core::ptr::copy_nonoverlapping(
                 ((*file).data as *mut u8).add((*program_header_ptr).p_offset as usize),
                 paddr as *mut u8,
@@ -206,20 +189,7 @@ impl ElfLoader {
             let bss_size = (*program_header_ptr).p_memsz - (*program_header_ptr).p_filesz;
             core::ptr::write_bytes(bss_start, 0, bss_size as usize);
         }
-        
-        // Stack at top of 16MB region (but use separate mapping for safety)
-        let stack_vaddr = STACK_ADDR;
         let stack_phys = phys_base + 15 * ONE_MB;  // Use last MB of 16MB region        
-        self.pin_next(stack_vaddr, stack_phys, user_16mb);
-
-        println!("finished pinning");
-
-        // virtmem::pin_mmu_switch(0, asid);
-        println!("pin_mmu_switched completed, went to asid={}", asid);
-
-        println!("About to enable MMU. PC should be around: {:p}", virtmem::mmu_enable as *const ());
-        virtmem::mmu_enable();
-        println!("MMU enabled!");
         
         interrupts::switch_to_user_mode(); 
         println!("Switched to user mode");
@@ -239,8 +209,98 @@ impl ElfLoader {
         
         elf_loader_tramp(core::ptr::addr_of_mut!(context));
 
-        virtmem::mmu_disable();
     }
+
+    // unsafe fn run(&mut self, prog_name: &str, arg1: u32, arg2: u32, arg3: u32, asid: u32) {
+    //     self.init_kernel_state();
+
+    //     fat32::pi_sd_init();
+
+    //     let partition = fat32::first_fat32_partition_from_mbr().expect("valid first FAT32 partition");
+    //     let fs = fat32::fat32_mk(&partition);
+    //     let root = fat32::fat32_get_root(&fs);
+
+    //     let file: *mut pi_file_t = fat32::fat32_read(&fs, &root, prog_name);
+    //     println!("File size from FAT32: {}", (*file).n_data);
+    //     hexdump((*file).data, 8);
+
+    //     let elf_header_ptr: *mut ElfHeader = (*file).data as *mut ElfHeader;
+    //     let first_program_header_ptr: *mut ProgramHeader = 
+    //         ((*file).data as *mut u8).add((*elf_header_ptr).e_phoff as usize) as *mut ProgramHeader;
+
+    //     println!("number of program headers: {}", (*elf_header_ptr).e_phnum);
+
+    //     let phys_base = (asid + 1) * (16 * ONE_MB);
+        
+    //     let user_16mb = virtmem::make_user_pin_16mb(
+    //         DOM_KERN,
+    //         asid,
+    //         MemPerm::perm_rw_priv,
+    //         virtmem::MemAttr::MEM_uncached,
+    //     );
+    //     self.pin_next(0, phys_base, user_16mb);
+
+    //     // Load all segments into this 16MB region
+    //     for prog_header_idx in 0..(*elf_header_ptr).e_phnum {
+    //         let program_header_ptr: *mut ProgramHeader = first_program_header_ptr.add(prog_header_idx as usize);
+
+    //         if (*program_header_ptr).p_type != 1 {
+    //             continue;
+    //         }
+
+    //         let vaddr = (*program_header_ptr).p_vaddr;
+    //         let paddr = phys_base + vaddr;  // Physical address = base + offset
+            
+    //         println!("Loading segment: VA {:#x} -> PA {:#x}, filesz={:#x}, memsz={:#x}",
+    //                 vaddr, paddr, (*program_header_ptr).p_filesz, (*program_header_ptr).p_memsz);
+
+    //         // Copy segment data
+    //         core::ptr::copy_nonoverlapping(
+    //             ((*file).data as *mut u8).add((*program_header_ptr).p_offset as usize),
+    //             paddr as *mut u8,
+    //             (*program_header_ptr).p_filesz as usize,
+    //         );
+
+    //         // Zero BSS
+    //         let bss_start = (paddr as *mut u8).add((*program_header_ptr).p_filesz as usize);
+    //         let bss_size = (*program_header_ptr).p_memsz - (*program_header_ptr).p_filesz;
+    //         core::ptr::write_bytes(bss_start, 0, bss_size as usize);
+    //     }
+        
+    //     // Stack at top of 16MB region (but use separate mapping for safety)
+    //     let stack_vaddr = STACK_ADDR;
+    //     let stack_phys = phys_base + 15 * ONE_MB;  // Use last MB of 16MB region        
+    //     self.pin_next(stack_vaddr, stack_phys, user_16mb);
+
+    //     println!("finished pinning");
+
+    //     // virtmem::pin_mmu_switch(0, asid);
+    //     println!("pin_mmu_switched completed, went to asid={}", asid);
+
+    //     println!("About to enable MMU. PC should be around: {:p}", virtmem::mmu_enable as *const ());
+    //     virtmem::mmu_enable();
+    //     println!("MMU enabled!");
+        
+    //     interrupts::switch_to_user_mode(); 
+    //     println!("Switched to user mode");
+
+    //     let mut context: ProgramContext = ProgramContext {
+    //         sp: stack_phys,
+    //         lr: phys_base + (*elf_header_ptr).e_entry,
+    //         arg0: arg1,
+    //         arg1: arg2,
+    //         arg2: arg3,
+    //     };
+
+    //     println!("want to run the following instructions: ");
+    //     hexdump(context.lr as *const u8, 8);
+
+    //     println!("Jumping to entry point: {:#x}", context.lr);
+        
+    //     elf_loader_tramp(core::ptr::addr_of_mut!(context));
+
+    //     virtmem::mmu_disable();
+    // }
 }
 
 pub fn test_elf_loader() {
