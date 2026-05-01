@@ -1,6 +1,8 @@
 #![no_std]
 #![no_main]
 
+use core::arch::global_asm;
+
 mod arch;
 mod llvm_infra;
 mod panic_infra;
@@ -80,7 +82,7 @@ unsafe fn enable_caches() {
     }
 }
 
-fn main() {    
+pub fn main() {    
     unsafe { enable_fpu(); }
 
     uart::init();

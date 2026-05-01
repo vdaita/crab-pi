@@ -42,6 +42,9 @@ extern "C" fn __kernel_start() -> ! {
 .pushsection ".text.boot"
 .globl _start
 _start:
+    b skip
+.space 0x10000-0x8004,0 @ not to overlap with programs loaded
+skip:
     // switch to super mode, and disable FIQ and IRQ
     mrs r0, cpsr
     and r0, r0, {CLEAR_MODE_MASK}
