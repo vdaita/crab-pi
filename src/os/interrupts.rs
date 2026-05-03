@@ -128,9 +128,11 @@ switch_to_user_mode:
 
 .globl switch_to_super_mode
 switch_to_super_mode:
-
-
-"#);
+    cps {SUPER_MODE}
+    bx lr
+"#,
+    SUPER_MODE = const CPSR_SUPER_MODE
+);
 
 
 const IRQ_BASE: usize = 0x2000_b200;
@@ -164,8 +166,8 @@ const ARM_TIMER_COUNTER: usize = ARM_TIMER_BASE + 0x20;
 const ARM_TIMER_IRQ: u32 = (1 << 0); // timer interrupt number
 
 const PARTHIV_PIN: u32 = 27;
-const CPSR_USER_MODE: u32 = 0b10000;
-const CPSR_SUPER_MODE: u32 = 0b10011;
+pub const CPSR_USER_MODE: u32 = 0b10000;
+pub const CPSR_SUPER_MODE: u32 = 0b10011;
 
 unsafe extern "C" {
     #[link_name = "enable_interrupts"]
@@ -180,16 +182,19 @@ unsafe extern "C" {
     #[link_name = "switch_to_user_mode"]
     pub unsafe fn switch_to_user_mode();
 
+    #[link_name = "switch_to_super_mode"]
+    pub unsafe fn switch_to_super_mode(regs: *const u32);
+
     #[link_name = "_interrupt_table"]
-    static INTERRUPT_TABLE_START: u8;
+    pub static INTERRUPT_TABLE_START: u8;
 
     #[link_name = "_interrupt_table_end"]
-    static INTERRUPT_TABLE_END: u8;
+    pub static INTERRUPT_TABLE_END: u8;
 }
 
-pub fn move_table() {
-    let start: *const u32 = core::ptr::addr_of!(INTERRUPT_TABLE_START) as *const u32;
-    let end: *const u32 = core::ptr::addr_of!(INTERRUPT_TABLE_END) as *const u32;
+pub fn move_table(interrupt_table_start_addr: usize, interrupt_table_end_addr: usize) {
+    let start: *const u32 = interrupt_table_start_addr as *const u32;
+    let end: *const u32 = interrupt_table_end_addr as *const u32;
     let len = ((end as usize) - (start as usize)) / 4;
     let dst = core::ptr::without_provenance_mut::<u32>(0);
     unsafe {
@@ -302,7 +307,7 @@ pub extern "C" fn software_interrupt_vector(pc: u32, sp: u32) {
     dev_barrier();
 }
 
-pub fn start_interrupts() {
+pub fn start_interrupts(itable_start: usize, itable_end: usize) {
     println!("about to install interrupts");
     unsafe {
         disable_interrupts_asm();
@@ -312,7 +317,7 @@ pub fn start_interrupts() {
     }
     dev_barrier();
     gcc_mb();
-    move_table();
+    move_table(itable_start, itable_end);
     gcc_mb();
      
     unsafe {
@@ -321,7 +326,11 @@ pub fn start_interrupts() {
     println!("just enabled interrupts");
 }
 
-pub fn print_cpsr() {
+pub fn mode_get(cpsr: u32) -> u32 {
+    bit_utils::bits_get(cpsr, 0, 4)
+}
+
+pub fn get_cpsr() -> u32 {
     let mut cpsr: u32;
     unsafe {
         asm!(
@@ -330,30 +339,12 @@ pub fn print_cpsr() {
             options(nomem, nostack),
         );
     };
-    println!("cpsr: {:0b}", cpsr);
+    return cpsr;
 }
 
-
-// pub fn switch_to_super_mode() {
-//     let mut cpsr: u32;
-//     unsafe {
-//         asm!(
-//             "mrs {0}, cpsr",
-//             out(reg) cpsr,
-//             options(nomem, nostack)
-//         );
-//     };
-//     cpsr = bit_utils::bits_clr(cpsr, 0, 4) | CPSR_SUPER_MODE;
-//     cpsr = bit_utils::bit_set(cpsr, 7); // re-enable interrupts
-    
-//     unsafe {
-//         asm!(
-//             "msr cpsr, {0}",
-//             in(reg) cpsr,
-//             options(nomem, nostack)
-//         )
-//     }
-// }
+pub fn print_cpsr() {
+    println!("cpsr: {:0b}", get_cpsr());
+}
 
 #[inline(always)]
 pub fn get_stack_pointer() -> u32 {
@@ -394,7 +385,10 @@ pub fn report() {
 }
 
 pub fn test_interrupts() {
-    start_interrupts();
+    start_interrupts(
+        core::ptr::addr_of!(INTERRUPT_TABLE_START) as usize,
+        core::ptr::addr_of!(INTERRUPT_TABLE_END) as usize
+    );
     gpio::set_output(PARTHIV_PIN);
 
     // println!("Address of this function: {:p}", test_interrupts as *const u32);
