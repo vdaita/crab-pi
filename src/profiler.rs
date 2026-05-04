@@ -17,15 +17,15 @@ _interrupt_table_prof:
   ldr pc, _data_abort_asm
   ldr pc, _reset_asm
   ldr pc, _interrupt_asm
-_reset_asm:                   .word reset_asm
-_undefined_instruction_asm:   .word undefined_instruction_asm
+_reset_asm:                   .word generic_interrupt_asm_profiler
+_undefined_instruction_asm:   .word generic_interrupt_asm_profiler
 _software_interrupt_asm:      .word software_interrupt_asm_profiler
 _prefetch_abort_asm:          .word prefetch_abort_asm_profiler
-_data_abort_asm:              .word data_abort_asm
-_interrupt_asm:               .word interrupt_asm
+_data_abort_asm:              .word generic_interrupt_asm_profiler
+_interrupt_asm:               .word generic_interrupt_asm_profiler
 _interrupt_table_end_prof:   @ end of the table.
 
-undefined_instruction_asm:                      @ A2-19
+generic_interrupt_asm_profiler:                      @ A2-19
     bx lr  
 software_interrupt_asm_profiler:                         @ A2-20
     push {{r0-r12, lr}}
@@ -47,12 +47,6 @@ prefetch_abort_asm_profiler:
     @ bl    prefetch_abort_vector
     @ pop   {{r0-r12,lr}}
     @ movs    pc, lr 
-data_abort_asm:
-    bx lr
-reset_asm:
-    bx lr
-interrupt_asm:
-    bx lr
 "#);
 
 static mut num_instructions: u32 = 0;
