@@ -17,28 +17,17 @@ _interrupt_table_prof:
   ldr pc, _data_abort_asm
   ldr pc, _reset_asm
   ldr pc, _interrupt_asm
-fast_interrupt_asm:
-  sub   lr, lr, #4 @First instr of FIQ handler
-  push  {{lr}}
-  push  {{r0-r12}}
-  mov   r0, lr              @ Pass old pc
-  bl    fast_interrupt_vector    @ C function
-  pop   {{r0-r12}}
-  ldm   sp!, {{pc}}^
 _reset_asm:                   .word reset_asm
 _undefined_instruction_asm:   .word undefined_instruction_asm
-_software_interrupt_asm:      .word software_interrupt_asm
-_prefetch_abort_asm:          .word prefetch_abort_asm
+_software_interrupt_asm:      .word software_interrupt_asm_profiler
+_prefetch_abort_asm:          .word prefetch_abort_asm_profiler
 _data_abort_asm:              .word data_abort_asm
 _interrupt_asm:               .word interrupt_asm
 _interrupt_table_end_prof:   @ end of the table.
 
-undefined_instruction_asm_user:
-    movs pc, lr
-
 undefined_instruction_asm:                      @ A2-19
     bx lr  
-software_interrupt_asm:                         @ A2-20
+software_interrupt_asm_profiler:                         @ A2-20
     push {{r0-r12, lr}}
     mov r0, lr
     sub r0, r0, #4     
@@ -46,8 +35,18 @@ software_interrupt_asm:                         @ A2-20
     bl pixie_syscall
     pop {{r0-r12, lr}}
     movs pc, lr
-prefetch_abort_asm:
-    bx lr
+prefetch_abort_asm_profiler:
+    @ sub   lr, lr, #4    
+    @ mov sp, #INT_STACK_ADDR @ don't really need to, right?
+    @ push  {{r0-r12,lr}}
+    mov r0, #(1 << 27)
+    ldr r1, =0x2020001C
+    str r0, [r1]
+    1:  b 1b
+    @ mov   r0, lr
+    @ bl    prefetch_abort_vector
+    @ pop   {{r0-r12,lr}}
+    @ movs    pc, lr 
 data_abort_asm:
     bx lr
 reset_asm:
@@ -72,6 +71,16 @@ unsafe extern "C" {
 
 fn breakpoint_mismatch_set(addr: u32) {
     unsafe {
+        println!("starting to set mismatch variables");
+
+        let old_bcr0_state: u32;
+        core::arch::asm!(
+            "mrc p14, 0, {0}, c0, c0, 5",
+            out(reg) old_bcr0_state,
+            options(nomem, nostack)
+        );
+        println!("old bcr0 state=0b{:b}", old_bcr0_state);
+        
         let bcr0_state = 0x4001e7;
         core::arch::asm!( // setting bcr0
             "mcr p14, 0, {0}, c0, c0, 5",
@@ -79,6 +88,7 @@ fn breakpoint_mismatch_set(addr: u32) {
             options(nomem, nostack)
         );
         prefetch_flush();
+        println!("updated bcr0");
 
         let bvr0_state = bits_set(0, 2, 31, addr >> 2);
         core::arch::asm!(
@@ -87,6 +97,9 @@ fn breakpoint_mismatch_set(addr: u32) {
             options(nomem, nostack)
         );
         prefetch_flush(); 
+        println!("updated bvr0");
+
+        println!("bcr0_state=0x{:0x}, bvr0_state=0x{:0x}", bcr0_state, bvr0_state);
     }  
 }
 
@@ -98,13 +111,25 @@ fn breakpoint_mismatch_start() {
             out(reg) dscr_state,
             options(nomem, nostack)
         );
+        println!("got old dscr state = 0b{:0b}", dscr_state);
+
         let new_dscr_state = bit_clr(bit_set(dscr_state, 15), 14);
+        println!("want to write dscr state = 0b{:0b}", new_dscr_state);
         core::arch::asm!(
             "mcr p14, 0, {0}, c0, c1, 0",
             in(reg) new_dscr_state,
             options(nomem, nostack)
         );
+        println!("updated dscr state = 0b{:0b}", new_dscr_state);
         prefetch_flush();
+
+        let verify_dscr: u32;
+        core::arch::asm!(
+            "mrc p14, 0, {0}, c0, c1, 0",
+            out(reg) verify_dscr,
+            options(nomem, nostack)
+        );
+        println!("verify dscr = 0b{:0b}", verify_dscr);
 
         breakpoint_mismatch_set(0);
         prefetch_flush();
@@ -121,6 +146,7 @@ fn breakpoint_mismatch_stop() {
         );
 
         prefetch_flush();
+        println!("stopped breakpoints");
     }
 }
 
@@ -158,11 +184,15 @@ pub extern "C" fn prefetch_abort_vector(pc: u32) {
         instruction_count_table[pc as usize] += 1;
     }
 
-    breakpoint_mismatch_set(pc);
+    breakpoint_mismatch_set(pc); // so we can run this
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn pixie_syscall(sysno: u32, pc: u32, regs: *const u32) {
+pub extern "C" fn pixie_syscall(pc: u32, regs: *const u32) {
+    let instr = unsafe { core::ptr::read_volatile((pc) as *const u32) };
+    let sysno = instr & 0x0ff_ffff;
+    println!("SWI called: pc={:p}, instr={:0x}, sysno={}", pc as *const u32, instr, sysno);
+
     match sysno {
         PIXIE_SYS_DIE => {
             pixie_die_handler(regs);
@@ -174,7 +204,6 @@ pub extern "C" fn pixie_syscall(sysno: u32, pc: u32, regs: *const u32) {
                 println!("done: pc=0x{:0x}", pc); 
                 interrupts::switch_to_super_mode(regs);
             }
-            panic!("this code should not be reached!");
         }
         _ => {
             panic!("invalid syscall");
@@ -201,15 +230,24 @@ fn pixie_start() {
         core::ptr::addr_of!(INTERRUPT_TABLE_PROF_START) as usize, 
         core::ptr::addr_of!(INTERRUPT_TABLE_PROF_END) as usize
     );
-    breakpoint_mismatch_start();
+    println!("moved interrupt table");
+
     if !(mode_get(get_cpsr()) == CPSR_SUPER_MODE) {
         panic!("should be in super mode before starting pixie");
     }
+
+    unsafe { prefetch_flush(); }
+
+    breakpoint_mismatch_start();
+    println!("started breakpoint");
+    unsafe {prefetch_flush();}
+    
+    println!("about to switch to user mode");
     unsafe { interrupts::switch_to_user_mode(); }
+    println!("switched to user mode");
     if !(mode_get(get_cpsr()) == CPSR_USER_MODE) {
         panic!("must be in user mode after making the switch");
     }
-    // check that in user mode   
 }
 
 fn pixie_stop() {
@@ -237,4 +275,5 @@ pub fn test_profiler() {
     }
     pixie_stop();
     pixie_dump(10);
+    pixie_reset();
 }
