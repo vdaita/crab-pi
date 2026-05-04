@@ -22,14 +22,6 @@ _interrupt_table_ir:
     ldr pc, _interrupt_asm_ir
 infinite_loop:
     bl infinite_loop
-fast_interrupt_asm:
-  sub   lr, lr, #4 @First instr of FIQ handler
-  push  {{lr}}
-  push  {{r0-r12}}
-  mov   r0, lr              @ Pass old pc
-    bl    fast_interrupt_vector_ir    @ C function
-  pop   {{r0-r12}}
-  ldm   sp!, {{pc}}^
 _reset_asm_ir:                   .word reset_asm_ir
 _undefined_instruction_asm_ir:   .word undefined_instruction_asm_ir
 _software_interrupt_asm_ir:      .word software_interrupt_asm_ir

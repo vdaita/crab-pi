@@ -31,7 +31,7 @@ mod programs {
     pub mod fat32_test;
     pub mod matrix_load_test;
     pub mod derive_jit;
-    // pub mod ir;
+    pub mod ir;
     pub mod ckmalloc_test;
     pub mod vm_test;
     pub mod imu;
