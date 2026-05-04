@@ -24,6 +24,7 @@ mod crc;
 mod gpt;
 mod ckalloc;
 mod profiler;
+mod pmu_profiler;
 mod bit_utils;
 mod programs {
     pub mod gpu_test;
@@ -88,7 +89,8 @@ pub fn main() {
     uart::init();
     println!("Hello from Rust on the Pi!");
 
-    profiler::test_profiler();
+    pmu_profiler::test_pmu_profiler();
+    // profiler::test_profiler();
     // fat32::pi_sd_init();
     // programs::fat32_test::fat32_test();
     // os::elf_loader::test_elf_loader();

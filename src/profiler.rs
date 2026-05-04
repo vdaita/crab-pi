@@ -10,19 +10,16 @@ global_asm!(r#"
 _interrupt_table_prof:
   @ Q: why can we copy these ldr jumps and have
   @ them work the same?
-  ldr pc, _reset_asm                    @ 0x0: Q: why this order?[A2-16]
-  ldr pc, _undefined_instruction_asm    @ 0x4
-  ldr pc, _software_interrupt_asm       @ 0x8
-  ldr pc, _prefetch_abort_asm
-  ldr pc, _data_abort_asm
-  ldr pc, _reset_asm
-  ldr pc, _interrupt_asm
-_reset_asm:                   .word generic_interrupt_asm_profiler
-_undefined_instruction_asm:   .word generic_interrupt_asm_profiler
-_software_interrupt_asm:      .word software_interrupt_asm_profiler
-_prefetch_abort_asm:          .word prefetch_abort_asm_profiler
-_data_abort_asm:              .word generic_interrupt_asm_profiler
-_interrupt_asm:               .word generic_interrupt_asm_profiler
+  ldr pc, _reset_asm_profiler                    @ 0x0: Q: why this order?[A2-16]
+  ldr pc, _reset_asm_profiler @ _undefined_instruction_asm    @ 0x4
+  ldr pc, _software_interrupt_asm_profiler       @ 0x8
+  ldr pc, _prefetch_abort_asm_profiler
+  ldr pc, _reset_asm_profiler @ _data_abort_asm
+  ldr pc, _reset_asm_profiler
+  ldr pc, _reset_asm_profiler @ _interrupt_asm
+_reset_asm_profiler:                   .word generic_interrupt_asm_profiler
+_software_interrupt_asm_profiler:      .word software_interrupt_asm_profiler
+_prefetch_abort_asm_profiler:          .word prefetch_abort_asm_profiler
 _interrupt_table_end_prof:   @ end of the table.
 
 generic_interrupt_asm_profiler:                      @ A2-19
