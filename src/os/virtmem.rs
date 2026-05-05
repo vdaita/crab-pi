@@ -5,6 +5,16 @@ use core::arch::asm;
 #[allow(non_camel_case_types)]
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PageSizes {
+    mb1 = 0b11,
+    mb16 = 0b00,
+    kb64 = 0b01,
+    
+}
+
+#[allow(non_camel_case_types)]
+#[repr(u32)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MemPerm {
     perm_rw_user = 0b011, // read-write user 
     perm_ro_user = 0b010, // read-only user

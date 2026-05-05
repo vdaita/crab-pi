@@ -1,12 +1,6 @@
-void _start() {
-    const char *msg = "Hello, World!\n";
+#include "unistd.h"
 
-    register int r0 asm("r0") = 1;
-    register const char *r1 asm("r1") = msg;
-    register int r2 asm("r2") = 14;
-    register int r7 asm("r7") = 4;
-
-    asm volatile("svc 0");
-
-    while (1);
+int main() {
+    write(1, "Hello from musl!\n", 17);
+    return 0;
 }

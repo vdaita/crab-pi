@@ -1,4 +1,6 @@
 build:
-	arm-none-eabi-gcc -specs=nosys.specs -nostdlib -nostartfiles -ffreestanding -T user.ld test.c -o test.elf
+	arm-linux-musleabihf-gcc -static \
+		-Wl,-Tlink.ld \
+	 	-o TEST.ELF test.c
 
 .PHONY: build
