@@ -35,6 +35,7 @@ pub fn set_off(pin: u32) {
     put32(addr, shift);
 }
 
+#[inline]
 pub fn write(pin: u32, v: u32) {
     if v != 0 {
         set_on(pin);
@@ -53,6 +54,7 @@ pub fn set_input(pin: u32) {
     put32(addr, mode);
 }
 
+#[inline]
 pub fn read(pin: u32) -> u32 {
     if pin > GPIO_MAX_PIN {
         panic!("illegal pin={}", pin);
