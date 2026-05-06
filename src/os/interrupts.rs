@@ -138,7 +138,6 @@ switch_to_super_mode:
     mov r0, 0
     mcr p15, 0, r0, c7, c5, 4
     mov pc, lr
-    // movs pc, lr
 "#,
     SUPER_MODE = const CPSR_SUPER_MODE
 );
@@ -192,7 +191,7 @@ unsafe extern "C" {
     pub unsafe fn switch_to_user_mode();
 
     #[link_name = "switch_to_super_mode"]
-    pub unsafe fn switch_to_super_mode();
+    pub unsafe fn switch_to_super_mode(regs: *const u32);
 
     #[link_name = "_interrupt_table"]
     pub static INTERRUPT_TABLE_START: u8;

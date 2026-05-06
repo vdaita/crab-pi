@@ -396,7 +396,7 @@ pub extern "C" fn pixie_syscall(pc: u32, regs: *const u32) {
         PIXIE_SYS_STOP => {
             unsafe { 
                 println!("done: pc=0x{:0x}", pc); 
-                interrupts::switch_to_super_mode();
+                interrupts::switch_to_super_mode(regs);
             }
         }
         _ => {
