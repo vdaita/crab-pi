@@ -1,6 +1,7 @@
 use core::arch::global_asm;
 use crate::arch::prefetch_flush;
 use crate::bit_utils::{bit_get, bits_get, bits_set, bit_clr, bit_set};
+use crate::print::{print_binary_compare, print_binary_table};
 use crate::{println, print, ckalloc};
 use crate::os::interrupts::{self, CPSR_USER_MODE, CPSR_SUPER_MODE, get_cpsr, mode_get};
 
@@ -60,39 +61,140 @@ unsafe extern "C" {
     static INTERRUPT_TABLE_PROF_END: u8;
 }
 
-fn breakpoint_mismatch_set(addr: u32) {
+fn get_bcr0_state() -> u32 {
     unsafe {
-        println!("starting to set mismatch variables");
-
-        let old_bcr0_state: u32;
+        let bcr0_state: u32;
         core::arch::asm!(
             "mrc p14, 0, {0}, c0, c0, 5",
-            out(reg) old_bcr0_state,
+            out(reg) bcr0_state,
             options(nomem, nostack)
         );
-        println!("old bcr0 state=0b{:b}", old_bcr0_state);
-        
-        let bcr0_state = 0x4001e7;
-        core::arch::asm!( // setting bcr0
+        bcr0_state
+    }
+}
+
+fn set_bcr0_state(state: u32) {
+    unsafe {
+        core::arch::asm!(
             "mcr p14, 0, {0}, c0, c0, 5",
-            in(reg) bcr0_state,
+            in(reg) state,
             options(nomem, nostack)
         );
         prefetch_flush();
-        println!("updated bcr0");
+    }
+}
 
-        let bvr0_state = bits_set(0, 2, 31, addr >> 2);
+fn get_bvr0_state() -> u32 {
+    unsafe {
+        let bvr0_state: u32;
         core::arch::asm!(
-            "mcr p14, 0, {0}, c0, c0, 4",
-            in(reg) bvr0_state,
+            "mrc p14, 0, {0}, c0, c0, 4",
+            out(reg) bvr0_state,
             options(nomem, nostack)
         );
-        prefetch_flush(); 
-        println!("updated bvr0");
-
-        println!("bcr0_state=0x{:0x}, bvr0_state=0x{:0x}", bcr0_state, bvr0_state);
-    }  
+        bvr0_state
+    }
 }
+
+fn set_bvr0_state(state: u32) {
+    unsafe {
+        core::arch::asm!(
+            "mcr p14, 0, {0}, c0, c0, 4",
+            in(reg) state,
+            options(nomem, nostack)
+        );
+        prefetch_flush();
+    }
+}
+
+fn breakpoint_mismatch_set(addr: u32) {
+    unsafe {
+        // println!("starting to set mismatch variables");
+
+        // println!("starting to set mismatch variables");
+
+        // let old_bcr0_state: u32;
+        // core::arch::asm!(
+        //     "mrc p14, 0, {0}, c0, c0, 5",
+        //     out(reg) old_bcr0_state,
+        //     options(nomem, nostack)
+        // );
+        // println!("old bcr0 state=0b{:b}", old_bcr0_state);
+        
+        // let bcr0_state = 0x4001e7;
+        // core::arch::asm!( // setting bcr0
+        //     "mcr p14, 0, {0}, c0, c0, 5",
+        //     in(reg) bcr0_state,
+        //     options(nomem, nostack)
+        // );
+        // prefetch_flush();
+        // println!("updated bcr0");
+
+        // let bvr0_state = bits_set(0, 2, 31, addr >> 2);
+        // core::arch::asm!(
+        //     "mcr p14, 0, {0}, c0, c0, 4",
+        //     in(reg) bvr0_state,
+        //     options(nomem, nostack)
+        // );
+        // prefetch_flush(); 
+        // println!("updated bvr0");
+
+        // println!("bcr0_state=0x{:0x}, bvr0_state=0x{:0x}", bcr0_state, bvr0_state);
+        
+        let mut bcr0_state = get_bcr0_state();
+        print_binary_table("bcr0_state", bcr0_state);
+        bcr0_state = 0;
+        bcr0_state = bit_set(bcr0_state, 0); // page 1112 of armv6, breakpoint enable
+        bcr0_state = bits_set(bcr0_state, 1, 2, 0b10); // set supervisor access: user
+        // the breakpoint always hits if I don't set bits 5-8
+        // bcr0_state = bits_set(bcr0_state, 5, 8, 0b1111); // why
+        bcr0_state = bits_set(bcr0_state, 21, 22, 0b10); // enable mismatch
+        print_binary_table("bcr0_state new", bcr0_state);
+        set_bcr0_state(bcr0_state);
+
+        print_binary_table("140e value", 0x4001e7);
+        print_binary_compare("compare my bcr0_state and 140e vale", bcr0_state, 0x4001e7);
+
+        // print_binary_table("bvr0_state",get_bvr0_state());
+        // set_bvr0_state(addr);
+        // print_binary_table("bvr0_state", addr);
+
+    }
+}
+
+// fn breakpoint_mismatch_set(addr: u32) {
+//     unsafe {
+//         println!("starting to set mismatch variables");
+
+//         let old_bcr0_state: u32;
+//         core::arch::asm!(
+//             "mrc p14, 0, {0}, c0, c0, 5",
+//             out(reg) old_bcr0_state,
+//             options(nomem, nostack)
+//         );
+//         println!("old bcr0 state=0b{:b}", old_bcr0_state);
+        
+//         let bcr0_state = 0x4001e7;
+//         core::arch::asm!( // setting bcr0
+//             "mcr p14, 0, {0}, c0, c0, 5",
+//             in(reg) bcr0_state,
+//             options(nomem, nostack)
+//         );
+//         prefetch_flush();
+//         println!("updated bcr0");
+
+//         let bvr0_state = bits_set(0, 2, 31, addr >> 2);
+//         core::arch::asm!(
+//             "mcr p14, 0, {0}, c0, c0, 4",
+//             in(reg) bvr0_state,
+//             options(nomem, nostack)
+//         );
+//         prefetch_flush(); 
+//         println!("updated bvr0");
+
+//         println!("bcr0_state=0x{:0x}, bvr0_state=0x{:0x}", bcr0_state, bvr0_state);
+//     }  
+// }
 
 fn breakpoint_mismatch_start() {
     unsafe {
@@ -102,7 +204,8 @@ fn breakpoint_mismatch_start() {
             out(reg) dscr_state,
             options(nomem, nostack)
         );
-        println!("got old dscr state = 0b{:0b}", dscr_state);
+        // println!("got old dscr state = 0b{:0b}", dscr_state);
+        print_binary_table("old dscr", dscr_state);
 
         let new_dscr_state = bit_clr(bit_set(dscr_state, 15), 14);
         println!("want to write dscr state = 0b{:0b}", new_dscr_state);
@@ -111,16 +214,16 @@ fn breakpoint_mismatch_start() {
             in(reg) new_dscr_state,
             options(nomem, nostack)
         );
-        println!("updated dscr state = 0b{:0b}", new_dscr_state);
+        print_binary_table("dscr", new_dscr_state);
         prefetch_flush();
 
-        let verify_dscr: u32;
-        core::arch::asm!(
-            "mrc p14, 0, {0}, c0, c1, 0",
-            out(reg) verify_dscr,
-            options(nomem, nostack)
-        );
-        println!("verify dscr = 0b{:0b}", verify_dscr);
+        // let verify_dscr: u32;
+        // core::arch::asm!(
+        //     "mrc p14, 0, {0}, c0, c1, 0",
+        //     out(reg) verify_dscr,
+        //     options(nomem, nostack)
+        // );
+        // println!("verify dscr = 0b{:0b}", verify_dscr);
 
         breakpoint_mismatch_set(0);
         prefetch_flush();

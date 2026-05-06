@@ -90,10 +90,10 @@ pub fn main() {
     println!("Hello from Rust on the Pi!");
 
     // pmu_profiler::test_pmu_profiler();
-    // profiler::test_profiler();
-    fat32::pi_sd_init();
+    profiler::test_profiler();
+    // fat32::pi_sd_init();
     // programs::fat32_test::fat32_test();
-    os::elf_loader::test_elf_loader();
+    // os::elf_loader::test_elf_loader();
     // os::threads::test_threads();
     // programs::imu::imu_test();
     // os::interrupts::test_interrupts();
