@@ -8,7 +8,7 @@ use crate::os::virtmem::{
     MemPerm, pin_mmu_switch, pin_mmu_init, mmu_is_enabled,
 };
 use crate::mem::{get32, put32};
-use crate::os::utils::{self, disable_branch_prediction, disable_dcache, disable_l1_instruction_cache, enable_branch_prediction, enable_dcache, enable_l1_instruction_cache};
+use crate::os::utils::{self, disable_branch_prediction, disable_dcache, disable_l1_instruction_cache, enable_branch_prediction, enable_dcache, enable_l1_instruction_cache, is_branch_prediction_enabled};
 use crate::kmalloc::{self, HEAP_CURR};
 
 macro_rules! adds_8 {
@@ -353,12 +353,30 @@ fn mva_test() {
 fn branch_prediction_test() {
     println!("branch prediction test");
     unsafe {
+        enable_l1_instruction_cache();
+        enable_branch_prediction();
+        assert!(is_branch_prediction_enabled());
+        utils::set_sys_aux_control(
+            utils::get_sys_aux_control()
+            & !(1 << 2)
+        );
+        println!("Auxiliary control register: {:#b}", utils::get_sys_aux_control());
         set_event(0, EventBus::BranchMispredicted);
         set_event(1, EventBus::BranchExecuted);
+
         reset_all_counters();
 
-        enable_branch_prediction();
+        asm!(
+            "mov {r0}, #128",
+            r0 = out(reg) _,
+            options(nostack, nomem)
+        );
 
+        let (mispreds_nothing, executed_nothing) = (get_perf_0(), get_perf_1()); 
+        println!("nothing: branch mispredictions={}, branch executed={}", mispreds_nothing, executed_nothing);
+
+        reset_all_counters();
+        
         asm!(
             "mov {r0}, #128",
             "1:",
@@ -371,25 +389,76 @@ fn branch_prediction_test() {
         let (mispreds_normal, executed_normal) = (get_perf_0(), get_perf_1()); 
         println!("normal: branch mispredictions={}, branch executed={}", mispreds_normal, executed_normal);
 
+        reset_all_counters();
         asm!(
             "mov {r1}, #0",
             "mov {r2}, #128",
+            "mov {r3}, #0",
             "2:",
             "eor {r1}, {r1}, #1",
-            "cmp {r1}, #0",
-            "beq 3f",
             "subs {r2}, {r2}, #1",
-            "bne 2b",
+            "cmp {r2}, #0",
+            "beq 3f",
+            "cmp {r1}, #0",
+            "beq 2b",
+            "add {r3}, {r3}, #1",
+            "b 2b",
             "3:",
             r1 = out(reg) _,
             r2 = out(reg) _,
+            r3 = out(reg) _,
             options(nostack, nomem)
         );
 
         let (mispreds_hard, executed_hard) = (get_perf_0(), get_perf_1());
         println!("alternating: branch mispredictions={}, branch executed={}", mispreds_hard, executed_hard);
-        
+
+        reset_all_counters();
+        asm!(
+            "mov {r1}, #0",
+            "mov {r2}, #128",
+            "mov {r3}, #0",
+            "1:",
+            "mov {r1}, #0",
+            "2:",
+            "add {r1}, {r1}, #1",
+            "subs {r2}, {r2}, #1",
+            "cmp {r2}, #0",
+            "beq 3f",
+            "cmp {r1}, #8",
+            "beq 1b",
+            "add {r3}, {r3}, #1",
+            "b 2b",
+            "3:",
+            r1 = out(reg) _,
+            r2 = out(reg) _,
+            r3 = out(reg) _,
+            options(nostack, nomem)
+        );
+
+        let (mispreds_super, executed_super) = (get_perf_0(), get_perf_1());
+        println!("super alternating: branch mispredictions={}, branch executed={}", mispreds_super, executed_super);
+
+        // for modulo in 1..8 {
+        //     unsafe {
+        //         enable_l1_instruction_cache();
+        //         enable_branch_prediction();
+        //         reset_all_counters();
+        //         let mut a = 0;
+        //         for i in 0..100 {
+        //             if (i % modulo == 0) {
+        //                 a += i;
+        //             }
+        //         }
+
+        //         let (mispreds, executed) = (get_perf_0(), get_perf_1());
+        //         disable_branch_prediction();
+        //         disable_l1_instruction_cache();
+        //         println!("branch misprediction={}, branch executed={}, a={}", mispreds, executed, a);
+        //     }
+        // }
         disable_branch_prediction();
+        disable_l1_instruction_cache();
     }
 }
 
@@ -463,22 +532,9 @@ fn dcache_test() {
 
 #[unsafe(no_mangle)]
 #[inline(never)]
-fn c() -> u32 {
-    return 0;
-}
-
-#[unsafe(no_mangle)]
-#[inline(never)]
-fn b() -> u32 {
-    return c() + 1;
-}
-
-#[unsafe(no_mangle)]
-#[inline(never)]
 fn a() -> u32{
-    return b() + 1;
+    return 1;
 }
-
 
 fn my_return_test() {
     enable_branch_prediction();
@@ -491,13 +547,33 @@ fn my_return_test() {
     disable_branch_prediction();
 }
 
+fn write_back_test() {
+    enable_branch_prediction();
+    enable_dcache();
+    enable_l1_instruction_cache();
+    set_event(0, EventBus::WriteBufferDrained);
+    reset_all_counters();
+    println!("hello");
+    let count = get_perf_0();
+    println!("write buf drained count: {}", count);
+    disable_branch_prediction();
+    disable_dcache();
+    disable_l1_instruction_cache();
+}
+
 pub fn test_pmu_profiler() {
     println!("Testing PMU profiler!");
 
+    write_back_test();
+    println!("\n\n================\n\n");
     prefetch_alignment_test();
+    println!("\n\n================\n\n");
     icache_invalidate_test();
+    println!("\n\n================\n\n");
     mva_test();
+    println!("\n\n================\n\n");
     branch_prediction_test();
+    println!("\n\n================\n\n");
     dcache_test();
-    my_return_test();
+    // my_return_test();
 }
