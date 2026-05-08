@@ -474,17 +474,17 @@ pub fn test_profiler() {
     pixie_dump(10);
 
 
-    println!("From writing");
-    pixie_start();
-    crate::gpio::write(24, 1);
-    pixie_stop();
-    pixie_dump(10);
+    // println!("From writing");
+    // pixie_start();
+    // crate::gpio::write(24, 1);
+    // pixie_stop();
+    // pixie_dump(10);
 
-    pixie_start();
-    for i in 0..10 {
-        println!("{}: hello world\n", i);
-    }
-    pixie_stop();
-    pixie_dump(10);
-    pixie_reset();
+    // pixie_start();
+    // for i in 0..10 {
+    //     println!("{}: hello world\n", i);
+    // }
+    // pixie_stop();
+    // pixie_dump(10);
+    // pixie_reset();
 }

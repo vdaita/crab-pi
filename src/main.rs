@@ -42,6 +42,7 @@ mod os {
     pub mod virtmem;
     pub mod elf_loader;
     pub mod threads;
+    pub mod utils;
 }
 
 unsafe fn enable_fpu() {
@@ -61,27 +62,7 @@ unsafe fn enable_fpu() {
     }
 }
 
-unsafe fn enable_caches() {
-    let mut r: u32;
-    unsafe {
-        core::arch::asm!(
-            "mrc p15, 0, {reg}, c1, c0, 0",
-            reg = out(reg) r,
-            options(nostack, nomem)
-        );
-    }
 
-    r |= 1 << 12; // L1 instruction cache
-    r |= 1 << 11; // branch prediction
-
-    unsafe {
-        core::arch::asm!(
-            "mcr p15, 0, {reg}, c1, c0, 0",
-            reg = in(reg) r,
-            options(nostack, nomem)
-        );
-    }
-}
 
 pub fn main() {    
     unsafe { enable_fpu(); }
@@ -89,8 +70,8 @@ pub fn main() {
     uart::init();
     println!("Hello from Rust on the Pi!");
 
-    // pmu_profiler::test_pmu_profiler();
-    profiler::test_profiler();
+    pmu_profiler::test_pmu_profiler();
+    // profiler::test_profiler();
     // fat32::pi_sd_init();
     // programs::fat32_test::fat32_test();
     // os::elf_loader::test_elf_loader();

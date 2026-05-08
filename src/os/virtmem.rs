@@ -55,6 +55,8 @@ pub enum MemAttr {
     MEM_wb_noalloc =  TEX_C_B!(    0b000,  1, 1),  
     // write through no alloc
     MEM_wt_noalloc =  TEX_C_B!(    0b000,  1, 0),  
+    // cached
+    MEM_cached = TEX_C_B!(0b001, 1, 1)
 }
 
 #[allow(non_snake_case)]
@@ -194,6 +196,7 @@ pub fn mmu_enable() {
             // set bit 0 to enable the mmu
             "mrc p15, 0, {ctrl_reg1_enable_mmu}, c1, c0, 0",
             "orr {masked_ctrl_reg1_enable_mmu}, {ctrl_reg1_enable_mmu}, #1",
+            // "orr {masked_ctrl_reg1_enable_mmu}, {masked_ctrl_reg1_enable_mmu}, #(1 << 2)",            
             "mcr p15, 0, {masked_ctrl_reg1_enable_mmu}, c1, c0, 0",
 
             // flush btb

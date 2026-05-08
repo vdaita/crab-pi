@@ -4,6 +4,7 @@ pub fn dsb() {
     unsafe { ::core::arch::asm!("mcr p15, 0, {t}, c7, c10, 4", t = in(reg) 0) }
 }
 
+
 #[inline(always)]
 pub fn dev_barrier() {
     unsafe {::core::arch::asm!("mcr p15, 0, r0, c7, c10, 4")}
