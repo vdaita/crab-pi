@@ -3,6 +3,8 @@
 
 use core::arch::global_asm;
 
+use crate::programs::lightstrip;
+
 mod arch;
 mod llvm_infra;
 mod panic_infra;
@@ -36,6 +38,7 @@ mod programs {
     pub mod ckmalloc_test;
     pub mod vm_test;
     pub mod imu;
+    pub mod lightstrip;
 }
 mod os {
     pub mod interrupts;
@@ -70,7 +73,8 @@ pub fn main() {
     uart::init();
     println!("Hello from Rust on the Pi!");
 
-    pmu_profiler::test_pmu_profiler();
+    lightstrip::basic_run();
+    // pmu_profiler::test_pmu_profiler();
     // profiler::test_profiler();
     // fat32::pi_sd_init();
     // programs::fat32_test::fat32_test();

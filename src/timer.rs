@@ -15,6 +15,15 @@ impl Timer {
         u
     }
 
+    pub fn delay_ns(ns: u32) {
+        unsafe {
+            let cycles = ns / 7;
+            for _ in 0..cycles {
+                core::arch::asm!("nop");
+            }
+        }
+    }
+
     /// Delay in microseconds
     pub fn delay_us(us: u32) {
         let start = Self::get_usec();

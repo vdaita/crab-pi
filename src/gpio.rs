@@ -6,6 +6,31 @@ const GPIO_SET0: u32 = GPIO_BASE + 0x1C;
 const GPIO_CLR0: u32 = GPIO_BASE + 0x28;
 const GPIO_LEV0: u32 = GPIO_BASE + 0x34;
 
+#[macro_export]
+macro_rules! hardcode_gpio_pin {
+    ($set_on_fn:ident, $set_off_fn:ident, $pin:expr) => {
+        #[inline(always)]
+        pub fn $set_on_fn() {
+            const PIN: u32 = $pin;
+            const _: [(); 1] = [(); (PIN <= 53) as usize];
+            const ADDR: u32 = 0x20200000 + 0x1C + (PIN / 32) * 4;
+            const SHIFT: u32 = 1 << (PIN % 32);
+            $crate::mem::put32(ADDR, SHIFT);
+        }
+
+        #[inline(always)]
+        pub fn $set_off_fn() {
+            const PIN: u32 = $pin;
+            const _: [(); 1] = [(); (PIN <= 53) as usize];
+            const ADDR: u32 = 0x20200000 + 0x28 + (PIN / 32) * 4;
+            const SHIFT: u32 = 1 << (PIN % 32);
+            $crate::mem::put32(ADDR, SHIFT);
+        }
+    };
+}
+
+hardcode_gpio_pin!(set_on_23, set_off_23, 23);
+
 pub fn set_output(pin: u32) {
     if pin > GPIO_MAX_PIN {
         panic!("illegal pin={}", pin);
@@ -17,6 +42,22 @@ pub fn set_output(pin: u32) {
     put32(addr, mode);
 }
 
+#[inline(always)]
+pub fn set_on_unsafe(pin: u32) {
+    let addr = GPIO_SET0 + (pin / 32) * 4;
+    let shift = 1 << (pin % 32);
+    put32(addr, shift);
+}
+
+#[inline(always)]
+pub fn set_off_unsafe(pin: u32) {
+    let addr = GPIO_CLR0 + (pin / 32) * 4;
+    let shift = 1 << (pin % 32);
+    put32(addr, shift);
+}
+
+
+#[inline(always)]
 pub fn set_on(pin: u32) {
     if pin > GPIO_MAX_PIN {
         panic!("illegal pin={}", pin);
@@ -26,6 +67,7 @@ pub fn set_on(pin: u32) {
     put32(addr, shift);
 }
 
+#[inline(always)]
 pub fn set_off(pin: u32) {
     if pin > GPIO_MAX_PIN {
         panic!("illegal pin={}", pin);
