@@ -41,31 +41,55 @@ undefined_instruction_asm_user:
     movs pc, lr
 
 undefined_instruction_asm:                      @ A2-19
-    bx lr  
-@ software_interrupt_asm:
-@    push {{r0-r12, lr}}
-@    mov r0, #(1 << 27)
-@    ldr r1, =0x2020001C
-@    str r0, [r1]
-@    pop {{r0-r12, lr}}
-@    movs pc, lr
-software_interrupt_asm:                         @ A2-20
     mov sp, 0x9000000
-    push {{r0-r3, r7, lr}}
+    sub lr, lr, #4                              @ adjust lr to point to faulting instruction
+    push {{r0-r12, lr}}
 
-    mov r0, r0
-    mov r1, r1
-    mov r2, r2
-    mov r3, r7
+    mov r0, sp                                  @ frame pointer
+    mov r1, lr                                  @ faulting pc
+
+    bl os_undefined_instruction_vector
+
+    pop {{r0-r12, lr}}
+    movs pc, lr
+
+software_interrupt_asm:                         @ A2-20
+    cpsid i
+    mov sp, 0x9000000
+    push {{r0-r12, lr}}
+
+    mov r0, sp
+    mov r1, lr
 
     bl software_interrupt_vector
 
-    pop {{r0-r3, r7, lr}}
+    str r0, [sp]
+    pop {{r0-r12, lr}}
     movs pc, lr
 prefetch_abort_asm:
-    bx lr
+    mov sp, 0x9000000
+    sub lr, lr, #4
+    push {{r0-r12, lr}}
+
+    mov r0, sp                                  @ frame pointer
+    mov r1, lr                                  @ faulting pc
+
+    bl os_prefetch_abort_vector
+
+    pop {{r0-r12, lr}}
+    movs pc, lr
 data_abort_asm:
-    bx lr
+    mov sp, 0x9000000
+    sub lr, lr, #8
+    push {{r0-r12, lr}}
+
+    mov r0, sp                                  @ frame pointer
+    mov r1, lr                                  @ faulting pc
+
+    bl os_data_abort_vector
+
+    pop {{r0-r12, lr}}
+    movs pc, lr
 reset_asm:
     bx lr
 
@@ -242,51 +266,245 @@ pub extern "C" fn fast_interrupt_vector(pc: u32) {
 }
 
 #[unsafe(no_mangle)]
-// pub extern "C" fn software_interrupt_vector(pc: u32, arg0: u32, arg1: u32, arg2: u32, nr: u32) {
-pub extern "C" fn software_interrupt_vector(arg0: u32, arg1: u32, arg2: u32, nr: u32) {
+pub extern "C" fn os_undefined_instruction_vector(frame: *mut SoftwareInterruptFrame, pc: u32) -> u32 {
+    let frame = unsafe { &mut *frame };
+    
+    if pc >= 0xFFFF0F00 && pc < 0xFFFF1000 {
+        match pc {
+            0xFFFF0FA0 => {
+                // __kuser_helper_version: return 5
+                frame.r0 = 5;
+                1  // success
+            }
+            0xFFFF0FC0..=0xFFFF0FDF => {
+                // __kuser_cmpxchg: atomically compare-and-exchange
+                // args: r0=oldval, r1=newval, r2=ptr
+                let oldval = frame.r0;
+                let newval = frame.r1;
+                let ptr = frame.r2 as *mut u32;
+                let mut result: u32;
+                unsafe {
+                    asm!(
+                        "1:",
+                        "ldrex r3, [{ptr}]",
+                        "subs r3, r3, {old}",
+                        "strexeq r3, {new}, [{ptr}]",
+                        "teqeq r3, #1",
+                        "beq 1b",
+                        "mov {result}, r3",
+                        ptr = in(reg) ptr,
+                        old = in(reg) oldval,
+                        new = in(reg) newval,
+                        result = lateout(reg) result,
+                        out("r3") _,
+                    );
+                }
+                frame.r0 = result;
+                1  // success
+            }
+            0xFFFF0FE0 => {
+                // __kuser_memory_barrier: execute DMB
+                unsafe { asm!("mcr p15, 0, {reg}, c7, c10, 5", reg = in(reg) 0u32); }
+                1  // success
+            }
+            _ => {
+                println!("Unknown kuser access at pc={:#x}", pc);
+                0  // error
+            }
+        }
+    } else {
+        println!("Undefined instruction at pc={:#x}", pc);
+        0  // error
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn os_data_abort_vector(frame: *mut SoftwareInterruptFrame, pc: u32) {
+    println!("Data abort at pc={:#x}", pc);
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn os_prefetch_abort_vector(frame: *mut SoftwareInterruptFrame, pc: u32) {
+    println!("Prefetch abort vector at pc:{:#x}", pc);
+}
+
+#[repr(C)]
+pub struct SoftwareInterruptFrame {
+    r0: u32,
+    r1: u32,
+    r2: u32,
+    r3: u32,
+    r4: u32,
+    r5: u32,
+    r6: u32,
+    r7: u32,
+    r8: u32,
+    r9: u32,
+    r10: u32,
+    r11: u32,
+    r12: u32,
+    lr: u32,
+}
+
+const ENOSYS: u32 = (-38i32) as u32;
+const EINVAL: u32 = (-22i32) as u32;
+const CURRENT_TID: u32 = 1;
+
+static mut PROGRAM_BREAK: u32 = 0;
+static mut THREAD_POINTER: u32 = 0;
+static mut CLEAR_CHILD_TID: u32 = 0;
+
+unsafe fn set_tls(tls: u32) {
+    unsafe { THREAD_POINTER = tls };
+    unsafe {
+        asm!(
+            "mcr p15, 0, {tls}, c13, c0, 3",
+            tls = in(reg) tls,
+        );
+    }
+}
+
+fn set_tid_address(tidptr: u32) -> u32 {
+    unsafe { CLEAR_CHILD_TID = tidptr };
+    CURRENT_TID
+}
+
+unsafe fn exit_current_process() {
+    let tidptr = unsafe { CLEAR_CHILD_TID };
+    if tidptr != 0 {
+        unsafe { core::ptr::write_volatile(tidptr as *mut u32, 0) };
+    }
+    unsafe { elf_loader::elf_loader_return(); }
+}
+
+unsafe fn mmap_anonymous(len: u32) -> u32 {
+    if len == 0 {
+        return EINVAL;
+    }
+
+    let ptr = unsafe { crate::kmalloc::kmalloc_aligned(len as usize, 4096) };
+    unsafe { core::ptr::write_bytes(ptr, 0, len as usize) };
+    ptr as u32
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn software_interrupt_vector(frame: *mut SoftwareInterruptFrame, svc_lr: u32) -> u32 {
     dev_barrier();
-    // For SVC, lr points to the next instruction, so SVC is at pc - 4.
-    // let instr = unsafe { core::ptr::read_volatile((pc) as *const u32) };
-    // println!("SWI called: pc={:p}, instr={:#x}, arg0={:0x}, arg1={:0x}, arg2={:0x}, nr={:0x}", pc as *const u32, instr, arg0, arg1, arg2, nr);
 
-    // if (instr != 0xef00_0000) {
-    //     println!("not a SVC instruction");
-    //     return;
-    // }
+    // For SVC, lr points to the next instruction, so SVC is at lr - 4.
+    let svc_pc = svc_lr.wrapping_sub(4);
+    let instr = unsafe { core::ptr::read_volatile(svc_pc as *const u32) };
+    let imm = instr & 0x00ff_ffff;
+    let frame = unsafe { &mut *frame };
 
-    println!("SWI called: arg0={:#x}, arg1={:#x}, arg2={:#x}, nr={:#x}", arg0, arg1, arg2, nr);
+    let nr = if imm == 0 {
+        frame.r7
+    } else if (imm & 0x00ff_0000) == 0x0090_0000 {
+        imm - 0x0090_0000
+    } else {
+        imm
+    };
 
-    match nr {
+    println!(
+        "SWI called: pc={:#x}, instr={:#x}, arg0={:#x}, arg1={:#x}, arg2={:#x}, arg3={:#x}, arg4={:#x}, arg5={:#x}, nr={:#x}",
+        svc_pc, instr, frame.r0, frame.r1, frame.r2, frame.r3, frame.r4, frame.r5, nr
+    );
+
+    let ret = match nr {
         1 => {
-            unsafe { elf_loader::elf_loader_return(); }
+            unsafe { exit_current_process(); }
+            0
         }
         4 => {
             // sys_write(fd, buf, len): support stdout/stderr only.
-            let fd = arg0;
-            let buf_ptr = (arg1) as *const u8;
-            let len = arg2 as usize;
+            let fd = frame.r0;
+            let buf_ptr = frame.r1 as *const u8;
+            let len = frame.r2 as usize;
             if (fd == 1 || fd == 2) && !buf_ptr.is_null() {
                 println!("writing out with fd={}, buf_ptr={:p}, len={}", fd, buf_ptr, len);
                 let bytes = unsafe { core::slice::from_raw_parts(buf_ptr, len) };
                 crate::uart::write_bytes(bytes);
                 crate::uart::flush();
+                len as u32
+            } else {
+                EINVAL
             }
         }
+        45 => unsafe {
+            // brk(addr): enough for simple statically-linked libc startup.
+            if PROGRAM_BREAK == 0 {
+                PROGRAM_BREAK = crate::kmalloc::kmalloc_aligned(4096, 4096) as u32;
+            }
+            if frame.r0 != 0 {
+                PROGRAM_BREAK = frame.r0;
+            }
+            PROGRAM_BREAK
+        },
+        146 => unsafe {
+            // writev(fd, iov, iovcnt): scatter/gather write to stdout/stderr.
+            let fd = frame.r0;
+            let iov = frame.r1 as *const u32;
+            let iovcnt = frame.r2 as usize;
+            if fd != 1 && fd != 2 {
+                EINVAL
+            } else {
+                let mut total: u32 = 0;
+                for i in 0..iovcnt {
+                    let base = unsafe { core::ptr::read_volatile(iov.add(i * 2)) } as *const u8;
+                    let len  = unsafe { core::ptr::read_volatile(iov.add(i * 2 + 1)) } as usize;
+                    if !base.is_null() && len > 0 {
+                        let bytes = unsafe { core::slice::from_raw_parts(base, len) };
+                        crate::uart::write_bytes(bytes);
+                        total = total.wrapping_add(len as u32);
+                    }
+                }
+                crate::uart::flush();
+                total as u32
+            }
+        },
+        146 => unsafe {
+            // writev(fd, iov, iovcnt): scatter/gather write to stdout/stderr.
+            let fd = frame.r0;
+            let iov = frame.r1 as *const u32;
+            let iovcnt = frame.r2 as usize;
+            if fd != 1 && fd != 2 {
+                EINVAL
+            } else {
+                let mut total: u32 = 0;
+                for i in 0..iovcnt {
+                    let base = unsafe { core::ptr::read_volatile(iov.add(i * 2)) } as *const u8;
+                    let len  = unsafe { core::ptr::read_volatile(iov.add(i * 2 + 1)) } as usize;
+                    if !base.is_null() && len > 0 {
+                        let bytes = unsafe { core::slice::from_raw_parts(base, len) };
+                        crate::uart::write_bytes(bytes);
+                        total = total.wrapping_add(len as u32);
+                    }
+                }
+                crate::uart::flush();
+                total as u32
+            }
+        },
+        192 => unsafe {
+            // mmap2(addr, len, prot, flags, fd, pgoff): support anonymous mappings.
+            mmap_anonymous(frame.r1)
+        },
         0xf0005 => {
-            println!("todo: implement TLS");
+            unsafe { set_tls(frame.r0); }
+            0
         }
-        0x100 => {
-            println!("todo: set_tid_address");
-        }
+        0x100 => set_tid_address(frame.r0),
         0xf8 => {
-            println!("todo: implement exit_group");
+            unsafe { exit_current_process(); }
+            0
         }
         _ => {
             println!("unknown SVC: {}", nr);
+            ENOSYS
         }
     };
 
     dev_barrier();
+    ret
 }
 
 pub fn start_interrupts(itable_start: usize, itable_end: usize) {

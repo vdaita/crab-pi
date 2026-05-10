@@ -7,7 +7,6 @@ use crate::{println, print};
 use crate::kmalloc;
 
 const ONE_MB: u32 = 1024 * 1024;
-const STACK_ADDR: u32 = 0x0800_0000;
 const DOM_KERN: u32 = 1;
 const MAX_PINNED_ENTRIES: u32 = 8;
 
@@ -57,11 +56,11 @@ struct SectionHeader {
 
 #[repr(C)]
 struct ProgramContext {
-    sp: u32,
-    lr: u32,
+    user_stack: u32,
+    entry: u32,
     arg0: u32,
     arg1: u32,
-    arg2: u32
+    arg2: u32,
 }
 
 pub static mut KERNEL_STACK: u32 = 0;
@@ -113,6 +112,15 @@ unsafe fn hexdump(ptr: *const u8, lines: u32) {
         }
         println!();
     }
+}
+
+unsafe fn copy_argv0(prog_name: &str) -> *const u8 {
+    let argv0 = unsafe { kmalloc::kmalloc(prog_name.len() + 1) };
+    unsafe {
+        core::ptr::copy_nonoverlapping(prog_name.as_ptr(), argv0, prog_name.len());
+        core::ptr::write(argv0.add(prog_name.len()), 0);
+    }
+    argv0
 }
 
 struct ElfLoader {
@@ -175,22 +183,80 @@ impl ElfLoader {
             }
         }
 
+        // Copy ELF header and program headers into memory.
+        // The first PT_LOAD has p_paddr = p_offset + elf_base, so
+        // elf_base = p_paddr - p_offset.  glibc's __ehdr_start points
+        // here, and it also needs the program headers accessible.
+        let mut lowest_paddr = u32::MAX;
+        let mut lowest_offset = u32::MAX;
+        for i in 0..(*elf_header_ptr).e_phnum {
+            let ph = first_program_header_ptr.add(i as usize);
+            if (*ph).p_type == 1 {
+                if (*ph).p_paddr < lowest_paddr {
+                    lowest_paddr = (*ph).p_paddr;
+                    lowest_offset = (*ph).p_offset;
+                }
+            }
+        }
+        let elf_base = lowest_paddr - lowest_offset;
+        println!("ELF base address: {:#x} (p_paddr={:#x}, p_offset={:#x})",
+            elf_base, lowest_paddr, lowest_offset);
+        let ehdr_total = (*elf_header_ptr).e_phoff as usize
+            + (*elf_header_ptr).e_phnum as usize * (*elf_header_ptr).e_phentsize as usize;
+        core::ptr::write_bytes(elf_base as *mut u8, 0, lowest_offset as usize);
+        core::ptr::copy_nonoverlapping(
+            (*file).data,
+            elf_base as *mut u8,
+            ehdr_total,
+        );
+
         interrupts::switch_to_user_mode();
         println!("Switched to user mode");
 
+        let user_stack_base = 0x10000000u32 + 128 * 1024;
+
+        // Clear the stack area (a few pages for startup data)
+        let stack_top = user_stack_base;
+        core::ptr::write_bytes(stack_top as *mut u8, 0, 1024);
+
+        // Build ARM Linux ABI startup stack (top-down):
+        // sp -> argc | argv[] | NULL | envp[] | NULL | auxv...
+        let mut sp = stack_top as *mut u32;
+
+        // Auxiliary vector: AT_PHDR, AT_PHENT, AT_PHNUM, AT_PAGESZ, AT_NULL
+        let phdr_addr = elf_base + (*elf_header_ptr).e_phoff as u32;
+        sp = sp.sub(1); *sp = 0;                             // AT_NULL val
+        sp = sp.sub(1); *sp = 0;                             // AT_NULL type  (0)
+        sp = sp.sub(1); *sp = 4096;                          // AT_PAGESZ val  (6)
+        sp = sp.sub(1); *sp = 6;
+        sp = sp.sub(1); *sp = (*elf_header_ptr).e_phnum as u32; // AT_PHNUM val   (5)
+        sp = sp.sub(1); *sp = 5;
+        sp = sp.sub(1); *sp = (*elf_header_ptr).e_phentsize as u32; // AT_PHENT val (4)
+        sp = sp.sub(1); *sp = 4;
+        sp = sp.sub(1); *sp = phdr_addr;                     // AT_PHDR val     (3)
+        sp = sp.sub(1); *sp = 3;
+
+        // NULL terminator for environment
+        sp = sp.sub(1); *sp = 0;
+        // NULL terminator for argv
+        sp = sp.sub(1); *sp = 0;
+
+        // argc = 0 (no command-line args)
+        sp = sp.sub(1); *sp = 0;
+
         let mut context: ProgramContext = ProgramContext {
-            sp: !0,
-            lr: (*elf_header_ptr).e_entry,
+            user_stack: sp as u32,
+            entry: (*elf_header_ptr).e_entry,
             arg0: arg1,
             arg1: arg2,
-            arg2: arg3
+            arg2: arg3,
         };
 
         println!("want to run the following instructions: ");
-        hexdump(context.lr as *const u8, 8);
+        hexdump(context.entry as *const u8, 8);
 
-        println!("Jumping to entry point: {:#x}", context.lr);
-        
+        println!("Jumping to entry point: {:#x}", context.entry);
+
         elf_loader_tramp(core::ptr::addr_of_mut!(context));
     }
 }
@@ -204,6 +270,6 @@ pub fn test_elf_loader() {
     unsafe {
         let mut loader: ElfLoader = ElfLoader::new();
         println!("About to run user program!");
-        loader.run("TEST.ELF", 0, 0, 0, 1);
+        loader.run("BUSYBOX", 0, 0, 0, 1);
     }
 }
