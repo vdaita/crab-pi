@@ -13,6 +13,6 @@ bin_path="${target_dir}/${base_name/.elf/}.bin"
 
 arm-none-eabi-objcopy "$elf_path" -O binary "$bin_path"
 echo "Created $bin_path from $elf_path"
-arm-none-eabi-objdump -d -S -l target/armv6zk-none-eabihf/debug/crab-pi > prog.list
+arm-none-eabi-objdump -d -S -l "$elf_path" >> "prog.list"
 # RUST_LOG=info okdude -l $load_addr "$bin_path"
 pi-install "$bin_path"

@@ -61,6 +61,16 @@ unsafe extern "C" {
     #[link_name = "_memtrace_interrupt_table_end"]
     static MEMTRACE_TABLE_END: u8;
 }
+static mut TRACE_HANDLER_FN: Option<fn(u32, u32)> = None;
+pub fn trace_handler_0(lr: u32, address: u32) {
+    println!("Trace Handler 0: lr={:#x}, address={:#x}", lr, address);
+}
+
+static mut counter: u32 = 0;
+pub fn trace_handler_1(lr: u32, address: u32) {
+    unsafe { counter = counter + 1; }
+    println!("Trace Handler 1: lr={:#x}, address={:#x}", lr, address);
+}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn data_abort_handler_memtrace(regs: *mut u32, lr: u32) {
@@ -124,7 +134,7 @@ pub extern "C" fn data_abort_handler_memtrace(regs: *mut u32, lr: u32) {
 
             let watchpoint_value_register: u32;
             core::arch::asm!("mrc p14, 0, {}, c0, c0, 6", out(reg) watchpoint_value_register);
-            println!("watchpoint access instruction: {:#x}, watchpoint address: {:#x}, lr: {:#x}", watchpoint_access_instr, watchpoint_value_register, lr);
+            // println!("watchpoint access instruction: {:#x}, watchpoint address: {:#x}, lr: {:#x}", watchpoint_access_instr, watchpoint_value_register, lr);
             
             let watchpoint_control_register: u32;
             core::arch::asm!("mrc p14, 0, {}, c0, c0, 7", out(reg) watchpoint_control_register);
@@ -133,12 +143,22 @@ pub extern "C" fn data_abort_handler_memtrace(regs: *mut u32, lr: u32) {
                 in(reg) (watchpoint_control_register & !(1))
             ); // disable watchpoints
 
+            match TRACE_HANDLER_FN {
+                Some(function) => {
+                    function(watchpoint_access_instr, watchpoint_value_register);
+                },
+                None => {
+
+                }
+            };
+
             virtmem::mmu_enable();            
         }
     }
 }
 
-pub fn memtrace_init(data: *const u32, pre: fn(), post: fn()) {
+#[inline(never)]
+pub fn memtrace_init(data: *const u32, trace_handler: fn(u32, u32)) {
     assert!(!virtmem::mmu_is_enabled());
     virtmem::mmu_reset();
 
@@ -180,10 +200,12 @@ pub fn memtrace_init(data: *const u32, pre: fn(), post: fn()) {
         );
     }
 
+    unsafe { TRACE_HANDLER_FN = Some(trace_handler); }
+
     println!("finished memtrace init");
 }
 
-
+#[inline(never)]
 pub fn memtrace_trap_enable() {
     virtmem::mmu_enable();
     println!("virtual memory enabled");
@@ -211,6 +233,7 @@ pub fn memtrace_trap_enable() {
     }
 }
 
+#[inline(never)]
 pub fn memtrace_trap_disable() {
     virtmem::mmu_disable();
     unsafe { interrupts::disable_interrupts_asm(); }
@@ -218,14 +241,11 @@ pub fn memtrace_trap_disable() {
     println!("ran trap disable");
 }
 
-pub fn pre() {}
-pub fn post() {}
-
 pub fn test_memtrace() {
     unsafe {
         gpio::set_output(27);
 
-        memtrace_init(0 as *const u32, pre, post);
+        memtrace_init(0 as *const u32, trace_handler_0);
         println!("Heap address: {:p}", kmalloc::HEAP_CURR as *const u32);
 
         let space = kmalloc::kmalloc(8) as *mut u32;
@@ -234,8 +254,25 @@ pub fn test_memtrace() {
         memtrace_trap_enable();
         space.write_volatile(0xdeadbeef);
         let val = space.read_volatile();
+
+        space.write_volatile(space.read_volatile() + 1);
+        space.write_volatile(space.read_volatile() + 2);
+        space.write_volatile(space.read_volatile() + 3);
+
         memtrace_trap_disable();
         println!("read back: 0x{:08x}", val);
-        println!("memtrace done");
+        println!("first test completed");
+
+        memtrace_init(0 as *const u32, trace_handler_1);
+        memtrace_trap_enable();
+        let space2 = kmalloc::kmalloc(4 * 32) as *mut u32;
+        for i in 0..32 {
+            *space2.add(i) = i as u32;
+        }
+        for i in 0..32 {
+            println!("verifying: value @ i={} is {}", i, *space2.add(i));
+        }
+        memtrace_trap_disable();
+        println!("second test completed");
     }
 }
