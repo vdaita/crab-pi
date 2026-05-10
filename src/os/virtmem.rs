@@ -333,3 +333,13 @@ pub fn pin_mmu_switch(pid: u32, asid: u32) {
         );
     }
 }
+
+ pub fn tlb_invalidate() {
+    unsafe { core::arch::asm!(
+            "mcr p15, 0, {zero}, c8, c7, 0",
+            // flush btb
+            "mcr p15, 0, {zero}, c7, c5, 6",
+            // prefetch flush
+            "mcr p15, 0, {zero}, c7, c5, 4",
+            zero = in(reg) 0u32);} 
+ }

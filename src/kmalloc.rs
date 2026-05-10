@@ -32,8 +32,16 @@ pub unsafe fn kmalloc_init_mb(mb: usize) {
     HEAP_END = cmp::min(requested_end, end);
 }
 
+pub unsafe fn kmalloc_init_mb_with_offset(mb: usize, offset: usize) {
+    let start = (&__heap_start__ as *const u8 as usize) + offset;
+    let end = &__dram_end__ as *const u8 as usize;
+    HEAP_CURR = start;
+    let requested_end = start.saturating_add(mb.saturating_mul(1024 * 1024));
+    HEAP_END = cmp::min(requested_end, end);
+}
+
 pub unsafe fn kmalloc_init_bytes(bytes: usize) {
-    let start = &__heap_start__ as *const u8 as usize;
+    let start = (&(__heap_start__) as *const u8 as usize);
     let end = &__dram_end__ as *const u8 as usize;
     HEAP_CURR = start;
     let requested_end = start.saturating_add(bytes);

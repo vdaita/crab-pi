@@ -8,7 +8,6 @@ use crate::mem::{get32, put32};
 use crate::gpio;
 use crate::os::elf_loader;
 
-// defined in rpi_constants.h. put the stack for this above the regular stack. 
 global_asm!(r#"
 .globl _interrupt_table
 .globl _interrupt_table_end
@@ -179,10 +178,10 @@ pub const CPSR_SUPER_MODE: u32 = 0b10011;
 
 unsafe extern "C" {
     #[link_name = "enable_interrupts"]
-    fn enable_interrupts_asm();
+    pub fn enable_interrupts_asm();
 
     #[link_name = "disable_interrupts"]
-    fn disable_interrupts_asm();
+    pub fn disable_interrupts_asm();
 
     #[link_name = "interrupt_asm"]
     unsafe fn interrupt_asm();
