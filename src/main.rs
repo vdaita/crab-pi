@@ -3,7 +3,7 @@
 
 use core::arch::global_asm;
 
-use crate::programs::{lightstrip, memtrace};
+use crate::{os::{interrupts::enable_interrupts_asm, utils::enable_branch_prediction}, programs::{lightstrip, memtrace}};
 
 mod arch;
 mod llvm_infra;
@@ -69,7 +69,12 @@ unsafe fn enable_fpu() {
 
 
 pub fn main() {    
-    unsafe { enable_fpu(); }
+    unsafe { 
+        enable_fpu(); 
+        // os::utils::enable_l1_instruction_cache();
+        // os::utils::enable_branch_prediction();
+    }
+
 
     uart::init();
     println!("Hello from Rust on the Pi!");

@@ -203,6 +203,24 @@ impl ElfLoader {
             elf_base, lowest_paddr, lowest_offset);
         let ehdr_total = (*elf_header_ptr).e_phoff as usize
             + (*elf_header_ptr).e_phnum as usize * (*elf_header_ptr).e_phentsize as usize;
+
+        println!("Diagnostics: lowest_offset={:#x}, ehdr_total={}", lowest_offset, ehdr_total);
+
+        let ehdr_end = elf_base.wrapping_add(ehdr_total as u32);
+        for i in 0..(*elf_header_ptr).e_phnum {
+            let ph = first_program_header_ptr.add(i as usize);
+            if (*ph).p_type != 1 { continue; }
+            let pstart = (*ph).p_paddr;
+            let pend = pstart.wrapping_add((*ph).p_memsz);
+            let overlap = !(pend <= elf_base || pstart >= ehdr_end);
+            println!(
+                "PT_LOAD[{}]: p_paddr={:#x}, p_filesz={}, p_memsz={}, overlaps_headers={}",
+                i, pstart, (*ph).p_filesz, (*ph).p_memsz, overlap
+            );
+            if overlap {
+                println!("  --> Overlap with headers region {:#x}-{:#x}", elf_base, ehdr_end);
+            }
+        }
         core::ptr::write_bytes(elf_base as *mut u8, 0, lowest_offset as usize);
         core::ptr::copy_nonoverlapping(
             (*file).data,
@@ -226,15 +244,15 @@ impl ElfLoader {
         // Auxiliary vector: AT_PHDR, AT_PHENT, AT_PHNUM, AT_PAGESZ, AT_NULL
         let phdr_addr = elf_base + (*elf_header_ptr).e_phoff as u32;
         sp = sp.sub(1); *sp = 0;                             // AT_NULL val
-        sp = sp.sub(1); *sp = 0;                             // AT_NULL type  (0)
-        sp = sp.sub(1); *sp = 4096;                          // AT_PAGESZ val  (6)
-        sp = sp.sub(1); *sp = 6;
-        sp = sp.sub(1); *sp = (*elf_header_ptr).e_phnum as u32; // AT_PHNUM val   (5)
-        sp = sp.sub(1); *sp = 5;
-        sp = sp.sub(1); *sp = (*elf_header_ptr).e_phentsize as u32; // AT_PHENT val (4)
-        sp = sp.sub(1); *sp = 4;
-        sp = sp.sub(1); *sp = phdr_addr;                     // AT_PHDR val     (3)
-        sp = sp.sub(1); *sp = 3;
+        sp = sp.sub(1); *sp = 0;                             // AT_NULL type
+        sp = sp.sub(1); *sp = 4096;                          // AT_PAGESZ val
+        sp = sp.sub(1); *sp = 6;                              // AT_PAGESZ type
+        sp = sp.sub(1); *sp = (*elf_header_ptr).e_phnum as u32; // AT_PHNUM val
+        sp = sp.sub(1); *sp = 5;                              // AT_PHNUM type
+        sp = sp.sub(1); *sp = (*elf_header_ptr).e_phentsize as u32; // AT_PHENT val
+        sp = sp.sub(1); *sp = 4;                              // AT_PHENT type
+        sp = sp.sub(1); *sp = phdr_addr;                     // AT_PHDR val
+        sp = sp.sub(1); *sp = 3;                              // AT_PHDR type
 
         // NULL terminator for environment
         sp = sp.sub(1); *sp = 0;

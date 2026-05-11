@@ -93,7 +93,7 @@ unsafe extern "C" {
     static INTERRUPT_TABLE_PROF_END: u8;
 }
 
-fn get_bcr_state() -> u32 {
+pub fn get_bcr_state() -> u32 {
     unsafe {
         let bcr_state: u32;
         core::arch::asm!(
@@ -105,7 +105,7 @@ fn get_bcr_state() -> u32 {
     }
 }
 
-fn set_bcr_state(state: u32) {
+pub fn set_bcr_state(state: u32) {
     unsafe {
         dsb();
         core::arch::asm!(
@@ -118,7 +118,7 @@ fn set_bcr_state(state: u32) {
     }
 }
 
-fn get_bvr_state() -> u32 {
+pub fn get_bvr_state() -> u32 {
     unsafe {
         let bvr_state: u32;
         core::arch::asm!(
@@ -130,7 +130,7 @@ fn get_bvr_state() -> u32 {
     }
 }
 
-fn set_bvr_state(state: u32) {
+pub fn set_bvr_state(state: u32) {
     unsafe {
         dsb();
         core::arch::asm!(
@@ -143,7 +143,7 @@ fn set_bvr_state(state: u32) {
     }
 }
 
-fn breakpoint_mismatch_set(addr: u32) {
+pub fn breakpoint_mismatch_set(addr: u32) {
     unsafe {
         // println!("starting to set mismatch variables");
 
@@ -231,7 +231,7 @@ fn breakpoint_mismatch_set(addr: u32) {
 //     }  
 // }
 
-fn breakpoint_mismatch_start() {
+pub fn breakpoint_mismatch_start() {
     unsafe {
         let dscr_state: u32;
         core::arch::asm!(
@@ -243,7 +243,7 @@ fn breakpoint_mismatch_start() {
         // print_binary_table("old dscr", dscr_state);
 
         let new_dscr_state = bit_clr(bit_set(0, 15), 14);
-        println!("want to write dscr state = 0b{:0b}", new_dscr_state);
+        println!("want to write dscr state = 0b{:0b}, old dscr state=0b{:0b}", new_dscr_state, dscr_state);
         core::arch::asm!(
             "mcr p14, 0, {0}, c0, c1, 0",
             in(reg) new_dscr_state,
@@ -251,6 +251,8 @@ fn breakpoint_mismatch_start() {
         );
         // print_binary_table("dscr", new_dscr_state);
         prefetch_flush();
+
+        // println!("finished writing dscr state");
 
         // let verify_dscr: u32;
         // core::arch::asm!(
@@ -265,7 +267,7 @@ fn breakpoint_mismatch_start() {
     }
 }
 
-fn breakpoint_mismatch_stop() {
+pub fn breakpoint_mismatch_stop() {
     unsafe {
         let zero = 0;
         core::arch::asm!( // setting bcr0
@@ -279,7 +281,7 @@ fn breakpoint_mismatch_stop() {
     }
 }
 
-fn was_breakpoint_fault() -> bool {
+pub fn was_breakpoint_fault() -> bool {
     unsafe {
         let ifsr: u32;
         core::arch::asm!(
@@ -298,11 +300,11 @@ fn was_breakpoint_fault() -> bool {
     }
 }
 
-fn pixie_die_handler(regs: *const u32) {
+pub fn pixie_die_handler(regs: *const u32) {
     println!("done: dying");
 }
 
-fn init_cycle_counter() {
+pub fn init_cycle_counter() {
     unsafe {
         let i = 1;
         core::arch::asm!(
@@ -312,7 +314,7 @@ fn init_cycle_counter() {
     }
 }
 
-fn get_current_cycle() -> u32 {
+pub fn get_current_cycle() -> u32 {
     let cycle_result: u32;
     unsafe {
         core::arch::asm!(
@@ -323,7 +325,7 @@ fn get_current_cycle() -> u32 {
     }
 }
 
-fn reset_cycle_counter() {
+pub fn reset_cycle_counter() {
     unsafe {
         let val = 0;
         core::arch::asm!(
@@ -333,7 +335,7 @@ fn reset_cycle_counter() {
     }
 }
 
-fn get_thread_local_value() -> u32 {
+pub fn get_thread_local_value() -> u32 {
     unsafe {
         let val;
         core::arch::asm!(
