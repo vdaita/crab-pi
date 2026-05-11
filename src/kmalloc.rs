@@ -62,14 +62,13 @@ pub unsafe fn kmalloc(size: usize) -> *mut u8 {
 
 pub unsafe fn kmalloc_aligned(size: usize, alignment: usize) -> *mut u8 {
     ensure_init();
-    let size = align_up(size, alignment);
-    let ptr = HEAP_CURR;
-    let next = ptr.saturating_add(size);
-    if next > HEAP_END {
+    let ptr = align_up(HEAP_CURR as usize, alignment) as *mut u8;
+    let next = ptr as usize + size;
+    if next > HEAP_END as usize {
         panic!("kmalloc: out of memory (requested {} bytes)", size);
     }
     HEAP_CURR = next;
-    ptr as *mut u8
+    ptr
 }
 
 pub unsafe fn kmalloc_t<T>(count: usize) -> *mut T {

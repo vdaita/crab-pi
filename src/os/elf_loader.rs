@@ -123,6 +123,65 @@ unsafe fn copy_argv0(prog_name: &str) -> *const u8 {
     argv0
 }
 
+unsafe fn kuser_get_tls() -> u32 {
+    let tls: u32;
+    core::arch::asm!(
+        "mrc p15, 0, {tls}, c13, c0, 3",
+        tls = out(reg) tls,
+        options(nostack)
+    );
+    tls
+}
+
+unsafe fn kuser_cmpxchg(newval: u32, ptr: *mut u32) -> u32 {
+    // Simple swap: load old value, store new value, return old value
+    let old: u32;
+    core::arch::asm!(
+        "ldr {old}, [{ptr}]",
+        "str {newval}, [{ptr}]",
+        ptr = in(reg) ptr,
+        newval = in(reg) newval,
+        old = out(reg) old,
+        options(nostack)
+    );
+    old
+}
+
+unsafe fn kuser_memory_barrier() {
+    core::arch::asm!(
+        "mcr p15, 0, {r0}, c7, c10, 5",
+        r0 = in(reg) 0u32,
+        options(nostack)
+    );
+}
+
+unsafe fn kuser_version() -> u32 {
+    return 5;
+}
+
+unsafe fn install_kuser_helpers(pa: u32) {
+    // VA 0xFF000000 -> PA pa, so offset = target_va - 0xFF000000
+    
+    // __kernel_helper_version at VA 0xFFFF0FFC
+    core::ptr::write_volatile(
+        (pa + 0x00FF0FFC) as *mut u32, kuser_version());
+
+    // __kernel_get_tls at VA 0xFFFF0FA0
+    core::ptr::copy_nonoverlapping(
+        kuser_get_tls as *const u32,
+        (pa + 0x00FF0FA0) as *mut u32, 4);
+
+    // __kernel_cmpxchg at VA 0xFFFF0FC0
+    core::ptr::copy_nonoverlapping(
+        kuser_cmpxchg as *const u32,
+        (pa + 0x00FF0FC0) as *mut u32, 8);
+
+    // __kernel_memory_barrier at VA 0xFFFF0FE0
+    core::ptr::copy_nonoverlapping(
+        kuser_memory_barrier as *const u32,
+        (pa + 0x00FF0FE0) as *mut u32, 2);
+}
+
 struct ElfLoader {
     next_pin_index: u32
 }
@@ -228,14 +287,45 @@ impl ElfLoader {
             ehdr_total,
         );
 
+
+        // set up MMU
+        virtmem::mmu_reset();
+        let user = MemPerm::perm_rw_user;
+        let dev = virtmem::make_global_pin_16mb(DOM_KERN, user, virtmem::MemAttr::MEM_device);
+        let kern = virtmem::make_global_pin_16mb(DOM_KERN, user, virtmem::MemAttr::MEM_uncached);
+
+        self.pin_next(0x2000_0000, 0x2000_0000, dev);
+        self.pin_next(0, 0, kern);
+        // self.pin_next(16 * ONE_MB, 16 * ONE_MB, kern);
+        self.pin_next(32 * ONE_MB, 32 * ONE_MB, kern); // you're not doing anything with this one 
+        self.pin_next(48 * ONE_MB, 48 * ONE_MB, kern);
+
+        let user_stack_base = 0x0900_0000 - 128 * 4;
+
+        // map the stack pointers
+        const regular_stack_pointer: u32 = 0x0800_0000; // i guess the assumption here is that there will already be things loaded onto the stack when the MMU is enabled?
+        const interrupt_stack_pointer: u32 = 0x0880_0000;
+        self.pin_next(0x0800_0000 - 16 * ONE_MB, 0x0800_0000 - 16 * ONE_MB, kern);
+        // self.pin_next(interrupt_stack_pointer - 16 * ONE_MB, interrupt_stack_pointer - 16 * ONE_MB, kern);
+        self.pin_next(0x0900_0000 - 16 * ONE_MB, 0x0900_0000 - 16 * ONE_MB, kern); // or that it will be covered by this?
+
+        let kuser_helpers_pa = kmalloc::kmalloc_aligned(16 * ONE_MB as usize, 16 * ONE_MB as usize); // allocate a page
+        install_kuser_helpers(kuser_helpers_pa as u32);
+        self.pin_next(0xff000000, kuser_helpers_pa as u32, kern);
+
+        virtmem::pin_mmu_init(!0);
+        virtmem::mmu_enable();
+        println!("MMU enabled");
+
         interrupts::switch_to_user_mode();
         println!("Switched to user mode");
 
-        let user_stack_base = 0x10000000u32 + 128 * 1024;
 
         // Clear the stack area (a few pages for startup data)
         let stack_top = user_stack_base;
-        core::ptr::write_bytes(stack_top as *mut u8, 0, 1024);
+        core::ptr::write_bytes((stack_top - 1024) as *mut u8, 0, 1024);
+        // core::ptr::write_bytes(stack_top as *mut u8, 0, 1024);
+        
 
         // Build ARM Linux ABI startup stack (top-down):
         // sp -> argc | argv[] | NULL | envp[] | NULL | auxv...
@@ -274,7 +364,6 @@ impl ElfLoader {
         hexdump(context.entry as *const u8, 8);
 
         println!("Jumping to entry point: {:#x}", context.entry);
-
         elf_loader_tramp(core::ptr::addr_of_mut!(context));
     }
 }

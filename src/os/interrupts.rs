@@ -42,7 +42,7 @@ undefined_instruction_asm_user:
     movs pc, lr
 
 undefined_instruction_asm:                      @ A2-19
-    mov sp, 0x9000000
+    mov sp, 0x8800000
     sub lr, lr, #4                              @ adjust lr to point to faulting instruction
     push {{r0-r12, lr}}
 
@@ -56,7 +56,7 @@ undefined_instruction_asm:                      @ A2-19
 
 software_interrupt_asm:                         @ A2-20
     cpsid i
-    mov sp, 0x9000000
+    mov sp, 0x8800000
     push {{r0-r12, lr}}
 
     mov r0, sp
@@ -68,7 +68,7 @@ software_interrupt_asm:                         @ A2-20
     pop {{r0-r12, lr}}
     movs pc, lr
 prefetch_abort_asm:
-    mov sp, 0x10000000 @ needs to be different...
+    mov sp, 0x8b00000 @ needs to be different...
     sub lr, lr, #4
     push {{r0-r12, lr}}
 
@@ -80,8 +80,8 @@ prefetch_abort_asm:
     pop {{r0-r12, lr}}
     movs pc, lr
 data_abort_asm:
-    mov sp, 0x9000000
-    sub lr, lr, #8
+    mov sp, 0x8800000
+    sub lr, lr, #4
     push {{r0-r12, lr}}
 
     mov r0, sp                                  @ frame pointer
@@ -103,7 +103,7 @@ interrupt_asm:
   @  - <INT_STACK_ADDR> is a physical address we reserve 
   @   for exception stacks today.  we don't do recursive
   @   exception/interupts so one stack is enough.
-  mov sp, 0x9000000   @ Q: what if you delete?
+  mov sp, 0x8800000   @ Q: what if you delete?
   sub   lr, lr, #4
 
   @ push regs: beter match a pop
@@ -267,61 +267,18 @@ pub extern "C" fn fast_interrupt_vector(pc: u32) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn os_undefined_instruction_vector(frame: *mut SoftwareInterruptFrame, pc: u32) -> u32 {
+pub extern "C" fn os_undefined_instruction_vector(frame: *mut SoftwareInterruptFrame, pc: u32) {
     let frame = unsafe { &mut *frame };
-    
-    if pc >= 0xFFFF0F00 && pc < 0xFFFF1000 {
-        match pc {
-            0xFFFF0FA0 => {
-                // __kuser_helper_version: return 5
-                frame.r0 = 5;
-                1  // success
-            }
-            0xFFFF0FC0..=0xFFFF0FDF => {
-                // __kuser_cmpxchg: atomically compare-and-exchange
-                // args: r0=oldval, r1=newval, r2=ptr
-                let oldval = frame.r0;
-                let newval = frame.r1;
-                let ptr = frame.r2 as *mut u32;
-                let mut result: u32;
-                unsafe {
-                    asm!(
-                        "1:",
-                        "ldrex r3, [{ptr}]",
-                        "subs r3, r3, {old}",
-                        "strexeq r3, {new}, [{ptr}]",
-                        "teqeq r3, #1",
-                        "beq 1b",
-                        "mov {result}, r3",
-                        ptr = in(reg) ptr,
-                        old = in(reg) oldval,
-                        new = in(reg) newval,
-                        result = lateout(reg) result,
-                        out("r3") _,
-                    );
-                }
-                frame.r0 = result;
-                1  // success
-            }
-            0xFFFF0FE0 => {
-                // __kuser_memory_barrier: execute DMB
-                unsafe { asm!("mcr p15, 0, {reg}, c7, c10, 5", reg = in(reg) 0u32); }
-                1  // success
-            }
-            _ => {
-                println!("Unknown kuser access at pc={:#x}", pc);
-                0  // error
-            }
-        }
-    } else {
-        println!("Undefined instruction at pc={:#x}", pc);
-        0  // error
-    }
+    println!("Undefined instruction at pc={:#x}", pc);
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn os_data_abort_vector(frame: *mut SoftwareInterruptFrame, pc: u32) {
-    println!("Data abort at pc={:#x}", pc);
+    unsafe { 
+        let far: u32;
+        core::arch::asm!("mrc p15, 0, {}, c6, c0, 0", out(reg) far);
+        println!("data abort at pc={:#x}, fault address: {:#x}", pc, far);
+    }
 }
 
 // #[unsafe(no_mangle)]
@@ -354,7 +311,7 @@ pub extern "C" fn os_prefetch_abort_vector(frame: *mut SoftwareInterruptFrame, p
             frame.r12,
             frame.lr,
         );
-        profiler::breakpoint_mismatch_set(pc);
+        // profiler::breakpoint_mismatch_set(pc);
     }
 }
 
@@ -495,7 +452,7 @@ pub extern "C" fn software_interrupt_vector(frame: *mut SoftwareInterruptFrame, 
             let ret = mmap_anonymous(frame.r1);
             count += 1;
             if (count == 3) {
-                profiler::breakpoint_mismatch_start();
+                // profiler::breakpoint_mismatch_start();
             }
             ret
         },
@@ -515,7 +472,23 @@ pub extern "C" fn software_interrupt_vector(frame: *mut SoftwareInterruptFrame, 
         0xf8 => {
             unsafe { exit_current_process(); }
             0
-        }
+        },
+        0xae => CURRENT_TID,
+        0xc9 => {
+            println!("exit_group called with code {}", frame.r0);
+            0
+            // loop {}
+        },
+        0xb7 => {
+            let buf = frame.r0 as *mut u8;
+            unsafe {
+                *buf = b'/';
+                *buf.add(1) = 0;
+            }
+            frame.r0
+        },
+        0x36 => 0,
+        0x40 => 0,
         _ => {
             println!("unknown SVC: {:#x}", nr);
             ENOSYS
