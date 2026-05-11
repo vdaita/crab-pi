@@ -7,6 +7,7 @@ use core::arch::{asm, global_asm};
 use crate::mem::{get32, put32};
 use crate::gpio;
 use crate::os::elf_loader;
+use crate::profiler;
 
 global_asm!(r#"
 .globl _interrupt_table
@@ -67,7 +68,7 @@ software_interrupt_asm:                         @ A2-20
     pop {{r0-r12, lr}}
     movs pc, lr
 prefetch_abort_asm:
-    mov sp, 0x9000000
+    mov sp, 0x10000000 @ needs to be different...
     sub lr, lr, #4
     push {{r0-r12, lr}}
 
@@ -323,9 +324,38 @@ pub extern "C" fn os_data_abort_vector(frame: *mut SoftwareInterruptFrame, pc: u
     println!("Data abort at pc={:#x}", pc);
 }
 
+// #[unsafe(no_mangle)]
+// pub extern "C" fn os_prefetch_abort_vector(frame: *mut SoftwareInterruptFrame, pc: u32) {
+//     println!("Prefetch abort vector at pc:{:#x}", pc);
+// }
+
+
 #[unsafe(no_mangle)]
 pub extern "C" fn os_prefetch_abort_vector(frame: *mut SoftwareInterruptFrame, pc: u32) {
-    println!("Prefetch abort vector at pc:{:#x}", pc);
+    unsafe {
+        let frame = &*frame;
+        let instr = core::ptr::read_volatile(pc as *const u32);
+        println!(
+            "Prefetch abort at pc={:#x}, instr={:#x}, r0={:#x}, r1={:#x}, r2={:#x}, r3={:#x}, r4={:#x}, r5={:#x}, r6={:#x}, r7={:#x}, r8={:#x}, r9={:#x}, r10={:#x}, r11={:#x}, r12={:#x}, lr={:#x}",
+            pc,
+            instr,
+            frame.r0,
+            frame.r1,
+            frame.r2,
+            frame.r3,
+            frame.r4,
+            frame.r5,
+            frame.r6,
+            frame.r7,
+            frame.r8,
+            frame.r9,
+            frame.r10,
+            frame.r11,
+            frame.r12,
+            frame.lr,
+        );
+        profiler::breakpoint_mismatch_set(pc);
+    }
 }
 
 #[repr(C)]
@@ -386,6 +416,8 @@ unsafe fn mmap_anonymous(len: u32) -> u32 {
     unsafe { core::ptr::write_bytes(ptr, 0, len as usize) };
     ptr as u32
 }
+
+static mut count: u32 = 0;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn software_interrupt_vector(frame: *mut SoftwareInterruptFrame, svc_lr: u32) -> u32 {
@@ -460,7 +492,12 @@ pub extern "C" fn software_interrupt_vector(frame: *mut SoftwareInterruptFrame, 
             }
         },
         0xc0 => unsafe {
-            mmap_anonymous(frame.r1)
+            let ret = mmap_anonymous(frame.r1);
+            count += 1;
+            if (count == 3) {
+                profiler::breakpoint_mismatch_start();
+            }
+            ret
         },
         0x14 => {
             let tsp = frame.r1 as *mut u64;
