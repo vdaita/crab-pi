@@ -364,16 +364,6 @@ unsafe fn exit_current_process() {
     unsafe { elf_loader::elf_loader_return(); }
 }
 
-unsafe fn mmap_anonymous(len: u32) -> u32 {
-    if len == 0 {
-        return EINVAL;
-    }
-
-    let ptr = unsafe { crate::kmalloc::kmalloc_aligned(len as usize, 4096) };
-    unsafe { core::ptr::write_bytes(ptr, 0, len as usize) };
-    ptr as u32
-}
-
 static mut count: u32 = 0;
 
 #[unsafe(no_mangle)]
@@ -449,12 +439,9 @@ pub extern "C" fn software_interrupt_vector(frame: *mut SoftwareInterruptFrame, 
             }
         },
         0xc0 => unsafe {
-            let ret = mmap_anonymous(frame.r1);
-            count += 1;
-            if (count == 3) {
-                // profiler::breakpoint_mismatch_start();
-            }
-            ret
+            let ptr = crate::kmalloc::kmalloc_aligned(4096, 4096) as u32;
+            println!("mmap2 returning {:#x}", ptr);
+            ptr
         },
         0x14 => {
             let tsp = frame.r1 as *mut u64;
