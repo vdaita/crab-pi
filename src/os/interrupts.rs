@@ -411,12 +411,11 @@ pub extern "C" fn software_interrupt_vector(frame: *mut SoftwareInterruptFrame, 
     );
 
     let ret = match nr {
-        1 => {
+        0x1 => {
             unsafe { exit_current_process(); }
             0
         }
-        4 => {
-            // sys_write(fd, buf, len): support stdout/stderr only.
+        0x4 => {
             let fd = frame.r0;
             let buf_ptr = frame.r1 as *const u8;
             let len = frame.r2 as usize;
@@ -430,8 +429,7 @@ pub extern "C" fn software_interrupt_vector(frame: *mut SoftwareInterruptFrame, 
                 EINVAL
             }
         }
-        45 => unsafe {
-            // brk(addr): enough for simple statically-linked libc startup.
+        0x2d => unsafe {
             if PROGRAM_BREAK == 0 {
                 PROGRAM_BREAK = crate::kmalloc::kmalloc_aligned(4096, 4096) as u32;
             }
@@ -440,8 +438,7 @@ pub extern "C" fn software_interrupt_vector(frame: *mut SoftwareInterruptFrame, 
             }
             PROGRAM_BREAK
         },
-        146 => unsafe {
-            // writev(fd, iov, iovcnt): scatter/gather write to stdout/stderr.
+        0x92 => unsafe {
             let fd = frame.r0;
             let iov = frame.r1 as *const u32;
             let iovcnt = frame.r2 as usize;
@@ -462,32 +459,17 @@ pub extern "C" fn software_interrupt_vector(frame: *mut SoftwareInterruptFrame, 
                 total as u32
             }
         },
-        146 => unsafe {
-            // writev(fd, iov, iovcnt): scatter/gather write to stdout/stderr.
-            let fd = frame.r0;
-            let iov = frame.r1 as *const u32;
-            let iovcnt = frame.r2 as usize;
-            if fd != 1 && fd != 2 {
-                EINVAL
-            } else {
-                let mut total: u32 = 0;
-                for i in 0..iovcnt {
-                    let base = unsafe { core::ptr::read_volatile(iov.add(i * 2)) } as *const u8;
-                    let len  = unsafe { core::ptr::read_volatile(iov.add(i * 2 + 1)) } as usize;
-                    if !base.is_null() && len > 0 {
-                        let bytes = unsafe { core::slice::from_raw_parts(base, len) };
-                        crate::uart::write_bytes(bytes);
-                        total = total.wrapping_add(len as u32);
-                    }
-                }
-                crate::uart::flush();
-                total as u32
-            }
-        },
-        192 => unsafe {
-            // mmap2(addr, len, prot, flags, fd, pgoff): support anonymous mappings.
+        0xc0 => unsafe {
             mmap_anonymous(frame.r1)
         },
+        0x14 => {
+            let tsp = frame.r1 as *mut u64;
+            unsafe {
+                core::ptr::write_volatile(tsp, 0);
+                core::ptr::write_volatile(tsp.add(1), 0);
+            }
+            0
+        }
         0xf0005 => {
             unsafe { set_tls(frame.r0); }
             0
@@ -498,7 +480,7 @@ pub extern "C" fn software_interrupt_vector(frame: *mut SoftwareInterruptFrame, 
             0
         }
         _ => {
-            println!("unknown SVC: {}", nr);
+            println!("unknown SVC: {:#x}", nr);
             ENOSYS
         }
     };
