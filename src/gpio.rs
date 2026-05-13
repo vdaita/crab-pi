@@ -12,24 +12,24 @@ macro_rules! hardcode_gpio_pin {
         #[inline(always)]
         pub fn $set_on_fn() {
             const PIN: u32 = $pin;
-            const _: [(); 1] = [(); (PIN <= 53) as usize];
-            const ADDR: u32 = 0x20200000 + 0x1C + (PIN / 32) * 4;
+            const ADDR: u32 = GPIO_SET0 + (PIN / 32) * 4;
             const SHIFT: u32 = 1 << (PIN % 32);
             $crate::mem::put32(ADDR, SHIFT);
+            unsafe { core::arch::asm!(""); }
         }
 
         #[inline(always)]
         pub fn $set_off_fn() {
             const PIN: u32 = $pin;
-            const _: [(); 1] = [(); (PIN <= 53) as usize];
-            const ADDR: u32 = 0x20200000 + 0x28 + (PIN / 32) * 4;
+            const ADDR: u32 = GPIO_CLR0 + (PIN / 32) * 4;
             const SHIFT: u32 = 1 << (PIN % 32);
             $crate::mem::put32(ADDR, SHIFT);
         }
     };
 }
 
-hardcode_gpio_pin!(set_on_23, set_off_23, 23);
+hardcode_gpio_pin!(set_on_21, set_off_21, 21);
+hardcode_gpio_pin!(set_on_27, set_off_27, 27);
 
 pub fn set_output(pin: u32) {
     if pin > GPIO_MAX_PIN {

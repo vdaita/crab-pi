@@ -15,6 +15,7 @@ impl Timer {
         u
     }
 
+    #[inline(always)]
     pub fn delay_ns(ns: u32) {
         unsafe {
             let cycles = ns / 7;

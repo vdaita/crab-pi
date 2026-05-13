@@ -71,8 +71,8 @@ unsafe fn enable_fpu() {
 pub fn main() {    
     unsafe { 
         enable_fpu(); 
-        // os::utils::enable_l1_instruction_cache();
-        // os::utils::enable_branch_prediction();
+        os::utils::enable_l1_instruction_cache();
+        os::utils::enable_branch_prediction();
     }
 
 
@@ -80,12 +80,13 @@ pub fn main() {
     println!("Hello from Rust on the Pi!");
 
     // memtrace::test_memtrace();
-    // lightstrip::basic_run();
+    lightstrip::basic_run();
+    lightstrip::use_imu_to_color();
     // pmu_profiler::test_pmu_profiler();
     // profiler::test_profiler();
-    fat32::pi_sd_init();
+    // fat32::pi_sd_init();
     // programs::fat32_test::fat32_test();
-    os::elf_loader::test_elf_loader();
+    // os::elf_loader::test_elf_loader();
     // os::threads::test_threads();
     // programs::imu::imu_test();
     // os::interrupts::test_interrupts();

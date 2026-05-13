@@ -54,10 +54,10 @@ const MPU_ACCEL_FS_8G: u8 = (2 << 3);
 const MPU_GYRO_FS_250DPS: u8 = (0 << 3);
 
 #[derive(Clone, Copy)]
-struct XYZ {
-    x: i16,
-    y: i16,
-    z: i16
+pub struct XYZ {
+    pub x: i16,
+    pub y: i16,
+    pub z: i16
 }
 
 fn i2c_write(addr: u32, data: &[u8], nbytes: usize) {
@@ -161,7 +161,7 @@ fn i2c_read(addr: u32, nbytes: usize) -> [u8; 32] {
     data
 }
 
-fn i2c_init() {
+pub fn i2c_init() {
     set_function(0, 0x4);
     set_function(1, 0x4);
     set_function(2, 0x4); // FSEL_ALT0
@@ -200,7 +200,7 @@ fn reg_read_multiple(addr: u32, reg: u8, nbytes: u8) -> [u8; 32] {
     result
 }
 
-fn mpu6050_reset(dev_addr: u32) {
+pub fn mpu6050_reset(dev_addr: u32) {
     Timer::delay_ms(100);
     
     // page 41: set bit 7 to 1 in register to reset device
@@ -240,7 +240,7 @@ pub fn imu_accelerometer_test(dev_addr: u32) {
     }
 }
 
-fn mpu6050_read_gyro(dev_addr: u32) -> XYZ {
+pub fn mpu6050_read_gyro(dev_addr: u32) -> XYZ {
     while reg_read(dev_addr, IMU_INT_STATUS) == 0 {
 
     }
