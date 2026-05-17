@@ -54,6 +54,29 @@ pub fn write_bytes(bytes: &[u8]) {
     }
 }
 
+pub fn read_byte() -> u8 {
+    dev_barrier();
+    while !has_data() {}
+    let byte = get32(AUX_MU_IO_REG) as u8;
+    dev_barrier();
+    byte
+}
+
+pub fn read_bytes(buf: &mut [u8]) -> usize {
+    if buf.is_empty() {
+        return 0;
+    }
+
+    buf[0] = read_byte();
+    let mut nread = 1;
+    while nread < buf.len() && has_data() {
+        buf[nread] = get32(AUX_MU_IO_REG) as u8;
+        nread += 1;
+    }
+
+    nread
+}
+
 fn can_put8() -> bool {
     let stat = get32(AUX_MU_STAT_REG);
     (stat & (1 << 1)) != 0

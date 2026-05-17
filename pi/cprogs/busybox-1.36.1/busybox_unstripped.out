@@ -1,0 +1,660 @@
+Output of:
+gcc -Wall -Wshadow -Wwrite-strings -Wundef -Wstrict-prototypes -Wunused -Wunused-parameter -Wunused-function -Wunused-value -Wmissing-prototypes -Wmissing-declarations -Wno-format-security -Wdeclaration-after-statement -Wold-style-definition -finline-limit=0 -fno-builtin-strlen -fomit-frame-pointer -ffunction-sections -fdata-sections -fno-guess-branch-probability -funsigned-char -falign-functions=1 -falign-jumps=1 -falign-labels=1 -falign-loops=1 -fno-unwind-tables -fno-asynchronous-unwind-tables -fno-builtin-printf -Oz -static -T link.ld -o busybox_unstripped -Wl,--sort-common -Wl,--sort-section,alignment -Wl,--gc-sections -Wl,--start-group applets/built-in.o archival/lib.a archival/libarchive/lib.a console-tools/lib.a coreutils/lib.a coreutils/libcoreutils/lib.a debianutils/lib.a klibc-utils/lib.a e2fsprogs/lib.a editors/lib.a findutils/lib.a init/lib.a libbb/lib.a libpwdgrp/lib.a loginutils/lib.a mailutils/lib.a miscutils/lib.a modutils/lib.a networking/lib.a networking/libiproute/lib.a networking/udhcp/lib.a printutils/lib.a procps/lib.a runit/lib.a selinux/lib.a shell/lib.a sysklogd/lib.a util-linux/lib.a util-linux/volume_id/lib.a archival/built-in.o archival/libarchive/built-in.o console-tools/built-in.o coreutils/built-in.o coreutils/libcoreutils/built-in.o debianutils/built-in.o klibc-utils/built-in.o e2fsprogs/built-in.o editors/built-in.o findutils/built-in.o init/built-in.o libbb/built-in.o libpwdgrp/built-in.o loginutils/built-in.o mailutils/built-in.o miscutils/built-in.o modutils/built-in.o networking/built-in.o networking/libiproute/built-in.o networking/udhcp/built-in.o printutils/built-in.o procps/built-in.o runit/built-in.o selinux/built-in.o shell/built-in.o sysklogd/built-in.o util-linux/built-in.o util-linux/volume_id/built-in.o -Wl,--end-group -Wl,--warn-common -Wl,-Map,busybox_unstripped.map -Wl,--verbose
+==========
+GNU ld (GNU Binutils) 2.40
+  Supported emulations:
+   armelf_linux_eabi
+   armelfb_linux_eabi
+opened script file link.ld
+using external linker script:
+==================================================
+ENTRY(_start)
+
+SECTIONS {
+    . = 0x03000000;
+
+    .text : {
+        *(.text.unlikely .text.*_unlikely .text.unlikely.*)
+        *(.text.exit .text.exit.*)
+        *(.text.startup .text.startup.*)
+        *(.text.hot .text.hot.*)
+        *(.text .stub .text.* .gnu.linkonce.t.*)
+    }
+
+    .init : {
+        KEEP (*crti.o(.init))
+        KEEP (*(.init))
+        KEEP (*crtn.o(.init))
+    }
+
+    .fini : {
+        KEEP (*crti.o(.fini))
+        KEEP (*(.fini))
+        KEEP (*crtn.o(.fini))
+    }
+
+    .init_array : {
+        __init_array_start = .;
+        KEEP (*crti.o(.init_array))
+        KEEP (*(SORT(.init_array.*)))
+        KEEP (*(.init_array))
+        KEEP (*crtn.o(.init_array))
+        __init_array_end = .;
+    }
+
+    .preinit_array : {
+        __preinit_array_start = .;
+        KEEP (*(.preinit_array*))
+        __preinit_array_end = .;
+    }
+
+    .fini_array : {
+        __fini_array_start = .;
+        KEEP (*crti.o(.fini_array))
+        KEEP (*(SORT(.fini_array.*)))
+        KEEP (*(.fini_array))
+        KEEP (*crtn.o(.fini_array))
+        __fini_array_end = .;
+    }
+
+    .rodata : {
+        *(.rodata .rodata.* .gnu.linkonce.r.*)
+    }
+
+    .ARM.extab : {
+        *(.ARM.extab* .gnu.linkonce.armextab.*)
+    }
+
+    .ARM.exidx : {
+        __exidx_start = .;
+        *(.ARM.exidx* .gnu.linkonce.armexidx.*)
+        __exidx_end = .;
+    }
+
+    .eh_frame : {
+        KEEP (*(.eh_frame))
+    }
+
+    .got : {
+        *(.got)
+    }
+
+    .got.plt : {
+        *(.got.plt)
+    }
+
+    .data : {
+        *(.data .data.* .gnu.linkonce.d.*)
+    }
+
+    .bss : {
+        __bss_start = .;
+        *(.dynbss)
+        *(.bss .bss.* .gnu.linkonce.b.*)
+        *(COMMON)
+        __bss_end = .;
+    }
+
+    /DISCARD/ : {
+        *(.note.GNU-stack)
+        *(.gnu_debuglink)
+        *(.gnu.lto_*)
+    }
+}
+==================================================
+/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../../armv6-alpine-linux-musleabihf/bin/ld: mode armelf_linux_eabi
+attempt to open /usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../crt1.o succeeded
+/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../crt1.o
+attempt to open /usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../crti.o succeeded
+/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../crti.o
+attempt to open /usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/crtbeginT.o succeeded
+/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/crtbeginT.o
+attempt to open applets/built-in.o succeeded
+applets/built-in.o
+attempt to open archival/lib.a succeeded
+archival/lib.a
+attempt to open archival/libarchive/lib.a succeeded
+archival/libarchive/lib.a
+attempt to open console-tools/lib.a succeeded
+console-tools/lib.a
+attempt to open coreutils/lib.a succeeded
+coreutils/lib.a
+attempt to open coreutils/libcoreutils/lib.a succeeded
+coreutils/libcoreutils/lib.a
+attempt to open debianutils/lib.a succeeded
+debianutils/lib.a
+attempt to open klibc-utils/lib.a succeeded
+klibc-utils/lib.a
+attempt to open e2fsprogs/lib.a succeeded
+e2fsprogs/lib.a
+attempt to open editors/lib.a succeeded
+editors/lib.a
+attempt to open findutils/lib.a succeeded
+findutils/lib.a
+attempt to open init/lib.a succeeded
+init/lib.a
+attempt to open libbb/lib.a succeeded
+libbb/lib.a
+(libbb/lib.a)appletlib.o
+(libbb/lib.a)compare_string_array.o
+(libbb/lib.a)default_error_retval.o
+(libbb/lib.a)get_last_path_component.o
+(libbb/lib.a)last_char_is.o
+(libbb/lib.a)messages.o
+(libbb/lib.a)ptr_to_globals.o
+(libbb/lib.a)xfunc_die.o
+(libbb/lib.a)xfuncs.o
+(libbb/lib.a)full_write.o
+(libbb/lib.a)safe_write.o
+attempt to open libpwdgrp/lib.a succeeded
+libpwdgrp/lib.a
+attempt to open loginutils/lib.a succeeded
+loginutils/lib.a
+attempt to open mailutils/lib.a succeeded
+mailutils/lib.a
+attempt to open miscutils/lib.a succeeded
+miscutils/lib.a
+attempt to open modutils/lib.a succeeded
+modutils/lib.a
+attempt to open networking/lib.a succeeded
+networking/lib.a
+attempt to open networking/libiproute/lib.a succeeded
+networking/libiproute/lib.a
+attempt to open networking/udhcp/lib.a succeeded
+networking/udhcp/lib.a
+attempt to open printutils/lib.a succeeded
+printutils/lib.a
+attempt to open procps/lib.a succeeded
+procps/lib.a
+attempt to open runit/lib.a succeeded
+runit/lib.a
+attempt to open selinux/lib.a succeeded
+selinux/lib.a
+attempt to open shell/lib.a succeeded
+shell/lib.a
+(shell/lib.a)ash.o
+(shell/lib.a)ash_ptr_hack.o
+(shell/lib.a)shell_common.o
+attempt to open sysklogd/lib.a succeeded
+sysklogd/lib.a
+attempt to open util-linux/lib.a succeeded
+util-linux/lib.a
+attempt to open util-linux/volume_id/lib.a succeeded
+util-linux/volume_id/lib.a
+attempt to open archival/built-in.o succeeded
+archival/built-in.o
+attempt to open archival/libarchive/built-in.o succeeded
+archival/libarchive/built-in.o
+attempt to open console-tools/built-in.o succeeded
+console-tools/built-in.o
+attempt to open coreutils/built-in.o succeeded
+coreutils/built-in.o
+attempt to open coreutils/libcoreutils/built-in.o succeeded
+coreutils/libcoreutils/built-in.o
+attempt to open debianutils/built-in.o succeeded
+debianutils/built-in.o
+attempt to open klibc-utils/built-in.o succeeded
+klibc-utils/built-in.o
+attempt to open e2fsprogs/built-in.o succeeded
+e2fsprogs/built-in.o
+attempt to open editors/built-in.o succeeded
+editors/built-in.o
+attempt to open findutils/built-in.o succeeded
+findutils/built-in.o
+attempt to open init/built-in.o succeeded
+init/built-in.o
+attempt to open libbb/built-in.o succeeded
+libbb/built-in.o
+attempt to open libpwdgrp/built-in.o succeeded
+libpwdgrp/built-in.o
+attempt to open loginutils/built-in.o succeeded
+loginutils/built-in.o
+attempt to open mailutils/built-in.o succeeded
+mailutils/built-in.o
+attempt to open miscutils/built-in.o succeeded
+miscutils/built-in.o
+attempt to open modutils/built-in.o succeeded
+modutils/built-in.o
+attempt to open networking/built-in.o succeeded
+networking/built-in.o
+attempt to open networking/libiproute/built-in.o succeeded
+networking/libiproute/built-in.o
+attempt to open networking/udhcp/built-in.o succeeded
+networking/udhcp/built-in.o
+attempt to open printutils/built-in.o succeeded
+printutils/built-in.o
+attempt to open procps/built-in.o succeeded
+procps/built-in.o
+attempt to open runit/built-in.o succeeded
+runit/built-in.o
+attempt to open selinux/built-in.o succeeded
+selinux/built-in.o
+attempt to open shell/built-in.o succeeded
+shell/built-in.o
+attempt to open sysklogd/built-in.o succeeded
+sysklogd/built-in.o
+attempt to open util-linux/built-in.o succeeded
+util-linux/built-in.o
+attempt to open util-linux/volume_id/built-in.o succeeded
+util-linux/volume_id/built-in.o
+archival/lib.a
+archival/libarchive/lib.a
+console-tools/lib.a
+coreutils/lib.a
+coreutils/libcoreutils/lib.a
+debianutils/lib.a
+klibc-utils/lib.a
+e2fsprogs/lib.a
+editors/lib.a
+findutils/lib.a
+init/lib.a
+libbb/lib.a
+(libbb/lib.a)bb_strtonum.o
+(libbb/lib.a)endofname.o
+(libbb/lib.a)parse_mode.o
+(libbb/lib.a)perror_msg.o
+(libbb/lib.a)read_printf.o
+(libbb/lib.a)safe_poll.o
+(libbb/lib.a)safe_strncpy.o
+(libbb/lib.a)signals.o
+(libbb/lib.a)sysconf.o
+(libbb/lib.a)time.o
+(libbb/lib.a)u_signal_names.o
+(libbb/lib.a)verror_msg.o
+(libbb/lib.a)xfuncs_printf.o
+(libbb/lib.a)copyfd.o
+(libbb/lib.a)read.o
+libpwdgrp/lib.a
+loginutils/lib.a
+mailutils/lib.a
+miscutils/lib.a
+modutils/lib.a
+networking/lib.a
+networking/libiproute/lib.a
+networking/udhcp/lib.a
+printutils/lib.a
+procps/lib.a
+runit/lib.a
+selinux/lib.a
+shell/lib.a
+sysklogd/lib.a
+util-linux/lib.a
+util-linux/volume_id/lib.a
+archival/built-in.o
+archival/libarchive/built-in.o
+console-tools/built-in.o
+coreutils/built-in.o
+coreutils/libcoreutils/built-in.o
+debianutils/built-in.o
+klibc-utils/built-in.o
+e2fsprogs/built-in.o
+editors/built-in.o
+findutils/built-in.o
+init/built-in.o
+libbb/built-in.o
+libpwdgrp/built-in.o
+loginutils/built-in.o
+mailutils/built-in.o
+miscutils/built-in.o
+modutils/built-in.o
+networking/built-in.o
+networking/libiproute/built-in.o
+networking/udhcp/built-in.o
+printutils/built-in.o
+procps/built-in.o
+runit/built-in.o
+selinux/built-in.o
+shell/built-in.o
+sysklogd/built-in.o
+util-linux/built-in.o
+util-linux/volume_id/built-in.o
+archival/lib.a
+archival/libarchive/lib.a
+console-tools/lib.a
+coreutils/lib.a
+coreutils/libcoreutils/lib.a
+debianutils/lib.a
+klibc-utils/lib.a
+e2fsprogs/lib.a
+editors/lib.a
+findutils/lib.a
+init/lib.a
+libbb/lib.a
+libpwdgrp/lib.a
+loginutils/lib.a
+mailutils/lib.a
+miscutils/lib.a
+modutils/lib.a
+networking/lib.a
+networking/libiproute/lib.a
+networking/udhcp/lib.a
+printutils/lib.a
+procps/lib.a
+runit/lib.a
+selinux/lib.a
+shell/lib.a
+sysklogd/lib.a
+util-linux/lib.a
+util-linux/volume_id/lib.a
+archival/built-in.o
+archival/libarchive/built-in.o
+console-tools/built-in.o
+coreutils/built-in.o
+coreutils/libcoreutils/built-in.o
+debianutils/built-in.o
+klibc-utils/built-in.o
+e2fsprogs/built-in.o
+editors/built-in.o
+findutils/built-in.o
+init/built-in.o
+libbb/built-in.o
+libpwdgrp/built-in.o
+loginutils/built-in.o
+mailutils/built-in.o
+miscutils/built-in.o
+modutils/built-in.o
+networking/built-in.o
+networking/libiproute/built-in.o
+networking/udhcp/built-in.o
+printutils/built-in.o
+procps/built-in.o
+runit/built-in.o
+selinux/built-in.o
+shell/built-in.o
+sysklogd/built-in.o
+util-linux/built-in.o
+util-linux/volume_id/built-in.o
+attempt to open /usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/libssp_nonshared.a failed
+attempt to open /usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../../armv6-alpine-linux-musleabihf/lib/libssp_nonshared.a failed
+attempt to open /usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libssp_nonshared.a succeeded
+/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libssp_nonshared.a
+attempt to open /usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/libgcc.a succeeded
+/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/libgcc.a
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/libgcc.a)_udivsi3.o
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/libgcc.a)_divsi3.o
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/libgcc.a)_aeabi_ldivmod.o
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/libgcc.a)_dvmd_lnx.o
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/libgcc.a)_udivmoddi4.o
+attempt to open /usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/libgcc_eh.a succeeded
+/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/libgcc_eh.a
+attempt to open /usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/libc.a failed
+attempt to open /usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../../armv6-alpine-linux-musleabihf/lib/libc.a failed
+attempt to open /usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a succeeded
+/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)sysconf.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)opendir.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)__environ.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)__libc_start_main.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)__stack_chk_fail.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)getenv.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)setenv.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)unsetenv.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)__errno_location.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)strerror.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)exit.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)fcntl.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)open.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)defsysinfo.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)libc.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)syscall_ret.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)chroot.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)settimeofday.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)sysinfo.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)__lctrans.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)calloc.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)free.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)lite_malloc.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)free.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)malloc.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)realloc.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)replaced.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)getauxval.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)getopt.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)getrlimit.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)ioctl.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)setrlimit.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)mmap.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)mprotect.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)munmap.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)mbtowc.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)bind.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)listen.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)sendto.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)socket.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)getpwent.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)getpwent_a.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)rand.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)vfork.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)execve.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)fork.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)waitpid.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)fnmatch.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)glob.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)poll.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)longjmp.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)setjmp.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)block.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)raise.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)sigaction.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)sigaddset.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)sigemptyset.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)sigfillset.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)signal.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)sigprocmask.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)sigsuspend.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)fstat.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)fstatat.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)lstat.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)stat.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)umask.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)__lockfile.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)clearerr.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)dprintf.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)fclose.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)ferror.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)fflush.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)fileno.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)fopen.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)fprintf.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)fputs.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)fwrite.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)getline.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)ofl.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)printf.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)putc.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)putc_unlocked.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)putchar_unlocked.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)puts.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)rename.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)snprintf.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)sprintf.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)sscanf.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)stderr.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)stdout.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)vasprintf.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)vdprintf.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)vfprintf.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)vprintf.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)vsnprintf.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)vsprintf.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)vsscanf.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)atoi.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)bsearch.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)qsort_nr.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)strtol.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)memcpy.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)memchr.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)memcmp.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)memmove.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)mempcpy.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)memset.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)stpcpy.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)stpncpy.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)strcasecmp.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)strchr.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)strchrnul.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)strcmp.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)strcpy.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)strcspn.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)strdup.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)strlen.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)strncasecmp.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)strncmp.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)strncpy.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)strndup.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)strnlen.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)strpbrk.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)strrchr.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)strsignal.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)strstr.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)strtok_r.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)mkstemp.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)tcgetattr.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)tcsetattr.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)__lock.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)__syscall_cp.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)atomics.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)lock_ptc.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)pthread_rwlock_rdlock.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)pthread_rwlock_timedrdlock.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)pthread_rwlock_tryrdlock.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)pthread_rwlock_unlock.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)pthread_rwlock_wrlock.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)pthread_setcancelstate.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)pthread_sigmask.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)synccall.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)clock_settime.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)gettimeofday.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)localtime.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)localtime_r.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)mktime.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)strftime.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)time.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)times.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)_exit.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)chdir.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)close.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)dup2.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)fchdir.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)getcwd.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)getegid.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)geteuid.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)getpid.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)getppid.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)getuid.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)isatty.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)lseek.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)pipe.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)read.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)setegid.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)seteuid.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)setgid.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)setuid.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)setxid.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)ttyname_r.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)unlink.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)write.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)iswctype.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)iswgraph.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)iswlower.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)iswprint.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)iswpunct.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)iswspace.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)iswupper.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)iswxdigit.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)tolower.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)towctrans.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)closedir.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)readdir.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)__init_tls.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)putenv.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)_Exit.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)abort_lock.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)intscan.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)procfdname.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)shgetc.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)langinfo.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)realloc.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)frexpl.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)mremap.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)internal.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)wctomb.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)getpw_a.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)getpw_r.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)nscd_query.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)_Fork.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)restore.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)__fdopen.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)__fmodeflags.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)__overflow.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)__stdio_close.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)__stdio_read.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)__stdio_seek.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)__stdio_write.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)__stdout_write.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)__towrite.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)__uflow.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)fread.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)getdelim.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)ofl_add.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)vfscanf.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)qsort.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)memrchr.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)strspn.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)wcschr.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)wcslen.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)mkostemps.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)__timedwait.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)__set_thread_area.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)default_attr.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)pthread_rwlock_timedwrlock.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)pthread_rwlock_trywrlock.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)sem_destroy.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)sem_init.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)sem_post.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)sem_wait.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)__secs_to_tm.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)__tm_to_secs.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)__tz.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)__year_to_secs.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)clock_gettime.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)readlink.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)iswalnum.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)iswalpha.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)iswblank.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)iswcntrl.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)floatscan.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)vdso.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)copysignl.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)fabsl.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)fmodl.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)frexp.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)scalbn.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)scalbnl.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)mbrtowc.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)mbsinit.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)wcrtomb.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)connect.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)sendmsg.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)__stdio_exit.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)__toread.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)__randname.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)sem_timedwait.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)sem_trywait.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)__map_file.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)__month_to_secs.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)isblank.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)fabs.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)copysign.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)fmod.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)pthread_cleanup_push.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)pthread_testcancel.lo
+/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/libgcc.a
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/libgcc.a)_aeabi_uldivmod.o
+/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/libgcc_eh.a
+/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a
+attempt to open /usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/crtend.o succeeded
+/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/crtend.o
+attempt to open /usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../crtn.o succeeded
+/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../crtn.o
+/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../../armv6-alpine-linux-musleabihf/bin/ld: warning: busybox_unstripped has a LOAD segment with RWX permissions

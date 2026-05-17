@@ -268,8 +268,10 @@ pub extern "C" fn fast_interrupt_vector(pc: u32) {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn os_undefined_instruction_vector(frame: *mut SoftwareInterruptFrame, pc: u32) {
-    let frame = unsafe { &mut *frame };
-    println!("Undefined instruction at pc={:#x}", pc);
+    unsafe {
+        let frame = unsafe { &mut *frame };
+        println!("Undefined instruction at pc={:#x}, inst={:#x}", pc, *(pc as *const u32));
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -277,7 +279,8 @@ pub extern "C" fn os_data_abort_vector(frame: *mut SoftwareInterruptFrame, pc: u
     unsafe { 
         let far: u32;
         core::arch::asm!("mrc p15, 0, {}, c6, c0, 0", out(reg) far);
-        println!("data abort at pc={:#x}, fault address: {:#x}", pc, far);
+        let instr = *(pc as *const u32);
+        println!("data abort at pc={:#x}, fault address: {:#x}, instr: {:#x}", pc, far, instr);
     }
 }
 
@@ -311,7 +314,7 @@ pub extern "C" fn os_prefetch_abort_vector(frame: *mut SoftwareInterruptFrame, p
             frame.r12,
             frame.lr,
         );
-        // profiler::breakpoint_mismatch_set(pc);
+        profiler::breakpoint_mismatch_set(pc);
     }
 }
 
@@ -394,6 +397,21 @@ pub extern "C" fn software_interrupt_vector(frame: *mut SoftwareInterruptFrame, 
             unsafe { exit_current_process(); }
             0
         }
+        0x3 => {
+            let fd = frame.r0;
+            let buf_ptr = frame.r1 as *mut u8;
+            let len = frame.r2 as usize;
+            if fd != 0 {
+                EINVAL
+            } else if len == 0 {
+                0
+            } else if buf_ptr.is_null() {
+                EINVAL
+            } else {
+                let buf = unsafe { core::slice::from_raw_parts_mut(buf_ptr, len) };
+                crate::uart::read_bytes(buf) as u32
+            }
+        }
         0x4 => {
             let fd = frame.r0;
             let buf_ptr = frame.r1 as *const u8;
@@ -445,14 +463,7 @@ pub extern "C" fn software_interrupt_vector(frame: *mut SoftwareInterruptFrame, 
             // println!("mmap2 returning {:#x}", ptr);
             ptr as u32
         },
-        0x14 => {
-            let tsp = frame.r1 as *mut u64;
-            unsafe {
-                core::ptr::write_volatile(tsp, 0);
-                core::ptr::write_volatile(tsp.add(1), 0);
-            }
-            0
-        }
+        0x14 => 0,
         0xf0005 => {
             unsafe { set_tls(frame.r0); }
             0

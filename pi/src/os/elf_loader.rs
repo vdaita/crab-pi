@@ -5,6 +5,7 @@ use crate::os::virtmem;
 use crate::os::interrupts;
 use crate::{println, print};
 use crate::kmalloc;
+use crate::profiler;
 
 const ONE_MB: u32 = 1024 * 1024;
 const DOM_KERN: u32 = 1;
@@ -320,50 +321,54 @@ impl ElfLoader {
         interrupts::switch_to_user_mode();
         println!("Switched to user mode");
 
+        let argv0_bytes = b"sh\0";
+        let argv0_heap = kmalloc::kmalloc(argv0_bytes.len()) as *mut u8;
+        core::ptr::copy_nonoverlapping(argv0_bytes.as_ptr(), argv0_heap, argv0_bytes.len());
+        let argv0_ptr = argv0_heap as u32;
+        println!("argv0 at: {:#x}", argv0_ptr);
 
-        // Clear the stack area (a few pages for startup data)
         let stack_top = user_stack_base;
         core::ptr::write_bytes((stack_top - 1024) as *mut u8, 0, 1024);
-        // core::ptr::write_bytes(stack_top as *mut u8, 0, 1024);
-        
 
-        // Build ARM Linux ABI startup stack (top-down):
-        // sp -> argc | argv[] | NULL | envp[] | NULL | auxv...
         let mut sp = stack_top as *mut u32;
-
-        // Auxiliary vector: AT_PHDR, AT_PHENT, AT_PHNUM, AT_PAGESZ, AT_NULL
         let phdr_addr = elf_base + (*elf_header_ptr).e_phoff as u32;
         sp = sp.sub(1); *sp = 0;                             // AT_NULL val
         sp = sp.sub(1); *sp = 0;                             // AT_NULL type
         sp = sp.sub(1); *sp = 4096;                          // AT_PAGESZ val
-        sp = sp.sub(1); *sp = 6;                              // AT_PAGESZ type
+        sp = sp.sub(1); *sp = 6;                             // AT_PAGESZ type
         sp = sp.sub(1); *sp = (*elf_header_ptr).e_phnum as u32; // AT_PHNUM val
-        sp = sp.sub(1); *sp = 5;                              // AT_PHNUM type
+        sp = sp.sub(1); *sp = 5;                             // AT_PHNUM type
         sp = sp.sub(1); *sp = (*elf_header_ptr).e_phentsize as u32; // AT_PHENT val
-        sp = sp.sub(1); *sp = 4;                              // AT_PHENT type
+        sp = sp.sub(1); *sp = 4;                             // AT_PHENT type
         sp = sp.sub(1); *sp = phdr_addr;                     // AT_PHDR val
-        sp = sp.sub(1); *sp = 3;                              // AT_PHDR type
-
-        // NULL terminator for environment
-        sp = sp.sub(1); *sp = 0;
-        // NULL terminator for argv
+        sp = sp.sub(1); *sp = 3;                             // AT_PHDR type
         sp = sp.sub(1); *sp = 0;
 
-        // argc = 0 (no command-line args)
-        sp = sp.sub(1); *sp = 0;
+        // argv pointers: argv[0], NULL
+        sp = sp.sub(1); *sp = 0;          // argv[1] == NULL
+        sp = sp.sub(1); *sp = argv0_ptr;  // argv[0]
+
+        // argc = 1
+        sp = sp.sub(1); *sp = 1;
+
+        if (sp as usize) & 7 != 0 {
+            sp = sp.sub(1);
+            *sp = 0;
+        }
 
         let mut context: ProgramContext = ProgramContext {
             user_stack: sp as u32,
             entry: (*elf_header_ptr).e_entry,
-            arg0: arg1,
-            arg1: arg2,
-            arg2: arg3,
+            arg0: 1,                                 // r0 = argc
+            arg1: (sp.add(1) as *const u32) as u32, // r1 = &argv[0] (pointer to first argv pointer)
+            arg2: 0,                                 // r2 = envp (NULL)
         };
 
         println!("want to run the following instructions: ");
         hexdump(context.entry as *const u8, 8);
 
         println!("Jumping to entry point: {:#x}", context.entry);
+        // profiler::breakpoint_mismatch_start();
         elf_loader_tramp(core::ptr::addr_of_mut!(context));
     }
 }
