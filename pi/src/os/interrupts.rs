@@ -419,7 +419,9 @@ pub extern "C" fn software_interrupt_vector(frame: *mut SoftwareInterruptFrame, 
             if (fd == 1 || fd == 2) && !buf_ptr.is_null() {
                 println!("writing out with fd={}, buf_ptr={:p}, len={}", fd, buf_ptr, len);
                 let bytes = unsafe { core::slice::from_raw_parts(buf_ptr, len) };
+                crate::uart::write_bytes("[prog]".as_bytes());
                 crate::uart::write_bytes(bytes);
+                crate::uart::write_bytes("[/prog]".as_bytes());
                 crate::uart::flush();
                 len as u32
             } else {

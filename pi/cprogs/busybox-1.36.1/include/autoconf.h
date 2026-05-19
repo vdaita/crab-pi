@@ -2,7 +2,7 @@
  * Automatically generated C config: don't edit
  * Busybox version: 1.36.1
  */
-#define AUTOCONF_TIMESTAMP "2026-05-17 09:16:30 UTC"
+#define AUTOCONF_TIMESTAMP "2026-05-18 22:57:12 UTC"
 
 #define CONFIG_HAVE_DOT_CONFIG 1
 #define ENABLE_HAVE_DOT_CONFIG 1
@@ -820,6 +820,10 @@
 #define ENABLE_FEATURE_PRESERVE_HARDLINKS 0
 #define IF_FEATURE_PRESERVE_HARDLINKS(...)
 #define IF_NOT_FEATURE_PRESERVE_HARDLINKS(...) __VA_ARGS__
+
+/*
+ * Common options for df, du, ls
+ */
 #undef CONFIG_FEATURE_HUMAN_READABLE
 #define ENABLE_FEATURE_HUMAN_READABLE 0
 #define IF_FEATURE_HUMAN_READABLE(...)
@@ -828,10 +832,14 @@
 #define ENABLE_BASENAME 0
 #define IF_BASENAME(...)
 #define IF_NOT_BASENAME(...) __VA_ARGS__
-#undef CONFIG_CAT
-#define ENABLE_CAT 0
-#define IF_CAT(...)
-#define IF_NOT_CAT(...) __VA_ARGS__
+#define CONFIG_CAT 1
+#define ENABLE_CAT 1
+#ifdef MAKE_SUID
+# define IF_CAT(...) __VA_ARGS__ "CONFIG_CAT"
+#else
+# define IF_CAT(...) __VA_ARGS__
+#endif
+#define IF_NOT_CAT(...)
 #undef CONFIG_FEATURE_CATN
 #define ENABLE_FEATURE_CATN 0
 #define IF_FEATURE_CATN(...)
@@ -1040,10 +1048,14 @@
 #define ENABLE_LOGNAME 0
 #define IF_LOGNAME(...)
 #define IF_NOT_LOGNAME(...) __VA_ARGS__
-#undef CONFIG_LS
-#define ENABLE_LS 0
-#define IF_LS(...)
-#define IF_NOT_LS(...) __VA_ARGS__
+#define CONFIG_LS 1
+#define ENABLE_LS 1
+#ifdef MAKE_SUID
+# define IF_LS(...) __VA_ARGS__ "CONFIG_LS"
+#else
+# define IF_LS(...) __VA_ARGS__
+#endif
+#define IF_NOT_LS(...)
 #undef CONFIG_FEATURE_LS_FILETYPES
 #define ENABLE_FEATURE_LS_FILETYPES 0
 #define IF_FEATURE_LS_FILETYPES(...)
@@ -1596,11 +1608,15 @@
 #define ENABLE_SED 0
 #define IF_SED(...)
 #define IF_NOT_SED(...) __VA_ARGS__
-#undef CONFIG_VI
-#define ENABLE_VI 0
-#define IF_VI(...)
-#define IF_NOT_VI(...) __VA_ARGS__
-#define CONFIG_FEATURE_VI_MAX_LEN 0
+#define CONFIG_VI 1
+#define ENABLE_VI 1
+#ifdef MAKE_SUID
+# define IF_VI(...) __VA_ARGS__ "CONFIG_VI"
+#else
+# define IF_VI(...) __VA_ARGS__
+#endif
+#define IF_NOT_VI(...)
+#define CONFIG_FEATURE_VI_MAX_LEN 4096
 #define ENABLE_FEATURE_VI_MAX_LEN 1
 #ifdef MAKE_SUID
 # define IF_FEATURE_VI_MAX_LEN(...) __VA_ARGS__ "CONFIG_FEATURE_VI_MAX_LEN"
@@ -2304,10 +2320,14 @@
 #define ENABLE_FALLOCATE 0
 #define IF_FALLOCATE(...)
 #define IF_NOT_FALLOCATE(...) __VA_ARGS__
-#undef CONFIG_FATATTR
-#define ENABLE_FATATTR 0
-#define IF_FATATTR(...)
-#define IF_NOT_FATATTR(...) __VA_ARGS__
+#define CONFIG_FATATTR 1
+#define ENABLE_FATATTR 1
+#ifdef MAKE_SUID
+# define IF_FATATTR(...) __VA_ARGS__ "CONFIG_FATATTR"
+#else
+# define IF_FATATTR(...) __VA_ARGS__
+#endif
+#define IF_NOT_FATATTR(...)
 #undef CONFIG_FBSET
 #define ENABLE_FBSET 0
 #define IF_FBSET(...)
@@ -4392,10 +4412,14 @@
 #define ENABLE_ASH_MAIL 0
 #define IF_ASH_MAIL(...)
 #define IF_NOT_ASH_MAIL(...) __VA_ARGS__
-#undef CONFIG_ASH_ECHO
-#define ENABLE_ASH_ECHO 0
-#define IF_ASH_ECHO(...)
-#define IF_NOT_ASH_ECHO(...) __VA_ARGS__
+#define CONFIG_ASH_ECHO 1
+#define ENABLE_ASH_ECHO 1
+#ifdef MAKE_SUID
+# define IF_ASH_ECHO(...) __VA_ARGS__ "CONFIG_ASH_ECHO"
+#else
+# define IF_ASH_ECHO(...) __VA_ARGS__
+#endif
+#define IF_NOT_ASH_ECHO(...)
 #undef CONFIG_ASH_PRINTF
 #define ENABLE_ASH_PRINTF 0
 #define IF_ASH_PRINTF(...)

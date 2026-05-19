@@ -81,7 +81,7 @@ been enabled, more detailed usage information will also be available.
 
 Currently available applets include:
 
-	ash, sh
+	ash, cat, fatattr, ls, sh, vi
 
 =head1 COMMAND DESCRIPTIONS
 
@@ -91,9 +91,25 @@ Currently available applets include:
 
 ash [-il] [-|+Cabefmnuvx] [-|+o OPT]... [-c 'SCRIPT' [ARG0 ARGS] | FILE ARGS | -s ARGS]
 
+=item B<cat>
+
+cat [FILE]...
+
+=item B<fatattr>
+
+fatattr [-+rhsvda] FILE...
+
+=item B<ls>
+
+ls [-1AaCxdlins] [FILE]...
+
 =item B<sh>
 
 sh [-il] [-|+Cabefmnuvx] [-|+o OPT]... [-c 'SCRIPT' [ARG0 ARGS] | FILE ARGS | -s ARGS]
+
+=item B<vi>
+
+vi [-H] [FILE]...
 
 =back
 

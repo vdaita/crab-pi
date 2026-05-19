@@ -2,7 +2,7 @@ use crate::os::interrupts;
 use crate::{println, print};
 use crate::circular::{CircularQueue};
 use core::arch::{asm, global_asm};
-use crate::ckalloc::{ckalloc, ckfree, SourceLocation};
+use crate::ckalloc::{ckalloc, ckfree};
 
 const MAX_STACK_SIZE: usize = 64 * 1024;
 const MAX_THREADS: usize = 4096;
@@ -57,12 +57,7 @@ pub struct ThreadManager {
 impl ThreadManager {
     pub fn new() -> Self {
         let scheduler_thread: *mut Thread = ckalloc(
-            core::mem::size_of::<Thread>(),
-            SourceLocation {
-                file: "threads.rs",
-                func: "new",
-                lineno: 0
-            }
+            core::mem::size_of::<Thread>()
         ) as *mut Thread;
         unsafe { (*scheduler_thread).tid = 0; }
         
@@ -113,12 +108,7 @@ impl ThreadManager {
     
     pub fn thread_fork(&mut self, function_ptr: fn(), arguments: *const u32) {
         let new_thread: *mut Thread = ckalloc(
-            core::mem::size_of::<Thread>(),
-            SourceLocation {
-                file: "threads.rs",
-                func: "thread_fork",
-                lineno: 0
-            }
+            core::mem::size_of::<Thread>()
         ) as *mut Thread;
         
         unsafe {
@@ -177,12 +167,7 @@ pub extern "C" fn rpi_exit(exit_code: u32) {
 pub fn test_threads() {
     unsafe { 
         thread_manager = ckalloc(
-            core::mem::size_of::<ThreadManager>(),
-            SourceLocation {
-                file: "threads.rs",
-                func: "test_threads",
-                lineno: 0
-            }
+            core::mem::size_of::<ThreadManager>()
         ) as *mut ThreadManager;
         core::ptr::write(thread_manager, ThreadManager::new());
 

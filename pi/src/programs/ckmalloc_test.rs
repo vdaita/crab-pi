@@ -1,5 +1,4 @@
 use crate::ckalloc;
-use crate::ckalloc::SourceLocation;
 use crate::println;
 use core::mem::size_of;
 use core::ptr;
@@ -34,12 +33,7 @@ fn scrub_stack() {
 
 fn alloc_one(nbytes: usize) -> *mut u8 {
     let p = ckalloc::ckalloc(
-        nbytes,
-        SourceLocation {
-            file: "src/programs/ckmalloc_test.rs",
-            func: "alloc_one",
-            lineno: line!(),
-        },
+        nbytes
     );
     assert!(!p.is_null());
     p

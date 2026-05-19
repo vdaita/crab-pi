@@ -1,5 +1,28 @@
 use crate::arch::{prefetch_flush};
 
+pub unsafe fn enable_fiq_interrupts() {
+    let mut cpsr: u32;
+
+    core::arch::asm!(
+        "mrs {0}, cpsr",
+        "bic {0}, {0}, #(1 << 8)",
+        "msr cpsr_c, {0}",
+        lateout(reg) cpsr,
+        options(nomem, nostack)
+    );
+}
+
+pub unsafe fn disable_fiq_interrupts() {
+    let mut cpsr: u32;
+    core::arch::asm!(
+        "mrs {0}, cpsr",
+        "orr {0}, {0}, #(1 << 8)",
+        "msr cpsr_c, {0}",
+        lateout(reg) cpsr,
+        options(nomem, nostack)
+    );
+}
+
 unsafe fn get_sys_control() -> u32 {
     let mut r: u32;
     core::arch::asm!(

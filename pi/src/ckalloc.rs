@@ -8,7 +8,7 @@ use crate::kmalloc::{HEAP_CURR, HEAP_END};
 use crate::{kmalloc, println};
 use crate::start::{bss_start, bss_end, stack_init, data_start, data_end};
 
-const RZ_SENTINAL: u8 = 0x11;
+const RZ_SENTINAL: u8 = 1;
 const RZ_SIZE: usize = 128;
 
 #[derive(PartialEq, PartialOrd, Eq, Ord)]
@@ -40,19 +40,20 @@ pub struct SourceLocation {
 }
 
 #[repr(C)]
-struct CheckHeader {
+pub struct CheckHeader {
     next: *mut CheckHeader,
     nbytes_alloc: usize,
 
     state: CheckBlockState,
     block_id: u32,
     alloc_loc: SourceLocation,
-    
+
     refs_start: u32, // number of pointers to the start of the block
     refs_middle: u32, // number of pointers to the middle of the block
     mark: u16, // 0 initialize -> this basically is the visited variable
 
     redzone1: [u8; RZ_SIZE],
+    x: Align
 }
 
 static mut base: Header = Header { x: 0 };
@@ -66,10 +67,12 @@ pub fn kr_malloc(nbytes: usize) -> *mut u32 {
         let mut p: *mut Header;
         let mut prevp: *mut Header;
         let nunits: usize = ((nbytes + size_of::<Header>() - 1) / size_of::<Header>()) + 1;
+        let nbytes_rounded: usize = nunits * size_of::<Header>();
         
         prevp = freep;
         if(prevp.is_null()) {
             let base_ptr: *mut Header = addr_of_mut!(base);
+            println!("Setting to base pointer location: {:p}", base_ptr);
             prevp = base_ptr;
             freep = base_ptr;
             base.s.ptr = base_ptr;
@@ -91,15 +94,18 @@ pub fn kr_malloc(nbytes: usize) -> *mut u32 {
                 return (p.add(1).cast::<u32>());
             }
 
-            if p == freep {
-                p = kmalloc::kmalloc(nunits).cast::<Header>();
+            if p == freep { // if you reached the end of the linked list,  call kmalloc
+                p = kmalloc::kmalloc(nbytes_rounded).cast::<Header>();
+                println!("Creating / calling a new pointer: {:p} - {:p} (nunits={}, nbytes={})", p, p.byte_add(nbytes_rounded), nunits, nunits * size_of::<Header>());
                 if p.is_null() {
                     return core::ptr::null_mut();
                 }
+                return (p.add(1).cast::<u32>());
             }
         
+            // otherwise, just continue traversing through the linked list
             prevp = p;
-            p = (*p).s.ptr;
+            p = (*p).s.ptr; 
         }
     }
 }
@@ -161,7 +167,7 @@ pub fn kr_free(ap: *mut u8) {
 
 static mut ck_alloc_list: *mut CheckHeader = core::ptr::null_mut();
 
-fn ck_ptr_is_alloced(addr: *const u32) -> *mut CheckHeader {
+pub fn ck_ptr_is_alloced(addr: *const u32) -> *mut CheckHeader {
     unsafe {
         let mut h: *mut CheckHeader = ck_alloc_list;
         loop {
@@ -178,27 +184,31 @@ fn ck_ptr_is_alloced(addr: *const u32) -> *mut CheckHeader {
                 return h;
             }
 
+            println!("Checked block at header {:p}, next is: {:p}", h, (*h).next);
+
             h = (*h).next;
         }
         return core::ptr::null_mut();
     }
 } 
 
-pub fn ckalloc(nbytes: usize, l: SourceLocation) -> *mut u8 {
+pub fn ckalloc(nbytes: usize) -> *mut u8 {
+    println!("Ckalloc called with: {} bytes requested", nbytes);
     let ckheader_size = size_of::<CheckHeader>();
     unsafe {
         let mut buf = kr_malloc(nbytes + ckheader_size + RZ_SIZE);
         if (buf.is_null()) {
             panic!("kr_malloc returned null.");
         }
+        println!("Header pointer location: {:p}", buf);
 
         core::ptr::write_bytes(buf as *mut u8, 0u8, nbytes + ckheader_size);
         let mut header_ptr: *mut CheckHeader = buf as *mut CheckHeader;
         let mut header: &mut CheckHeader = &mut *header_ptr;
 
         header.nbytes_alloc = nbytes;
+        println!("setting value at {:p} to {} for nbytes ({})", &header.nbytes_alloc, nbytes, header.nbytes_alloc);
         header.state = CheckBlockState::ALLOCED;
-        header.alloc_loc = l;
         header.block_id = block_id;
         block_id = block_id + 1;
 
@@ -208,6 +218,7 @@ pub fn ckalloc(nbytes: usize, l: SourceLocation) -> *mut u8 {
         }
 
         ck_alloc_list = header_ptr;
+        println!("Setting ck_alloc_list at {:p} to header_ptr={:p}", core::ptr::addr_of!(ck_alloc_list), header_ptr);
 
         let data_start = header_ptr.add(1).cast::<u8>();
         assert!(data_start != core::ptr::null_mut());
@@ -220,6 +231,8 @@ pub fn ckalloc(nbytes: usize, l: SourceLocation) -> *mut u8 {
             rz2_ptr = rz2_ptr.add(1);
         }
 
+        // println!("Reading back the value set for nbytes_alloc: {}", header.nbytes_alloc);
+
         ck_check_redzone(header, "ckalloc");
 
         return data_start
@@ -229,6 +242,7 @@ pub fn ckalloc(nbytes: usize, l: SourceLocation) -> *mut u8 {
 pub fn ck_check_redzone(h: *mut CheckHeader, from: &str) {
     unsafe {
         // check the redzone start
+        println!("Redzone start range: {:p}->{:p}", h, h.byte_add(RZ_SIZE));
         for i in 0..RZ_SIZE {
             if (*h).redzone1[i] != RZ_SENTINAL {
                 panic!("Redzone (start) data has been modified at pointer={:p}, index={}, value={}, from={}!", core::ptr::addr_of_mut!((*h).redzone1[i]), i, ((*h).redzone1[i]), from);
@@ -236,10 +250,12 @@ pub fn ck_check_redzone(h: *mut CheckHeader, from: &str) {
         }
 
         // check the redzone end
-        let mut rz_curr_ptr = h.add(1).byte_add((*h).nbytes_alloc).cast::<u8>();
+        println!("nbytes: {}", (*h).nbytes_alloc);
+        let mut rz_curr_ptr = (h.add(1) as *mut u8).add((*h).nbytes_alloc);
+        println!("After ({:p}){} bytes, redzone end range: {:p}->{:p}", &((*h).nbytes_alloc), (*h).nbytes_alloc, rz_curr_ptr, rz_curr_ptr.byte_add(RZ_SIZE));
         for i in 0..RZ_SIZE {
             if (*rz_curr_ptr) != RZ_SENTINAL {
-                panic!("Redzone (end) data has been modified at pointer={:p}, index={}, value={}, from={}!", rz_curr_ptr, i, (*rz_curr_ptr), from);
+                panic!("Redzone (end) data has been modified at pointer={:p}, index={:#x}, value={:#x}, from={}!", rz_curr_ptr, i, (*rz_curr_ptr), from);
             }
             rz_curr_ptr = rz_curr_ptr.add(1);
         }
@@ -388,7 +404,7 @@ fn ck_sweep_free() -> usize {
 
         let mut curr_alloc = ck_alloc_list;
         while !curr_alloc.is_null() {
-            let next = (*curr_alloc).next;
+            let next: *mut CheckHeader = (*curr_alloc).next;
             if((*curr_alloc).refs_start == 0 && (*curr_alloc).refs_middle == 0) {
                 nfreed += 1;
                 nbytes_freed += (*curr_alloc).nbytes_alloc;

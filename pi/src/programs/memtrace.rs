@@ -5,6 +5,8 @@ use crate::println;
 use crate::os::interrupts::{move_table, INTERRUPT_TABLE_START, INTERRUPT_TABLE_END};
 use core::arch::asm;
 use crate::gpio;
+use crate::ckalloc;
+use crate::os;
 
 core::arch::global_asm!(r#"
 .globl _memtrace_interrupt_table
@@ -62,6 +64,16 @@ unsafe extern "C" {
     static MEMTRACE_TABLE_END: u8;
 }
 static mut TRACE_HANDLER_FN: Option<fn(u32, u32)> = None;
+pub fn trace_handler_ckalloc(lr: u32, address: u32) {
+    println!("Trace handler ckalloc: lr={:#x}, address={:#x}", lr, address);
+    let header: *const ckalloc::CheckHeader = ckalloc::ck_ptr_is_alloced(address as *const u32);
+    if (header.is_null()) {
+        println!("Error: address {:#x} is not alloced.", address);
+    } else {
+        println!("Success: address {:#x} is alloced,", address);
+    }
+}
+
 pub fn trace_handler_0(lr: u32, address: u32) {
     println!("Trace Handler 0: lr={:#x}, address={:#x}", lr, address);
 }
@@ -189,9 +201,11 @@ pub fn memtrace_init(data: *const u32, trace_handler: fn(u32, u32)) {
     virtmem::pin_mmu_sec(2, STACK_ADDR - ONE_MB, STACK_ADDR - ONE_MB, kern);
     virtmem::pin_mmu_sec(3, SECONDARY_STACK_ADDR - ONE_MB, SECONDARY_STACK_ADDR - ONE_MB, kern);
     unsafe {
-        virtmem::pin_mmu_sec(4, kmalloc::HEAP_CURR as u32, kmalloc::HEAP_CURR as u32, heap);
+        virtmem::pin_mmu_sec(4, (kmalloc::HEAP_CURR as u32) & 0xFF000000, (kmalloc::HEAP_CURR as u32) & 0xFF000000, heap);
     }
     virtmem::pin_mmu_switch(0, 0);
+    os::utils::disable_dcache();
+    virtmem::tlb_invalidate();
 
     unsafe {
         move_table(
@@ -207,7 +221,6 @@ pub fn memtrace_init(data: *const u32, trace_handler: fn(u32, u32)) {
 
 #[inline(never)]
 pub fn memtrace_trap_enable() {
-    virtmem::mmu_enable();
     println!("virtual memory enabled");
     unsafe {
         interrupts::enable_interrupts_asm();
@@ -223,22 +236,67 @@ pub fn memtrace_trap_enable() {
     println!("A bit (abort mask) = {}", (cpsr >> 8) & 1);
     println!("mode = {:#07b}", cpsr & 0x1f);
 
+    virtmem::mmu_enable();
+
     unsafe {
-        core::arch::asm!(
-            "mrs r0, cpsr",
-            "bic r0, r0, #(1 << 8)",  
-            "msr cpsr_c, r0",
-            options(nomem, nostack)
-        );
+        os::utils::enable_fiq_interrupts();
     }
 }
 
 #[inline(never)]
 pub fn memtrace_trap_disable() {
     virtmem::mmu_disable();
-    unsafe { interrupts::disable_interrupts_asm(); }
-
+    unsafe { 
+        interrupts::disable_interrupts_asm(); 
+        os::utils::disable_fiq_interrupts();
+    }
     println!("ran trap disable");
+}
+
+pub fn test_memtrace_with_ckalloc() {
+    unsafe {
+        gpio::set_output(27);
+
+        memtrace_init(0 as *const u32, trace_handler_ckalloc);
+        println!("Heap address: {:p}", kmalloc::HEAP_CURR as *const u32);
+
+        let space = ckalloc::ckalloc(8) as *mut u32;
+        println!("heap ptr = {:p}", space);
+
+        memtrace_trap_enable();
+        space.write_volatile(0xdeadbeef);
+        let val = space.read_volatile();
+        space.write_volatile(space.read_volatile() + 1);
+        space.write_volatile(space.read_volatile() + 2);
+        space.write_volatile(space.read_volatile() + 3);
+        memtrace_trap_disable();
+
+        println!("read back: 0x{:08x}", val);
+        println!("first test completed");
+
+        // memtrace_init(0 as *const u32, trace_handler_ckalloc);
+        let space2 = ckalloc::ckalloc(4 * 32) as *mut u32;
+        memtrace_trap_enable();
+        for i in 0..32 {
+            *space2.add(i) = i as u32;
+        }
+        for i in 0..32 {
+            println!("verifying: value @ i={} is {}", i, *space2.add(i));
+        }
+        memtrace_trap_disable();
+        println!("second test completed");
+
+        // memtrace_init(0 as *const u32, trace_handler_ckalloc);
+        let space3 = ckalloc::ckalloc(4 * 32) as *mut u32;
+        memtrace_trap_enable();
+        for i in 0..32 {
+            *space3.add(i) = i as u32;
+        }
+        let x = *(space3.sub(4));
+        println!("The above should show an invalid access: {}", x);
+        memtrace_trap_disable();
+        println!("failing test completed");
+    }
 }
 
 pub fn test_memtrace() {

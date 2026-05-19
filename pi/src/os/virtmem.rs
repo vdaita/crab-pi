@@ -71,7 +71,7 @@ pub struct Pin {
     mem_attr: MemAttr
 }
 
-
+#[inline(never)]
 pub fn make_global_pin(dom: u32, ap_perm: MemPerm, mem_attr: MemAttr) -> Pin {
     Pin {
         G: 1,
@@ -83,6 +83,7 @@ pub fn make_global_pin(dom: u32, ap_perm: MemPerm, mem_attr: MemAttr) -> Pin {
     }
 }
 
+#[inline(never)]
 pub fn make_global_pin_16mb(dom: u32, ap_perm: MemPerm, mem_attr: MemAttr) -> Pin {
     Pin {
         G: 1,
@@ -94,6 +95,7 @@ pub fn make_global_pin_16mb(dom: u32, ap_perm: MemPerm, mem_attr: MemAttr) -> Pi
     }
 }
 
+#[inline(never)]
 pub fn make_user_pin(dom: u32, asid: u32, ap_perm: MemPerm, mem_attr: MemAttr) -> Pin {
     Pin {
         G: 0,
@@ -105,6 +107,7 @@ pub fn make_user_pin(dom: u32, asid: u32, ap_perm: MemPerm, mem_attr: MemAttr) -
     }
 }
 
+#[inline(never)]
 pub fn make_user_pin_16mb(dom: u32, asid: u32, ap_perm: MemPerm, mem_attr: MemAttr) -> Pin {
     Pin {
         G: 0,
@@ -116,6 +119,7 @@ pub fn make_user_pin_16mb(dom: u32, asid: u32, ap_perm: MemPerm, mem_attr: MemAt
     }
 }
 
+#[inline(never)]
 pub fn mmu_reset() {
     unsafe {
         asm!(
@@ -156,6 +160,7 @@ pub fn mmu_reset() {
     }
 }
 
+#[inline(never)]
 pub fn mmu_enable() {
     unsafe {
         asm!(
@@ -218,6 +223,7 @@ pub fn mmu_enable() {
     }
 }
 
+#[inline(never)]
 pub fn mmu_disable() {
     unsafe {
         asm!(
@@ -258,6 +264,7 @@ pub fn mmu_disable() {
     }
 }
 
+#[inline(never)]
 pub fn pin_mmu_sec(idx: u32, va: u32, pa: u32, e: Pin) {
     println!("about to map 0x{:0x} -> 0x{:0x} at index {}", va, pa, idx);
     cpsr_int_disable();
@@ -296,6 +303,7 @@ pub fn pin_mmu_sec(idx: u32, va: u32, pa: u32, e: Pin) {
     cpsr_int_enable();
 }
 
+#[inline(never)]
 pub fn mmu_is_enabled() -> bool {
     let ctrl: u32;
     unsafe {
@@ -308,6 +316,7 @@ pub fn mmu_is_enabled() -> bool {
     (ctrl & 1) != 0
 }
 
+#[inline(never)]
 pub fn set_domain_access(mask: u32) {
     unsafe {
         asm!(
@@ -318,11 +327,13 @@ pub fn set_domain_access(mask: u32) {
     }
 }
 
+#[inline(never)]
 pub fn pin_mmu_init(domain_mask: u32) {
     mmu_reset();
     set_domain_access(domain_mask);
 }
 
+#[inline(never)]
 pub fn pin_mmu_switch(pid: u32, asid: u32) {
     let ctx = (pid << 8) | (asid & 0xff);
     unsafe {
@@ -334,6 +345,7 @@ pub fn pin_mmu_switch(pid: u32, asid: u32) {
     }
 }
 
+#[inline(never)]
  pub fn tlb_invalidate() {
     unsafe { core::arch::asm!(
             "mcr p15, 0, {zero}, c8, c7, 0",

@@ -234,6 +234,8 @@ impl ElfLoader {
                 (*program_header_ptr).p_filesz as usize,
             );
 
+            println!("Finished copying.");
+
             // Zero BSS (uninitialized data)
             let bss_start = (paddr as *mut u8).add((*program_header_ptr).p_filesz as usize);
             let bss_size = (*program_header_ptr).p_memsz - (*program_header_ptr).p_filesz;
@@ -304,10 +306,7 @@ impl ElfLoader {
         let user_stack_base = 0x0900_0000 - 128 * 4;
 
         // map the stack pointers
-        const regular_stack_pointer: u32 = 0x0800_0000; // i guess the assumption here is that there will already be things loaded onto the stack when the MMU is enabled?
-        const interrupt_stack_pointer: u32 = 0x0880_0000;
         self.pin_next(0x0800_0000 - 16 * ONE_MB, 0x0800_0000 - 16 * ONE_MB, kern);
-        // self.pin_next(interrupt_stack_pointer - 16 * ONE_MB, interrupt_stack_pointer - 16 * ONE_MB, kern);
         self.pin_next(0x0900_0000 - 16 * ONE_MB, 0x0900_0000 - 16 * ONE_MB, kern); // or that it will be covered by this?
 
         let kuser_helpers_pa = kmalloc::kmalloc_aligned(16 * ONE_MB as usize, 16 * ONE_MB as usize); // allocate a page
