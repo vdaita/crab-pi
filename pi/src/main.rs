@@ -40,6 +40,7 @@ mod programs {
     pub mod imu;
     pub mod lightstrip;
     pub mod memtrace;
+    pub mod stepper_motor;
 }
 mod os {
     pub mod interrupts;
@@ -79,7 +80,8 @@ pub fn main() {
     uart::init();
     println!("Hello from Rust on the Pi!");
 
-    memtrace::test_memtrace_with_ckalloc();
+    programs::stepper_motor::run_stepper_motor();
+    // memtrace::test_memtrace_with_ckalloc();
     // memtrace::test_memtrace();
     // lightstrip::basic_run();
     // lightstrip::use_imu_to_color();

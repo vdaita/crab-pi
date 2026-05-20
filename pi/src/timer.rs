@@ -26,12 +26,14 @@ impl Timer {
     }
 
     /// Delay in microseconds
+    #[inline(never)]
     pub fn delay_us(us: u32) {
         let start = Self::get_usec();
         while Self::get_usec().wrapping_sub(start) < us {}
     }
 
     /// Delay in milliseconds
+    #[inline(never)]
     pub fn delay_ms(ms: u32) {
         Self::delay_us(ms.wrapping_mul(1000));
     }

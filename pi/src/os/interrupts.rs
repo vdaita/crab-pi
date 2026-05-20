@@ -167,35 +167,35 @@ switch_to_super_mode:
 );
 
 
-const IRQ_BASE: usize = 0x2000_b200;
-const IRQ_BASIC_PENDING: usize = IRQ_BASE + 0x00; // 0x200
-const IRQ_PENDING_1: usize = IRQ_BASE + 0x04; // 0x204
-const IRQ_PENDING_2: usize = IRQ_BASE + 0x08; // 0x208
-const IRQ_FIQ_CONTROL: usize = IRQ_BASE + 0x0c; // 0x20c
-const IRQ_ENABLE_1: usize = IRQ_BASE + 0x10; // 0x210
-const IRQ_ENABLE_2: usize = IRQ_BASE + 0x14; // 0x214
-const IRQ_ENABLE_BASIC: usize = IRQ_BASE + 0x18; // 0x218
-const IRQ_DISABLE_1: usize = IRQ_BASE + 0x1c; // 0x21c
-const IRQ_DISABLE_2: usize = IRQ_BASE + 0x20; // 0x220
-const IRQ_DISABLE_BASIC: usize = IRQ_BASE + 0x24; // 0x224
+pub const IRQ_BASE: usize = 0x2000_b200;
+pub const IRQ_BASIC_PENDING: usize = IRQ_BASE + 0x00; // 0x200
+pub const IRQ_PENDING_1: usize = IRQ_BASE + 0x04; // 0x204
+pub const IRQ_PENDING_2: usize = IRQ_BASE + 0x08; // 0x208
+pub const IRQ_FIQ_CONTROL: usize = IRQ_BASE + 0x0c; // 0x20c
+pub const IRQ_ENABLE_1: usize = IRQ_BASE + 0x10; // 0x210
+pub const IRQ_ENABLE_2: usize = IRQ_BASE + 0x14; // 0x214
+pub const IRQ_ENABLE_BASIC: usize = IRQ_BASE + 0x18; // 0x218
+pub const IRQ_DISABLE_1: usize = IRQ_BASE + 0x1c; // 0x21c
+pub const IRQ_DISABLE_2: usize = IRQ_BASE + 0x20; // 0x220
+pub const IRQ_DISABLE_BASIC: usize = IRQ_BASE + 0x24; // 0x224
 
-const ARM_TIMER_BASE: usize = 0x2000_b400;
-const ARM_TIMER_LOAD: usize = ARM_TIMER_BASE + 0x00; // p196
-const ARM_TIMER_VALUE: usize = ARM_TIMER_BASE + 0x04; // read-only
-const ARM_TIMER_CONTROL: usize = ARM_TIMER_BASE + 0x08;
+pub const ARM_TIMER_BASE: usize = 0x2000_b400;
+pub const ARM_TIMER_LOAD: usize = ARM_TIMER_BASE + 0x00; // p196
+pub const ARM_TIMER_VALUE: usize = ARM_TIMER_BASE + 0x04; // read-only
+pub const ARM_TIMER_CONTROL: usize = ARM_TIMER_BASE + 0x08;
 
-const ARM_TIMER_IRQ_CLEAR: usize = ARM_TIMER_BASE + 0x0c;
+pub const ARM_TIMER_IRQ_CLEAR: usize = ARM_TIMER_BASE + 0x0c;
 
 // Errata for p198:
 // neither are register 0x40c raw is 0x410, masked is 0x414
-const ARM_TIMER_IRQ_RAW: usize = ARM_TIMER_BASE + 0x10;
-const ARM_TIMER_IRQ_MASKED: usize = ARM_TIMER_BASE + 0x14;
+pub const ARM_TIMER_IRQ_RAW: usize = ARM_TIMER_BASE + 0x10;
+pub const ARM_TIMER_IRQ_MASKED: usize = ARM_TIMER_BASE + 0x14;
 
-const ARM_TIMER_RELOAD: usize = ARM_TIMER_BASE + 0x18;
-const ARM_TIMER_PREDIV: usize = ARM_TIMER_BASE + 0x1c;
-const ARM_TIMER_COUNTER: usize = ARM_TIMER_BASE + 0x20;
+pub const ARM_TIMER_RELOAD: usize = ARM_TIMER_BASE + 0x18;
+pub const ARM_TIMER_PREDIV: usize = ARM_TIMER_BASE + 0x1c;
+pub const ARM_TIMER_COUNTER: usize = ARM_TIMER_BASE + 0x20;
 
-const ARM_TIMER_IRQ: u32 = (1 << 0); // timer interrupt number
+pub const ARM_TIMER_IRQ: u32 = (1 << 0); // timer interrupt number
 
 const PARTHIV_PIN: u32 = 27;
 pub const CPSR_USER_MODE: u32 = 0b10000;
