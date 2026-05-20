@@ -80,7 +80,7 @@ pub fn main() {
     uart::init();
     println!("Hello from Rust on the Pi!");
 
-    programs::stepper_motor::run_stepper_motor();
+    // programs::stepper_motor::run_stepper_motor();
     // memtrace::test_memtrace_with_ckalloc();
     // memtrace::test_memtrace();
     // lightstrip::basic_run();
@@ -89,7 +89,7 @@ pub fn main() {
     // profiler::test_profiler();
     // fat32::pi_sd_init();
     // programs::fat32_test::fat32_test();
-    // os::elf_loader::test_elf_loader();
+    os::elf_loader::test_elf_loader();
     // os::threads::test_threads();
     // programs::imu::imu_test();
     // os::interrupts::test_interrupts();

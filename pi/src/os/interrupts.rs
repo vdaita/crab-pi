@@ -450,7 +450,13 @@ pub extern "C" fn software_interrupt_vector(frame: *mut SoftwareInterruptFrame, 
                     let len  = unsafe { core::ptr::read_volatile(iov.add(i * 2 + 1)) } as usize;
                     if !base.is_null() && len > 0 {
                         let bytes = unsafe { core::slice::from_raw_parts(base, len) };
+                        if (fd == 1 || fd == 2){
+                            crate::uart::write_bytes("[prog]".as_bytes());
+                        }
                         crate::uart::write_bytes(bytes);
+                        if (fd == 1 || fd == 2){
+                            crate::uart::write_bytes("[/prog]".as_bytes());
+                        }
                         total = total.wrapping_add(len as u32);
                     }
                 }

@@ -3,24 +3,20 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use indicatif::{ProgressBar, ProgressStyle};
 use ratatui::{
     backend::CrosstermBackend,
-    style::{Color, Modifier, Style},
     layout::{Constraint, Direction, Layout},
-    text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, Paragraph},
-    Frame,
+    widgets::{Block, Borders, Paragraph},
     Terminal,
 };
 use serialport::SerialPort;
 use std::fs;
 use std::io::{self, Read, Write};
-use std::sync::{Arc, Mutex};
 use std::process::Command;
+use std::sync::mpsc::{self, Sender};
 use std::thread;
 use std::time::Duration;
-use indicatif::{ProgressBar, ProgressStyle};
-use regex;
 
 const ARMBASE: u32 = 0x0000_8000;
 const GET_PROG_INFO: u32 = 0x11112222;
@@ -29,12 +25,198 @@ const GET_CODE: u32 = 0x55556666;
 const PUT_CODE: u32 = 0x77778888;
 const BOOT_SUCCESS: u32 = 0x9999aaaa;
 const BOOT_ERROR: u32 = 0xbbbbcccc;
-const PRINT_STRING: u32 = 0xddddeeee;
 
-#[derive(Clone)]
+const PROG_OPEN: &str = "[prog]";
+const PROG_CLOSE: &str = "[/prog]";
+
+enum UiEvent {
+    Serial(String),
+    Stdin(String),
+    SerialClosed,
+}
+
+#[derive(Default)]
+struct SerialSplitState {
+    in_prog: bool,
+    pending: String,
+}
+
+#[derive(Default)]
 struct App {
     left: String,
     right: String,
+    split: SerialSplitState,
+    done: bool,
+}
+
+impl SerialSplitState {
+    fn consume(&mut self, chunk: &str, left: &mut String, right: &mut String) {
+        for ch in chunk.chars() {
+            self.feed_char(ch, left, right);
+        }
+    }
+
+    fn feed_char(&mut self, ch: char, left: &mut String, right: &mut String) {
+        if self.pending.is_empty() {
+            if ch == '[' {
+                self.pending.push(ch);
+            } else {
+                Self::push_current(self.in_prog, left, right, ch);
+            }
+            return;
+        }
+
+        self.pending.push(ch);
+
+        loop {
+            if self.pending == PROG_OPEN {
+                self.pending.clear();
+                self.in_prog = true;
+                return;
+            }
+
+            if self.pending == PROG_CLOSE {
+                self.pending.clear();
+                self.in_prog = false;
+                return;
+            }
+
+            if PROG_OPEN.starts_with(&self.pending) || PROG_CLOSE.starts_with(&self.pending) {
+                return;
+            }
+
+            let first = self.pending.remove(0);
+            Self::push_current(self.in_prog, left, right, first);
+
+            if self.pending.is_empty() {
+                return;
+            }
+        }
+    }
+
+    fn flush_pending(&mut self, left: &mut String, right: &mut String) {
+        for ch in self.pending.drain(..) {
+            Self::push_current(self.in_prog, left, right, ch);
+        }
+    }
+
+    fn push_current(in_prog: bool, left: &mut String, right: &mut String, ch: char) {
+        if in_prog {
+            right.push(ch);
+        } else {
+            left.push(ch);
+        }
+    }
+}
+
+impl App {
+    fn push_serial(&mut self, chunk: &str) {
+        self.split.consume(chunk, &mut self.left, &mut self.right);
+        self.done = self.left.contains("DONE!!!");
+    }
+
+    fn push_stdin(&mut self, input: &str) {
+        // self.right.push_str("[stdin] ");
+        self.right.push_str(input);
+
+        self.left.push_str("[stdin] ");
+        self.left.push_str(input);
+        if !input.ends_with('\n') {
+            self.left.push('\n');
+        }
+    }
+
+    fn finish(&mut self) {
+        self.split.flush_pending(&mut self.left, &mut self.right);
+    }
+}
+
+fn tail_lines(text: &str, max_lines: usize) -> String {
+    if max_lines == 0 {
+        return String::new();
+    }
+
+    let mut lines: Vec<&str> = text.lines().collect();
+    if lines.len() > max_lines {
+        lines = lines.split_off(lines.len() - max_lines);
+    }
+    lines.join("\n")
+}
+
+fn draw_ui(frame: &mut ratatui::Frame<'_>, app: &App) {
+    let chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(frame.size());
+
+    let left_inner_height = chunks[0].height.saturating_sub(2) as usize;
+    let right_inner_height = chunks[1].height.saturating_sub(2) as usize;
+    let left_text = tail_lines(&app.left, left_inner_height);
+    let right_text = tail_lines(&app.right, right_inner_height);
+
+    let left = Paragraph::new(left_text).block(Block::default().borders(Borders::ALL).title("stdout"));
+    let right = Paragraph::new(right_text).block(Block::default().borders(Borders::ALL).title("stdin + prog"));
+
+    frame.render_widget(left, chunks[0]);
+    frame.render_widget(right, chunks[1]);
+}
+
+fn spawn_stdin_thread(mut port: Box<dyn SerialPort>, tx: Sender<UiEvent>) {
+    thread::spawn(move || {
+        let mut buf = [0u8; 256];
+
+        loop {
+            let n = match io::stdin().read(&mut buf) {
+                Ok(0) => return,
+                Ok(n) => n,
+                Err(e) => {
+                    eprintln!("[stdin] read error: {e}");
+                    return;
+                }
+            };
+
+            let mut outbound = buf[..n].to_vec();
+            for byte in &mut outbound {
+                if *byte == b'\r' {
+                    *byte = b'\n';
+                }
+            }
+
+            if let Err(e) = write_exact(&mut *port, &outbound, false) {
+                eprintln!("[stdin] write error: {e}");
+                return;
+            }
+
+            let text = String::from_utf8_lossy(&outbound).into_owned();
+            if tx.send(UiEvent::Stdin(text)).is_err() {
+                return;
+            }
+        }
+    });
+}
+
+fn spawn_serial_thread(mut port: Box<dyn SerialPort>, tx: Sender<UiEvent>) {
+    thread::spawn(move || {
+        let mut buf = [0u8; 1024];
+
+        loop {
+            match port.read(&mut buf) {
+                Ok(0) => continue,
+                Ok(n) => {
+                    let text = String::from_utf8_lossy(&buf[..n]).into_owned();
+                    if tx.send(UiEvent::Serial(text)).is_err() {
+                        return;
+                    }
+                }
+                Err(ref e) if matches!(e.kind(), io::ErrorKind::TimedOut | io::ErrorKind::Interrupted) => continue,
+                Err(e) => {
+                    eprintln!("[serial] read error: {e}");
+                    let _ = tx.send(UiEvent::SerialClosed);
+                    return;
+                }
+            }
+        }
+    });
 }
 
 fn write_exact(port: &mut dyn SerialPort, mut buf: &[u8], show_progress: bool) -> io::Result<()> {
@@ -83,72 +265,6 @@ fn put_u32(port: &mut dyn SerialPort, v: u32) -> io::Result<()> {
     write_exact(port, &v.to_le_bytes(), false)
 }
 
-fn draw(frame: &mut Frame, app: &App) {
-    let panes = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-        .split(frame.size());
-    
-    let left_h = panes[0].height.saturating_sub(2) as usize;
-    let left_text: Vec<Line> = app.left.lines()
-        .collect::<Vec<_>>()
-        .iter()
-        .rev().take(left_h).rev()
-        .map(|l| Line::from(*l))
-        .collect();
- 
-    frame.render_widget(
-        Paragraph::new(left_text).block(Block::default().title(" output ").borders(Borders::ALL)),
-        panes[0],
-    );
-
-    let right_h = panes[1].height.saturating_sub(2) as usize;
-    let right_text: Vec<Line> = app.right.lines()
-        .collect::<Vec<_>>()
-        .iter()
-        .rev().take(right_h).rev()
-        .map(|l| Line::from(*l))
-        .collect();
- 
-    frame.render_widget(
-        Paragraph::new(right_text).block(Block::default().title(" program ").borders(Borders::ALL)),
-        panes[1],
-    );
-}
-
-fn print_left(text: &str, app_arc: &Arc<Mutex<App>>, terminal: &mut Terminal<CrosstermBackend<io::Stdout>>)
-    -> io::Result<()>
-{
-    {
-        let mut a = app_arc.lock().unwrap();
-        a.left.push_str(text);
-    }
-
-    // snapshot for drawing to avoid holding the lock while rendering
-    let snapshot = {
-        let a = app_arc.lock().unwrap();
-        a.clone()
-    };
-    terminal.draw(|f| draw(f, &snapshot))?;
-    Ok(())
-}
-
-fn print_right(text: &str, app_arc: &Arc<Mutex<App>>, terminal: &mut Terminal<CrosstermBackend<io::Stdout>>)
-    -> io::Result<()>
-{
-    {
-        let mut a = app_arc.lock().unwrap();
-        a.right.push_str(text);
-    }
-
-    let snapshot = {
-        let a = app_arc.lock().unwrap();
-        a.clone()
-    };
-    terminal.draw(|f| draw(f, &snapshot))?;
-    Ok(())
-}
-
 fn main() -> io::Result<()> {
     let status = Command::new("cargo").current_dir("../pi").args(["build", "--release"]).status()?;
     if !status.success() { return Err(io::Error::new(io::ErrorKind::Other, "cargo build failed")); }
@@ -180,7 +296,7 @@ fn main() -> io::Result<()> {
 
     let mut status = get_u32(&mut *port)?;
     while status != GET_PROG_INFO { 
-        eprintln!("Found {status:08x} instead of GET_PROG_INFO({GET_PROG_INFO:08x}");
+        eprintln!("Found {status:08x} instead of GET_PROG_INFO({GET_PROG_INFO:08x})");
         status = get_u32(&mut *port)?;
     }
 
@@ -199,91 +315,50 @@ fn main() -> io::Result<()> {
     }
 
     enable_raw_mode().map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-    let mut app = Arc::new(Mutex::new(App {
-        left: "".to_string(),
-        right: "".to_string()
-    }));
+
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
-    let mut terminal = Terminal::new(CrosstermBackend::new(stdout))?;
+    execute!(stdout, EnterAlternateScreen).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+    terminal.clear().map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 
-    
-    let mut input_port = port.try_clone().map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-    let app_user_inputs = Arc::clone(&app);
-    thread::spawn(move || -> io::Result<()> {
-        let mut buf = [0u8; 256];
+    let result = (|| -> io::Result<()> {
+        let (tx, rx) = mpsc::channel();
+        let input_port = port.try_clone().map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+        spawn_stdin_thread(input_port, tx.clone());
+        spawn_serial_thread(port, tx);
+
+        let mut app = App::default();
+        terminal
+            .draw(|frame| draw_ui(frame, &app))
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+
         loop {
-            let n = io::stdin().read(&mut buf)?;
-            if n == 0 { return Ok(()); }
-
-            // append stdin text to right buffer (no terminal redraw from this thread)
-            let s = std::str::from_utf8(&buf[..n]).unwrap_or("<non-utf8>");
-            {
-                let mut a = app_user_inputs.lock().unwrap();
-                a.right.push_str("[stdin] ");
-                a.right.push_str(s);
+            match rx.recv() {
+                Ok(UiEvent::Serial(chunk)) => app.push_serial(&chunk),
+                Ok(UiEvent::Stdin(chunk)) => app.push_stdin(&chunk),
+                Ok(UiEvent::SerialClosed) | Err(_) => break,
             }
 
-            for b in &mut buf[..n] {
-                if *b == b'\r' { *b = b'\n'; }
-            }
-            write_exact(&mut *input_port, &buf[..n], false)?;
-        }
-    });
+            terminal
+                .draw(|frame| draw_ui(frame, &app))
+                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 
-    let mut out = io::stdout();
-    let mut received: Vec<u8> = Vec::new();
-    let mut last_prog_end: usize = 0;
-
-    let re = regex::Regex::new(r"(?s)<prog>(.*?)</prog>").unwrap();
-    let app_pi_inputs = Arc::clone(&app);
-    loop {
-        let mut buf = [0u8; 256];
-        match port.read(&mut buf) {
-            Ok(0) => continue,
-            Err(ref e) if matches!(e.kind(), io::ErrorKind::TimedOut | io::ErrorKind::Interrupted) => continue,
-            Err(e) => { disable_raw_mode().ok(); return Err(e); }
-            Ok(n) => {
-                for &b in &buf[..n] {
-                    if b == b'\n' { out.write_all(b"\r\n")?; }
-                    else { out.write_all(&[b])?; }
-                }
-                out.flush()?;
-                received.extend_from_slice(&buf[..n]);
-
-                // print all the content out on the left (so &buf[..n] goes on the left)
-
-                // split read: route non-<prog> text to left, inner <prog> content to right
-                let text = std::str::from_utf8(&received).unwrap_or("");
-                // iterate matches and route spans
-                let mut last = 0usize;
-                for m in re.find_iter(text) {
-                    let start = m.start();
-                    let end = m.end();
-                    if start > last {
-                        let span = &text[last..start];
-                        print_left(span, &app_pi_inputs, &mut terminal)?;
-                    }
-                    if let Some(caps) = re.captures(&text[start..end]) {
-                        if let Some(inner) = caps.get(1) {
-                            print_right(inner.as_str(), &app_pi_inputs, &mut terminal)?;
-                        }
-                    }
-                    last = end;
-                }
-                if last < text.len() {
-                    let tail = &text[last..];
-                    print_left(tail, &app_pi_inputs, &mut terminal)?;
-                }
-                last_prog_end = received.len();
-
-                
-
-                if received.windows(7).any(|w| w == b"DONE!!!") {
-                    disable_raw_mode().ok();
-                    return Ok(());
-                }
+            if app.done {
+                break;
             }
         }
-    }
+
+        app.finish();
+        terminal
+            .draw(|frame| draw_ui(frame, &app))
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+        Ok(())
+    })();
+
+    disable_raw_mode().ok();
+    execute!(terminal.backend_mut(), LeaveAlternateScreen).ok();
+    terminal.show_cursor().ok();
+
+    result
 }
