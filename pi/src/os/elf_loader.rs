@@ -298,15 +298,16 @@ impl ElfLoader {
         let kern = virtmem::make_global_pin_16mb(DOM_KERN, user, virtmem::MemAttr::MEM_uncached);
 
         self.pin_next(0x2000_0000, 0x2000_0000, dev);
-        self.pin_next(0, 0, kern);
-        // self.pin_next(16 * ONE_MB, 16 * ONE_MB, kern);
-        self.pin_next(32 * ONE_MB, 32 * ONE_MB, kern); // you're not doing anything with this one 
+        self.pin_next(0x0, 0x0, kern);
+        self.pin_next(0x1000_0000, 0x1000_0000, kern);
+        self.pin_next(0x1000_0000 + 32 * ONE_MB, 0x1000_0000 + 32 * ONE_MB, kern);
+
         self.pin_next(48 * ONE_MB, 48 * ONE_MB, kern);
+        // self.pin_next(64 * ONE_MB, 64 * ONE_MB, kern);
 
         let user_stack_base = 0x0900_0000 - 128 * 4;
-
         // map the stack pointers
-        self.pin_next(0x0800_0000 - 16 * ONE_MB, 0x0800_0000 - 16 * ONE_MB, kern);
+        self.pin_next(0x1800_0000 - 16 * ONE_MB, 0x1800_0000 - 16 * ONE_MB, kern);
         self.pin_next(0x0900_0000 - 16 * ONE_MB, 0x0900_0000 - 16 * ONE_MB, kern); // or that it will be covered by this?
 
         let kuser_helpers_pa = kmalloc::kmalloc_aligned(16 * ONE_MB as usize, 16 * ONE_MB as usize); // allocate a page
@@ -315,19 +316,23 @@ impl ElfLoader {
 
         virtmem::pin_mmu_init(!0);
         virtmem::mmu_enable();
-        println!("MMU enabled");
+        // println!("MMU enabled");
 
         interrupts::switch_to_user_mode();
-        println!("Switched to user mode");
+        // println!("Switched to user mode");
 
         let argv0_bytes = b"sh\0";
         let argv0_heap = kmalloc::kmalloc(argv0_bytes.len()) as *mut u8;
+        // println!("Allocated heap for argv0_bytes: {:p}", argv0_heap);
         core::ptr::copy_nonoverlapping(argv0_bytes.as_ptr(), argv0_heap, argv0_bytes.len());
         let argv0_ptr = argv0_heap as u32;
-        println!("argv0 at: {:#x}", argv0_ptr);
+
+        // println!("Hello?");
 
         let stack_top = user_stack_base;
+        println!("About to write to address: {:#x}", stack_top);
         core::ptr::write_bytes((stack_top - 1024) as *mut u8, 0, 1024);
+        println!("User stack base just written to: {:#x}", stack_top);
 
         let mut sp = stack_top as *mut u32;
         let phdr_addr = elf_base + (*elf_header_ptr).e_phoff as u32;
@@ -354,6 +359,8 @@ impl ElfLoader {
             sp = sp.sub(1);
             *sp = 0;
         }
+
+        println!("Finished constructing stack");
 
         let mut context: ProgramContext = ProgramContext {
             user_stack: sp as u32,

@@ -18,13 +18,14 @@ use std::sync::mpsc::{self, Sender};
 use std::thread;
 use std::time::Duration;
 
-const ARMBASE: u32 = 0x0000_8000;
+const ARMBASE: u32 = 0x1000_8000;
 const GET_PROG_INFO: u32 = 0x11112222;
 const PUT_PROG_INFO: u32 = 0x33334444;
 const GET_CODE: u32 = 0x55556666;
 const PUT_CODE: u32 = 0x77778888;
 const BOOT_SUCCESS: u32 = 0x9999aaaa;
 const BOOT_ERROR: u32 = 0xbbbbcccc;
+const PRINT_STRING: u32 = 0xddddeeee;
 
 const PROG_OPEN: &str = "[prog]";
 const PROG_CLOSE: &str = "[/prog]";
@@ -265,6 +266,41 @@ fn put_u32(port: &mut dyn SerialPort, v: u32) -> io::Result<()> {
     write_exact(port, &v.to_le_bytes(), false)
 }
 
+fn handle_print_string(port: &mut dyn SerialPort) -> io::Result<()> {
+    let nbytes = get_u32(port)? as usize;
+    if nbytes == 0 {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "PRINT_STRING with zero bytes"));
+    }
+    if nbytes > 1024 {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "PRINT_STRING too long"));
+    }
+
+    let mut buf = vec![0u8; nbytes];
+    for byte in &mut buf {
+        *byte = get_u8(port)?;
+    }
+
+    if buf.last() == Some(&b'\n') {
+        buf.pop();
+    }
+
+    let mut out = io::stdout();
+    out.write_all(&buf)?;
+    out.flush()?;
+    Ok(())
+}
+
+fn read_boot_op(port: &mut dyn SerialPort) -> io::Result<u32> {
+    loop {
+        let op = get_u32(port)?;
+        if op != PRINT_STRING {
+            return Ok(op);
+        }
+
+        handle_print_string(port)?;
+    }
+}
+
 fn main() -> io::Result<()> {
     let status = Command::new("cargo").current_dir("../pi").args(["build", "--release"]).status()?;
     if !status.success() { return Err(io::Error::new(io::ErrorKind::Other, "cargo build failed")); }
@@ -294,21 +330,32 @@ fn main() -> io::Result<()> {
         .open()
         .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 
-    let mut status = get_u32(&mut *port)?;
+    eprintln!("[boot] opened port");
+
+    let mut status = read_boot_op(&mut *port)?;
+    
     while status != GET_PROG_INFO { 
-        eprintln!("Found {status:08x} instead of GET_PROG_INFO({GET_PROG_INFO:08x})");
-        status = get_u32(&mut *port)?;
+        eprintln!("[boot] found {status:08x} instead of GET_PROG_INFO({GET_PROG_INFO:08x})");
+        status = read_boot_op(&mut *port)?;
     }
+
+    eprintln!("[boot] writing program");
 
     put_u32(&mut *port, PUT_PROG_INFO)?;
     put_u32(&mut *port, ARMBASE)?;
     put_u32(&mut *port, prog.len() as u32)?;
     put_u32(&mut *port, crc)?;
-    while get_u32(&mut *port)? != GET_CODE {}
-    if get_u32(&mut *port)? != crc { return Err(io::Error::new(io::ErrorKind::InvalidData, "crc mismatch")); }
+
+    status = read_boot_op(&mut *port)?;
+    while status != GET_CODE {
+        eprintln!("[boot] found {status:08x} instead of GET_CODE({GET_CODE:08x})");
+        status = read_boot_op(&mut *port)?;
+    }
+    if read_boot_op(&mut *port)? != crc { return Err(io::Error::new(io::ErrorKind::InvalidData, "crc mismatch")); }
     put_u32(&mut *port, PUT_CODE)?;
     write_exact(&mut *port, &prog, true)?;
-    match get_u32(&mut *port)? {
+
+    match read_boot_op(&mut *port)? {
         BOOT_SUCCESS => eprintln!("[boot] success"),
         BOOT_ERROR => return Err(io::Error::new(io::ErrorKind::Other, "BOOT_ERROR")),
         v => return Err(io::Error::new(io::ErrorKind::InvalidData, format!("unexpected: {v:08x}"))),
