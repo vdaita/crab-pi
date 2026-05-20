@@ -298,11 +298,13 @@ impl ElfLoader {
         let kern = virtmem::make_global_pin_16mb(DOM_KERN, user, virtmem::MemAttr::MEM_uncached);
 
         self.pin_next(0x2000_0000, 0x2000_0000, dev);
+        
         self.pin_next(0x0, 0x0, kern);
+        self.pin_next(16 * ONE_MB, 16 * ONE_MB, kern);
+
         self.pin_next(0x1000_0000, 0x1000_0000, kern);
         self.pin_next(0x1000_0000 + 32 * ONE_MB, 0x1000_0000 + 32 * ONE_MB, kern);
 
-        self.pin_next(48 * ONE_MB, 48 * ONE_MB, kern);
         // self.pin_next(64 * ONE_MB, 64 * ONE_MB, kern);
 
         let user_stack_base = 0x0900_0000 - 128 * 4;
