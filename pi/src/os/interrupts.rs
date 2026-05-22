@@ -8,6 +8,7 @@ use crate::mem::{get32, put32};
 use crate::gpio;
 use crate::os::elf_loader;
 use crate::profiler;
+use crate::fat32::{self, fs_manager};
 
 global_asm!(r#"
 .globl _interrupt_table
@@ -37,9 +38,6 @@ _prefetch_abort_asm:          .word prefetch_abort_asm
 _data_abort_asm:              .word data_abort_asm
 _interrupt_asm:               .word interrupt_asm
 _interrupt_table_end:   @ end of the table.
-
-undefined_instruction_asm_user:
-    movs pc, lr
 
 undefined_instruction_asm:                      @ A2-19
     mov sp, 0x8800000
@@ -224,6 +222,7 @@ unsafe extern "C" {
     pub static INTERRUPT_TABLE_END: u8;
 }
 
+
 pub fn move_table(interrupt_table_start_addr: usize, interrupt_table_end_addr: usize) {
     let start: *const u32 = interrupt_table_start_addr as *const u32;
     let end: *const u32 = interrupt_table_end_addr as *const u32;
@@ -338,6 +337,8 @@ pub struct SoftwareInterruptFrame {
 
 const ENOSYS: u32 = (-38i32) as u32;
 const EINVAL: u32 = (-22i32) as u32;
+const ENOENT: u32 = (-2i32) as u32;
+const EACCES: u32 = (-13i32) as u32;
 const CURRENT_TID: u32 = 1;
 
 static mut PROGRAM_BREAK: u32 = 0;
@@ -368,6 +369,15 @@ unsafe fn exit_current_process() {
 }
 
 static mut count: u32 = 0;
+
+pub unsafe fn c_str_to_str(ptr: *const u8) -> &'static str {
+    let mut len = 0;
+    while *ptr.add(len) != 0 {
+        len += 1;
+    }
+    let bytes = core::slice::from_raw_parts(ptr, len);
+    core::str::from_utf8_unchecked(bytes)
+}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn software_interrupt_vector(frame: *mut SoftwareInterruptFrame, svc_lr: u32) -> u32 {
@@ -497,6 +507,29 @@ pub extern "C" fn software_interrupt_vector(frame: *mut SoftwareInterruptFrame, 
         },
         0x36 => 0,
         0x40 => 0,
+        0x18d => unsafe {
+            let _dirfd = frame.r0;
+            let pathname_bytes = frame.r1 as *mut u8;
+            let _flags = frame.r2;
+            let _mask = frame.r3;
+            let statx_out = frame.r4 as *mut fs_manager::Statx;
+
+            let mut filename_len = 0;
+            while *(pathname_bytes.add(filename_len)) != 0 && filename_len < 256 {
+                filename_len += 1;
+            }
+            let filename_slice = core::slice::from_raw_parts(pathname_bytes, filename_len);
+            let filename = core::str::from_utf8(filename_slice).unwrap_or("");
+
+            let fs_manager = fs_manager::get_fat32_manager();
+            let stat_ptr = fat32::fat32_stat(&(*fs_manager).fs, &(*fs_manager).root, filename);
+            if stat_ptr.is_null() {
+                ENOENT
+            } else {
+                (*statx_out) = (*fs_manager).get_file_stat(filename);
+                0
+            }
+        },
         _ => {
             println!("unknown SVC: {:#x}", nr);
             ENOSYS

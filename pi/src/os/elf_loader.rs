@@ -6,6 +6,7 @@ use crate::os::interrupts;
 use crate::{println, print};
 use crate::kmalloc;
 use crate::profiler;
+use crate::fat32::{get_fat32_manager};
 
 const ONE_MB: u32 = 1024 * 1024;
 const DOM_KERN: u32 = 1;
@@ -115,15 +116,6 @@ unsafe fn hexdump(ptr: *const u8, lines: u32) {
     }
 }
 
-unsafe fn copy_argv0(prog_name: &str) -> *const u8 {
-    let argv0 = unsafe { kmalloc::kmalloc(prog_name.len() + 1) };
-    unsafe {
-        core::ptr::copy_nonoverlapping(prog_name.as_ptr(), argv0, prog_name.len());
-        core::ptr::write(argv0.add(prog_name.len()), 0);
-    }
-    argv0
-}
-
 unsafe fn kuser_get_tls() -> u32 {
     let tls: u32;
     core::arch::asm!(
@@ -200,12 +192,9 @@ impl ElfLoader {
     }
 
     unsafe fn run(&mut self, prog_name: &str, arg1: u32, arg2: u32, arg3: u32, asid: u32) {
-        fat32::pi_sd_init();
-        let partition = fat32::first_fat32_partition_from_mbr().expect("valid first FAT32 partition");
-        let fs = fat32::fat32_mk(&partition);
-        let root = fat32::fat32_get_root(&fs);
+        let manager = get_fat32_manager();
+        let file = (*manager).read_file(prog_name);
 
-        let file: *mut pi_file_t = fat32::fat32_read(&fs, &root, prog_name);
         println!("File size from FAT32: {}", (*file).n_data);
         hexdump((*file).data, 8);
 

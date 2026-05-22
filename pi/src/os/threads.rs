@@ -76,6 +76,7 @@ impl ThreadManager {
                  self.running_queue.push(old_thread);
                  unsafe {
                     println!("switching from tid={} to tid={} \n", (*old_thread).tid, (*thread_ptr).tid);
+                    self.current_thread = thread_ptr;
                     context_switch(
                         core::ptr::addr_of_mut!((*old_thread).sp),
                         (*thread_ptr).sp
@@ -121,6 +122,8 @@ impl ThreadManager {
             (*new_thread).sp = core::ptr::addr_of_mut!(
                 (*new_thread).stack[MAX_STACK_SIZE - 9]
             ) as u32;
+
+            self.running_queue.push(new_thread);
             
             println!(
                 "thread fork: tid={}, code={:x}, arg={:x}, current sp={:x}, init_trampoline_ptr={:x}", 

@@ -10,7 +10,7 @@ pub fn fat32_test() {
     let partition = fat32::first_fat32_partition_from_mbr().expect("valid first FAT32 partition");
 
     println!("Loading the FAT.");
-    let fs = fat32::fat32_mk(&partition);
+    let fs: fat32::fat32_fs_t = fat32::fat32_mk(&partition);
 
     println!("Loading the root directory.");
     let root = fat32::fat32_get_root(&fs);

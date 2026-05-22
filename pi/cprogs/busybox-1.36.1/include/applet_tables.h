@@ -30,3 +30,8 @@ vi_main,
 };
 #endif
 
+const uint8_t applet_flags[] ALIGN1 = {
+0xa0,
+0x00,
+};
+

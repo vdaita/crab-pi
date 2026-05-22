@@ -147,7 +147,7 @@ fn tail_lines(text: &str, max_lines: usize) -> String {
 fn draw_ui(frame: &mut ratatui::Frame<'_>, app: &App) {
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .constraints([Constraint::Percentage(70), Constraint::Percentage(30)])
         .split(frame.size());
 
     let left_inner_height = chunks[0].height.saturating_sub(2) as usize;
