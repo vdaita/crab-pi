@@ -273,8 +273,25 @@ pub fn fat32_readdir(fs: &fat32_fs_t, dirent: &pi_dirent_t) -> pi_directory_t {
         count += 1;
     }
 
-    let out = unsafe { kmalloc::kmalloc_t::<pi_dirent_t>(count) };
-    let mut j = 0usize;
+    let extra = 2usize;
+    let out = unsafe { kmalloc::kmalloc_t::<pi_dirent_t>(count + extra) };
+    unsafe {
+        *out.add(0) = pi_dirent_t {
+            name: [b'.', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            raw_name: [b'.', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            cluster_id: dirent.cluster_id,
+            is_dir_p: 1,
+            nbytes: 0,
+        };
+        *out.add(1) = pi_dirent_t {
+            name: [b'.', b'.', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            raw_name: [b'.', b'.', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            cluster_id: dirent.cluster_id,
+            is_dir_p: 1,
+            nbytes: 0,
+        };
+    }
+    let mut j = extra;
     for i in 0..n_dirents as usize {
         let d = unsafe { &*dirents.add(i) };
         if fat32_dirent_free(d) || fat32_dirent_is_lfn(d) || (d.attr & FAT32_VOLUME_LABEL) != 0 {
@@ -288,7 +305,7 @@ pub fn fat32_readdir(fs: &fat32_fs_t, dirent: &pi_dirent_t) -> pi_directory_t {
 
     pi_directory_t {
         dirents: out,
-        ndirents: count,
+        ndirents: count + extra,
     }
 }
 
@@ -309,12 +326,28 @@ fn find_dirent_with_name(dirents: *const fat32_dirent_t, n: u32, filename: &str)
     -1
 }
 
+fn name_is_dot(filename: &str) -> bool {
+    filename.as_bytes() == b"."
+}
+
+fn name_is_dotdot(filename: &str) -> bool {
+    filename.as_bytes() == b".."
+}
+
 pub fn fat32_stat(fs: &fat32_fs_t, directory: &pi_dirent_t, filename: &str) -> *mut pi_dirent_t {
     demand(unsafe { INIT_P }, "fat32 not initialized!");
     demand(
         directory.is_dir_p != 0,
         "tried to use a file as a directory",
     );
+
+    if name_is_dot(filename) || name_is_dotdot(filename) {
+        let dirent = unsafe { kmalloc::kmalloc_t::<pi_dirent_t>(1) };
+        unsafe {
+            *dirent = *directory;
+        }
+        return dirent;
+    }
 
     let mut n_dirents = 0u32;
     let dirents = get_dirents(fs, directory.cluster_id, &mut n_dirents);

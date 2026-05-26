@@ -9,6 +9,10 @@ use crate::gpio;
 use crate::os::elf_loader;
 use crate::profiler;
 use crate::fat32::{self, fs_manager};
+use core::ffi::{CStr, c_char};
+use core::ptr::copy_nonoverlapping;
+use crate::os::threads::{get_thread_manager};
+use crate::kmalloc;
 
 global_asm!(r#"
 .globl _interrupt_table
@@ -344,6 +348,15 @@ const CURRENT_TID: u32 = 1;
 static mut PROGRAM_BREAK: u32 = 0;
 static mut THREAD_POINTER: u32 = 0;
 static mut CLEAR_CHILD_TID: u32 = 0;
+static mut DIR_FD: u32 = 3;
+static mut DIR_BUF: *mut u8 = core::ptr::null_mut();
+static mut DIR_BUF_LEN: usize = 0;
+static mut DIR_BUF_OFF: usize = 0;
+static mut DIR_IDX: usize = 0;
+
+const DT_DIR: u8 = 4;
+const DT_REG: u8 = 8;
+const DIRENT64_BASE: usize = 19;
 
 unsafe fn set_tls(tls: u32) {
     unsafe { THREAD_POINTER = tls };
@@ -368,7 +381,6 @@ unsafe fn exit_current_process() {
     unsafe { elf_loader::elf_loader_return(); }
 }
 
-static mut count: u32 = 0;
 
 pub unsafe fn c_str_to_str(ptr: *const u8) -> &'static str {
     let mut len = 0;
@@ -377,6 +389,119 @@ pub unsafe fn c_str_to_str(ptr: *const u8) -> &'static str {
     }
     let bytes = core::slice::from_raw_parts(ptr, len);
     core::str::from_utf8_unchecked(bytes)
+}
+
+fn normalize_path(path: &str) -> &str {
+    let mut out = path;
+    while out.starts_with("./") {
+        out = &out[2..];
+    }
+    if out.ends_with('/') && out.len() > 1 {
+        out = out.trim_end_matches('/');
+    }
+    if out.is_empty() {
+        "."
+    } else {
+        out
+    }
+}
+
+unsafe fn build_root_dir_listing() {
+    let fs_manager = fs_manager::get_fat32_manager();
+    let dir = fat32::fat32_readdir(&(*fs_manager).fs, &(*fs_manager).root);
+
+    let mut total = 0usize;
+    for i in 0..dir.ndirents {
+        let e = unsafe { &*dir.dirents.add(i) };
+        let mut len = 0usize;
+        while len < e.name.len() && e.name[len] != 0 {
+            len += 1;
+        }
+        total += len + 1;
+    }
+
+    let buf = if total == 0 {
+        core::ptr::null_mut()
+    } else {
+        kmalloc::kmalloc(total) as *mut u8
+    };
+
+    let mut off = 0usize;
+    for i in 0..dir.ndirents {
+        let e = unsafe { &*dir.dirents.add(i) };
+        let mut len = 0usize;
+        while len < e.name.len() && e.name[len] != 0 {
+            len += 1;
+        }
+        if len > 0 {
+            unsafe {
+                copy_nonoverlapping(e.name.as_ptr(), buf.add(off), len);
+            }
+            off += len;
+        }
+        if !buf.is_null() {
+            unsafe {
+                *buf.add(off) = b'\n';
+            }
+            off += 1;
+        }
+    }
+
+    unsafe {
+        DIR_BUF = buf;
+        DIR_BUF_LEN = total;
+        DIR_BUF_OFF = 0;
+    }
+}
+
+unsafe fn get_root_dirents64(buf_ptr: *mut u8, buf_len: usize) -> u32 {
+    if buf_ptr.is_null() || buf_len == 0 {
+        return EINVAL;
+    }
+
+    let fs_manager = fs_manager::get_fat32_manager();
+    let dir = fat32::fat32_readdir(&(*fs_manager).fs, &(*fs_manager).root);
+    let mut off = 0usize;
+
+    while DIR_IDX < dir.ndirents {
+        let e = unsafe { &*dir.dirents.add(DIR_IDX) };
+        let mut name_len = 0usize;
+        while name_len < e.name.len() && e.name[name_len] != 0 {
+            name_len += 1;
+        }
+
+        let base = DIRENT64_BASE;
+        let mut reclen = base + name_len + 1;
+        reclen = (reclen + 7) & !7;
+
+        if off + reclen > buf_len {
+            break;
+        }
+
+        unsafe {
+            let ino = (e.cluster_id as u64).to_le_bytes();
+            let off_bytes = ((DIR_IDX + 1) as i64).to_le_bytes();
+            let reclen_bytes = (reclen as u16).to_le_bytes();
+            copy_nonoverlapping(ino.as_ptr(), buf_ptr.add(off), ino.len());
+            copy_nonoverlapping(off_bytes.as_ptr(), buf_ptr.add(off + 8), off_bytes.len());
+            copy_nonoverlapping(reclen_bytes.as_ptr(), buf_ptr.add(off + 16), reclen_bytes.len());
+            *buf_ptr.add(off + 18) = if e.is_dir_p != 0 { DT_DIR } else { DT_REG };
+            if name_len > 0 {
+                copy_nonoverlapping(e.name.as_ptr(), buf_ptr.add(off + base), name_len);
+            }
+            *buf_ptr.add(off + base + name_len) = 0;
+            let pad_start = off + base + name_len + 1;
+            let pad_len = reclen - (base + name_len + 1);
+            if pad_len > 0 {
+                core::ptr::write_bytes(buf_ptr.add(pad_start), 0, pad_len);
+            }
+        }
+
+        off += reclen;
+        DIR_IDX += 1;
+    }
+
+    off as u32
 }
 
 #[unsafe(no_mangle)]
@@ -407,12 +532,31 @@ pub extern "C" fn software_interrupt_vector(frame: *mut SoftwareInterruptFrame, 
             unsafe { exit_current_process(); }
             0
         }
+        0x2 => {
+            0
+        }
         0x3 => {
             let fd = frame.r0;
             let buf_ptr = frame.r1 as *mut u8;
             let len = frame.r2 as usize;
             if fd != 0 {
-                EINVAL
+                unsafe {
+                    if fd == DIR_FD {
+                        if buf_ptr.is_null() {
+                            EINVAL
+                        } else if DIR_BUF.is_null() || DIR_BUF_OFF >= DIR_BUF_LEN {
+                            0
+                        } else {
+                            let remaining = DIR_BUF_LEN - DIR_BUF_OFF;
+                            let to_copy = if len < remaining { len } else { remaining };
+                            copy_nonoverlapping(DIR_BUF.add(DIR_BUF_OFF), buf_ptr, to_copy);
+                            DIR_BUF_OFF += to_copy;
+                            to_copy as u32
+                        }
+                    } else {
+                        EINVAL
+                    }
+                }
             } else if len == 0 {
                 0
             } else if buf_ptr.is_null() {
@@ -482,6 +626,23 @@ pub extern "C" fn software_interrupt_vector(frame: *mut SoftwareInterruptFrame, 
             ptr as u32
         },
         0x14 => 0,
+        0x5 => unsafe {
+            let pathname = frame.r0 as *const u8;
+            let _flags = frame.r1;
+            let _mode = frame.r2;
+            if pathname.is_null() {
+                EINVAL
+            } else {
+                let path = normalize_path(c_str_to_str(pathname));
+                if path == "." || path == "/" {
+                    build_root_dir_listing();
+                    DIR_IDX = 0;
+                    DIR_FD
+                } else {
+                    ENOENT
+                }
+            }
+        },
         0xf0005 => {
             unsafe { set_tls(frame.r0); }
             0
@@ -491,7 +652,22 @@ pub extern "C" fn software_interrupt_vector(frame: *mut SoftwareInterruptFrame, 
             unsafe { exit_current_process(); }
             0
         },
-        0xae => CURRENT_TID,
+        0xac => 0,
+        0xae => 0,
+        0xaf => 0,
+        0x6 => 0,
+        0x5b => 0,
+        0xd9 => unsafe {
+            let fd = frame.r0;
+            let dirp = frame.r1 as *mut u8;
+            let count = frame.r2 as usize;
+            if fd != DIR_FD {
+                EINVAL
+            } else {
+                get_root_dirents64(dirp, count)
+            }
+        },
+        0xdd => 0,
         0xc9 => {
             println!("exit_group called with code {}", frame.r0);
             0
@@ -520,6 +696,7 @@ pub extern "C" fn software_interrupt_vector(frame: *mut SoftwareInterruptFrame, 
             }
             let filename_slice = core::slice::from_raw_parts(pathname_bytes, filename_len);
             let filename = core::str::from_utf8(filename_slice).unwrap_or("");
+            let filename = normalize_path(filename);
 
             let fs_manager = fs_manager::get_fat32_manager();
             let stat_ptr = fat32::fat32_stat(&(*fs_manager).fs, &(*fs_manager).root, filename);

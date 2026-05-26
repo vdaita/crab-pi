@@ -107,7 +107,7 @@ impl ThreadManager {
         }
     }
     
-    pub fn thread_fork(&mut self, function_ptr: fn(), arguments: *const u32) {
+    pub fn thread_fork(&mut self, function_ptr: fn(), arguments: *const u32) -> u32 {
         let new_thread: *mut Thread = ckalloc(
             core::mem::size_of::<Thread>()
         ) as *mut Thread;
@@ -129,8 +129,34 @@ impl ThreadManager {
                 "thread fork: tid={}, code={:x}, arg={:x}, current sp={:x}, init_trampoline_ptr={:x}", 
                 self.tid_counter, function_ptr as u32, arguments as u32, (*new_thread).sp, (*new_thread).stack[MAX_STACK_SIZE - 9 + 8]
             );
+            
+            (*new_thread).tid
         }
-        
+    }
+
+    pub fn os_fork(&mut self) -> u32 {
+        unsafe {
+            let child_thread: *mut Thread = ckalloc(
+                core::mem::size_of::<Thread>()
+            ) as *mut Thread;
+            let parent_thread = self.current_thread;
+
+            (*child_thread).tid = self.tid_counter;
+            self.tid_counter += 1;
+
+            (*child_thread).stack.copy_from_slice(&(*parent_thread).stack);
+            let parent_sp = (*parent_thread).sp;
+            let parent_stack_base = core::ptr::addr_of!((*parent_thread).stack) as u32;
+            let sp_offset = parent_sp.wrapping_sub(parent_stack_base);
+
+            let child_stack_base = core::ptr::addr_of!((*child_thread).stack) as u32;
+            (*child_thread).sp = child_stack_base.wrapping_add(sp_offset);
+
+            (*child_thread).function = (*parent_thread).function;
+            (*child_thread).args = (*parent_thread).args;
+
+            0
+        }
     }
 }
 
@@ -164,6 +190,19 @@ pub extern "C" fn rpi_exit(exit_code: u32) {
                 (*next_thread).sp
             );
         }
+    }
+}
+
+pub fn get_thread_manager() -> *mut ThreadManager{
+    unsafe {
+        if thread_manager.is_null() {
+            thread_manager = ckalloc(
+                core::mem::size_of::<ThreadManager>()
+            ) as *mut ThreadManager;
+            core::ptr::write(thread_manager, ThreadManager::new());
+        }
+        
+        thread_manager
     }
 }
 
