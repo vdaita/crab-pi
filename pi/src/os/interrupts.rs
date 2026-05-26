@@ -1,5 +1,6 @@
 use crate::arch::{dev_barrier, gcc_mb};
 use crate::gpio::{read, set_input, set_output, set_on, set_off};
+use crate::pmu_profiler::EventBus::SoftwarePcChange;
 use crate::{bit_utils, print, start};
 use crate::println;
 use crate::timer::{Timer};
@@ -13,6 +14,7 @@ use core::ffi::{CStr, c_char};
 use core::ptr::copy_nonoverlapping;
 use crate::os::threads::{get_thread_manager};
 use crate::kmalloc;
+use crate::ckalloc;
 
 global_asm!(r#"
 .globl _interrupt_table
@@ -69,6 +71,7 @@ software_interrupt_asm:                         @ A2-20
     str r0, [sp]
     pop {{r0-r12, lr}}
     movs pc, lr
+
 prefetch_abort_asm:
     mov sp, 0x8b00000 @ needs to be different...
     sub lr, lr, #4
@@ -164,6 +167,36 @@ switch_to_super_mode:
     mov r0, 0
     mcr p15, 0, r0, c7, c5, 4
     mov pc, lr
+
+.globl fork_trampoline_back
+fork_trampoline_back:
+    @ r0 = return_pc
+    @ r1 = return_sp
+    @ r2 = pointer to frame
+    
+    mov lr, r0             @ r12 = return_pc (temporary)
+    
+    cps #0x1F                @ System mode (user registers, privileged)
+    mov sp, r1               @ Set user SP
+    cps #0x13                @ Revert
+
+    mov r3, r2              @ r3 = frame pointer (save r2)
+    
+    ldr r0, [r3, #0]        @ r0
+    ldr r1, [r3, #4]        @ r1
+    ldr r2, [r3, #8]        @ r2
+    @ Skip r3 for now
+    ldr r4, [r3, #16]       @ r4
+    ldr r5, [r3, #20]       @ r5
+    ldr r6, [r3, #24]       @ r6
+    ldr r7, [r3, #28]       @ r7
+    ldr r8, [r3, #32]       @ r8
+    ldr r9, [r3, #36]       @ r9
+    ldr r10, [r3, #40]      @ r10
+    ldr r11, [r3, #44]      @ r11
+    ldr r12, [r3, #48]      @ r12
+    ldr r3, [r3, #12]       @ r3
+    movs pc, lr
 "#,
     SUPER_MODE = const CPSR_SUPER_MODE
 );
@@ -203,6 +236,49 @@ const PARTHIV_PIN: u32 = 27;
 pub const CPSR_USER_MODE: u32 = 0b10000;
 pub const CPSR_SUPER_MODE: u32 = 0b10011;
 
+// these just say where the child stats are
+struct PreForkData {
+    return_pc: u32,
+    return_sp: usize,
+    return_heap_curr: usize,
+    forked_program_completed: bool,
+    handled_completion: bool,
+    return_frame: SoftwareInterruptFrame,
+    saved_stack: *mut u8,
+    saved_stack_size: usize,
+    saved_heap: *mut u8,
+    saved_heap_size: usize,
+}
+
+static mut pre_fork_data: PreForkData = PreForkData {
+    return_pc: 0,
+    return_sp: 0,
+    return_heap_curr: 0,
+    forked_program_completed: false,
+    handled_completion: false,
+    return_frame: SoftwareInterruptFrame {
+        r0: 0,
+        r1: 0,
+        r2: 0,
+        r3: 0,
+        r4: 0,
+        r5: 0,
+        r6: 0,
+        r7: 0,
+        r8: 0,
+        r9: 0,
+        r10: 0,
+        r11: 0,
+        r12: 0,
+        lr: 0,
+    },
+    saved_stack: core::ptr::null_mut(),
+    saved_stack_size: 0,
+    saved_heap: core::ptr::null_mut(),
+    saved_heap_size: 0,
+};
+
+
 unsafe extern "C" {
     #[link_name = "enable_interrupts"]
     pub fn enable_interrupts_asm();
@@ -218,6 +294,9 @@ unsafe extern "C" {
 
     #[link_name = "switch_to_super_mode"]
     pub unsafe fn switch_to_super_mode(regs: *const u32);
+
+    #[link_name = "fork_trampoline_back"]
+    fn fork_trampoline_back(return_pc: u32, return_sp: u32, return_frame: *const SoftwareInterruptFrame);
 
     #[link_name = "_interrupt_table"]
     pub static INTERRUPT_TABLE_START: u8;
@@ -321,6 +400,7 @@ pub extern "C" fn os_prefetch_abort_vector(frame: *mut SoftwareInterruptFrame, p
     }
 }
 
+#[derive(Copy, Clone)]
 #[repr(C)]
 pub struct SoftwareInterruptFrame {
     r0: u32,
@@ -381,6 +461,107 @@ unsafe fn exit_current_process() {
     unsafe { elf_loader::elf_loader_return(); }
 }
 
+unsafe fn print_frame(frame: SoftwareInterruptFrame) {
+    println!(
+        "frame: r0={:#x}, r1={:#x}, r2={:#x}, r3={:#x}, r4={:#x}, r5={:#x}, r6={:#x}, r7={:#x}, r8={:#x}, r9={:#x}, r10={:#x}, r11={:#x}, r12={:#x}, lr={:#x}",
+        frame.r0,
+        frame.r1,
+        frame.r2,
+        frame.r3,
+        frame.r4,
+        frame.r5,
+        frame.r6,
+        frame.r7,
+        frame.r8,
+        frame.r9,
+        frame.r10,
+        frame.r11,
+        frame.r12,
+        frame.lr,
+    );
+} 
+
+unsafe fn handle_exit_or_fork_ret() {
+    if !pre_fork_data.forked_program_completed {
+        pre_fork_data.forked_program_completed = true;
+        // reload_heap_data();
+        reload_stack_data();
+
+        let return_pc = pre_fork_data.return_pc;
+        let return_sp = pre_fork_data.return_sp;
+        println!("Return PC: {:0x}, Return SP: {:0x}", return_pc, return_sp);
+        print_frame(pre_fork_data.return_frame);
+
+        fork_trampoline_back(
+            pre_fork_data.return_pc,
+            pre_fork_data.return_sp as u32,
+            core::ptr::addr_of!(pre_fork_data.return_frame)
+        );
+    } else {
+        println!("[handle_exit_or_fork_ret] handling elf loader return");
+        elf_loader::elf_loader_return();
+    }
+}
+
+
+fn reload_heap_data() -> *mut u8 {
+    unsafe {
+        let saved_heap = pre_fork_data.saved_heap;
+        let size = pre_fork_data.saved_heap_size;
+        core::ptr::copy_nonoverlapping(
+            saved_heap as *const u8,
+            elf_loader::elf_loader_heap_start as *mut u8,
+            size,
+        );
+        ckalloc::ckfree(pre_fork_data.saved_heap as *mut u32);
+        return pre_fork_data.return_heap_curr as *mut u8
+    }
+}
+
+fn reload_stack_data() -> *mut u8 {
+    unsafe {
+        let stack_base = 0x0900_0000 - 128 * 4 as usize;
+        let saved_stack = pre_fork_data.saved_stack;
+        let size = pre_fork_data.saved_stack_size;
+        core::ptr::copy_nonoverlapping(
+            saved_stack as *const u8,
+            (stack_base - pre_fork_data.saved_stack_size) as *mut u8,
+            size,
+        );
+        ckalloc::ckfree(pre_fork_data.saved_stack as *mut u32);
+        return pre_fork_data.return_sp as *mut u8
+    }
+}
+
+
+unsafe fn sequester_process_stack(stack_pointer: *const u8) -> *mut u8 { 
+    unsafe {
+        let stack_base = 0x0900_0000 - 128 * 4 as usize;
+        let size = stack_base - (stack_pointer as usize);
+        println!("Current stack pointer position: {:p}, size={}", stack_pointer, size);
+        let copy_loc = ckalloc::ckalloc(size);
+        core::ptr::copy_nonoverlapping(stack_pointer, copy_loc, size);  // Also copy from sp, not base!
+        pre_fork_data.saved_stack = copy_loc;  // ← FIXED
+        pre_fork_data.saved_stack_size = size;
+        copy_loc
+    }
+}
+
+fn sequester_process_heap() -> *mut u8 {
+    unsafe {
+        let current_heap = kmalloc::HEAP_CURR;
+        let heap_start = elf_loader::elf_loader_heap_start;
+        let size = current_heap - heap_start;
+        println!("Size of heap for elf loader process: {}", size);
+        println!("Current heap position: {:0x}", current_heap);
+        println!("Heap start: {:0x}", heap_start);
+        let copy_loc = ckalloc::ckalloc(size);
+        core::ptr::copy_nonoverlapping(heap_start as *mut u8, copy_loc, size);
+        pre_fork_data.saved_heap = copy_loc;  // ← FIXED
+        pre_fork_data.saved_heap_size = size;
+        copy_loc
+    }
+}
 
 pub unsafe fn c_str_to_str(ptr: *const u8) -> &'static str {
     let mut len = 0;
@@ -504,6 +685,20 @@ unsafe fn get_root_dirents64(buf_ptr: *mut u8, buf_len: usize) -> u32 {
     off as u32
 }
 
+pub fn get_user_sp() -> u32 {
+    let mut user_sp: u32 = 0;
+    unsafe {
+        asm!(
+            "str sp, [{tmp}]",     // Dummy write to satisfy syntax
+            "stm {tmp}, {{sp}}^",  // Store user SP (sp^ accesses r13_usr)
+            "ldr {sp}, [{tmp}]",   // Load it back
+            tmp = in(reg) &user_sp as *const u32,
+            sp = out(reg) user_sp,
+        );
+    }
+    user_sp
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn software_interrupt_vector(frame: *mut SoftwareInterruptFrame, svc_lr: u32) -> u32 {
     dev_barrier();
@@ -522,18 +717,55 @@ pub extern "C" fn software_interrupt_vector(frame: *mut SoftwareInterruptFrame, 
         imm
     };
 
+    let user_sp = get_user_sp();
+
     println!(
-        "SWI called: pc={:#x}, instr={:#x}, arg0={:#x}, arg1={:#x}, arg2={:#x}, arg3={:#x}, arg4={:#x}, arg5={:#x}, nr={:#x}",
-        svc_pc, instr, frame.r0, frame.r1, frame.r2, frame.r3, frame.r4, frame.r5, nr
+        "SWI called: pc={:#x}, instr={:#x}, arg0={:#x}, arg1={:#x}, arg2={:#x}, arg3={:#x}, arg4={:#x}, arg5={:#x}, nr={:#x}, user_sp={:#x}",
+        svc_pc, instr, frame.r0, frame.r1, frame.r2, frame.r3, frame.r4, frame.r5, nr, user_sp
     );
 
     let ret = match nr {
         0x1 => {
-            unsafe { exit_current_process(); }
+            unsafe { handle_exit_or_fork_ret(); }
             0
         }
         0x2 => {
-            0
+            // return 3;
+            unsafe {
+                if (pre_fork_data.forked_program_completed) {
+                    let pc = pre_fork_data.return_pc;
+                    let sp = pre_fork_data.return_sp;
+                    let heap_curr = pre_fork_data.return_heap_curr;
+                    pre_fork_data.forked_program_completed = false;
+                    pre_fork_data.handled_completion = true;
+                    println!(
+                        "[fork] re-entering child: return_pc={:#x}, return_sp={:#x}, return_heap_curr={:#x}",
+                        pc, sp, heap_curr,
+                    );
+                    return 3;
+                } else {
+                    let heap_curr = kmalloc::HEAP_CURR;
+                    let sp_usr = get_user_sp() as *mut u8;
+                    println!(
+                        "[fork] saving pre-fork state: pc={:#x}, sp_usr={:p}, heap_curr={:#x}",
+                        svc_pc,
+                        sp_usr,
+                        heap_curr,
+                    );
+                    print_frame(*frame);
+
+                    pre_fork_data.return_pc = svc_pc;
+                    pre_fork_data.return_heap_curr = heap_curr;
+                    pre_fork_data.return_sp = sp_usr as usize;
+                    pre_fork_data.return_frame = *frame;
+                    pre_fork_data.handled_completion = false;
+                    pre_fork_data.forked_program_completed = false;
+
+                    sequester_process_heap();
+                    sequester_process_stack(sp_usr);
+                    return 0;
+                }
+            }
         }
         0x3 => {
             let fd = frame.r0;
@@ -649,7 +881,7 @@ pub extern "C" fn software_interrupt_vector(frame: *mut SoftwareInterruptFrame, 
         }
         0x100 => set_tid_address(frame.r0),
         0xf8 => {
-            unsafe { exit_current_process(); }
+            unsafe { handle_exit_or_fork_ret(); }
             0
         },
         0xac => 0,

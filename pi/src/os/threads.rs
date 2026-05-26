@@ -3,6 +3,8 @@ use crate::{println, print};
 use crate::circular::{CircularQueue};
 use core::arch::{asm, global_asm};
 use crate::ckalloc::{ckalloc, ckfree};
+use crate::kmalloc;
+use crate::os::interrupts::SoftwareInterruptFrame;
 
 const MAX_STACK_SIZE: usize = 64 * 1024;
 const MAX_THREADS: usize = 4096;
@@ -38,12 +40,13 @@ unsafe extern "C" {
 }
 
 #[repr(C)]
-struct Thread {
+pub struct Thread {
     sp: u32, // where is my stack pointer?
     tid: u32,
     function: *mut u32,
     args: *mut u32,
-    stack: [u32; MAX_STACK_SIZE]
+    stack: [u32; MAX_STACK_SIZE],
+    heap_start: usize
 }
 
 pub struct ThreadManager {
@@ -67,6 +70,10 @@ impl ThreadManager {
             scheduler_thread: scheduler_thread,
             tid_counter: 1
         }
+    }
+
+    pub fn get_os_thread(&mut self) -> *mut Thread {
+        return self.scheduler_thread;
     }
         
     pub fn thread_yield(&mut self) {
@@ -119,6 +126,7 @@ impl ThreadManager {
             (*new_thread).stack[MAX_STACK_SIZE - 9 + 0] = function_ptr as u32;
             (*new_thread).stack[MAX_STACK_SIZE - 9 + 1] = arguments as u32;
             (*new_thread).stack[MAX_STACK_SIZE - 9 + 8] = init_trampoline as u32;
+            (*new_thread).heap_start = kmalloc::HEAP_CURR;
             (*new_thread).sp = core::ptr::addr_of_mut!(
                 (*new_thread).stack[MAX_STACK_SIZE - 9]
             ) as u32;
@@ -134,7 +142,7 @@ impl ThreadManager {
         }
     }
 
-    pub fn os_fork(&mut self) -> u32 {
+    pub fn os_fork(&mut self, frame: SoftwareInterruptFrame) -> u32 {
         unsafe {
             let child_thread: *mut Thread = ckalloc(
                 core::mem::size_of::<Thread>()
@@ -142,6 +150,7 @@ impl ThreadManager {
             let parent_thread = self.current_thread;
 
             (*child_thread).tid = self.tid_counter;
+            (*child_thread).heap_start = kmalloc::HEAP_CURR;
             self.tid_counter += 1;
 
             (*child_thread).stack.copy_from_slice(&(*parent_thread).stack);
@@ -152,10 +161,23 @@ impl ThreadManager {
             let child_stack_base = core::ptr::addr_of!((*child_thread).stack) as u32;
             (*child_thread).sp = child_stack_base.wrapping_add(sp_offset);
 
-            (*child_thread).function = (*parent_thread).function;
-            (*child_thread).args = (*parent_thread).args;
+            // copy over the heap
+            core::ptr::copy_nonoverlapping(
+                (*parent_thread).heap_start as *mut u32,
+                (*child_thread).heap_start as *mut u32,
+                (*child_thread).heap_start - (*parent_thread).heap_start
+            );
 
+            // TODO: copy over the attributes from the SoftwareInterruptFrame into the elf loader
+            // jump to this process
             0
+        }
+    }
+
+    pub fn os_close(&mut self) {
+        unsafe {
+            kmalloc::HEAP_CURR = (*self.current_thread).heap_start;
+            // everything else is fine here, just trampoline back out to the current thread...
         }
     }
 }

@@ -1,4 +1,5 @@
 use crate::fat32::{self, pi_file_t};
+use crate::os::threads::Thread;
 use crate::os::virtmem::{MemPerm, mmu_is_enabled};
 use core::arch::global_asm;
 use crate::os::virtmem;
@@ -7,6 +8,7 @@ use crate::{println, print};
 use crate::kmalloc;
 use crate::profiler;
 use crate::fat32::{get_fat32_manager};
+use crate::os::threads;
 
 const ONE_MB: u32 = 1024 * 1024;
 const DOM_KERN: u32 = 1;
@@ -175,13 +177,17 @@ unsafe fn install_kuser_helpers(pa: u32) {
         (pa + 0x00FF0FE0) as *mut u32, 2);
 }
 
+pub static mut elf_loader_heap_start: usize = 0;
+
 struct ElfLoader {
-    next_pin_index: u32
+    next_pin_index: u32,
 }
 impl ElfLoader {
     const fn new() -> Self {
-        Self {
-            next_pin_index: 0
+        unsafe {
+            Self {
+                next_pin_index: 0,
+            }
         }
     }
 
@@ -192,6 +198,9 @@ impl ElfLoader {
     }
 
     unsafe fn run(&mut self, prog_name: &str, arg1: u32, arg2: u32, arg3: u32, asid: u32) {
+        kmalloc::ensure_init();
+        elf_loader_heap_start = kmalloc::HEAP_CURR;
+
         let manager = get_fat32_manager();
         let file = (*manager).read_file(prog_name);
 
@@ -289,9 +298,10 @@ impl ElfLoader {
         self.pin_next(0x2000_0000, 0x2000_0000, dev);
         
         self.pin_next(0x0, 0x0, kern);
-        self.pin_next(16 * ONE_MB, 16 * ONE_MB, kern);
+        // self.pin_next(16 * ONE_MB, 16 * ONE_MB, kern);
 
         self.pin_next(0x1000_0000, 0x1000_0000, kern);
+        self.pin_next(0x1000_0000 + 16 * ONE_MB, 0x1000_0000 + 16 * ONE_MB, kern);
         self.pin_next(0x1000_0000 + 32 * ONE_MB, 0x1000_0000 + 32 * ONE_MB, kern);
 
         // self.pin_next(64 * ONE_MB, 64 * ONE_MB, kern);

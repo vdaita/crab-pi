@@ -15,7 +15,7 @@ const fn align_up(x: usize, align: usize) -> usize {
     (x + align - 1) & !(align - 1)
 }
 
-unsafe fn ensure_init() {
+pub unsafe fn ensure_init() {
     if HEAP_CURR == 0 {
         let start = &__heap_start__ as *const u8 as usize;
         let end = &__dram_end__ as *const u8 as usize;
