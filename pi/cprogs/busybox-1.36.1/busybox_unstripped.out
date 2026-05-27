@@ -1,5 +1,5 @@
 Output of:
-gcc -Wall -Wshadow -Wwrite-strings -Wundef -Wstrict-prototypes -Wunused -Wunused-parameter -Wunused-function -Wunused-value -Wmissing-prototypes -Wmissing-declarations -Wno-format-security -Wdeclaration-after-statement -Wold-style-definition -finline-limit=0 -fno-builtin-strlen -fomit-frame-pointer -ffunction-sections -fdata-sections -fno-guess-branch-probability -funsigned-char -falign-functions=1 -falign-jumps=1 -falign-labels=1 -falign-loops=1 -fno-unwind-tables -fno-asynchronous-unwind-tables -fno-builtin-printf -Oz -static -o busybox_unstripped -Wl,--sort-common -Wl,--sort-section,alignment -Wl,--gc-sections -Wl,--start-group applets/built-in.o archival/lib.a archival/libarchive/lib.a console-tools/lib.a coreutils/lib.a coreutils/libcoreutils/lib.a debianutils/lib.a klibc-utils/lib.a e2fsprogs/lib.a editors/lib.a findutils/lib.a init/lib.a libbb/lib.a libpwdgrp/lib.a loginutils/lib.a mailutils/lib.a miscutils/lib.a modutils/lib.a networking/lib.a networking/libiproute/lib.a networking/udhcp/lib.a printutils/lib.a procps/lib.a runit/lib.a selinux/lib.a shell/lib.a sysklogd/lib.a util-linux/lib.a util-linux/volume_id/lib.a archival/built-in.o archival/libarchive/built-in.o console-tools/built-in.o coreutils/built-in.o coreutils/libcoreutils/built-in.o debianutils/built-in.o klibc-utils/built-in.o e2fsprogs/built-in.o editors/built-in.o findutils/built-in.o init/built-in.o libbb/built-in.o libpwdgrp/built-in.o loginutils/built-in.o mailutils/built-in.o miscutils/built-in.o modutils/built-in.o networking/built-in.o networking/libiproute/built-in.o networking/udhcp/built-in.o printutils/built-in.o procps/built-in.o runit/built-in.o selinux/built-in.o shell/built-in.o sysklogd/built-in.o util-linux/built-in.o util-linux/volume_id/built-in.o -Wl,--end-group -Wl,--warn-common -Wl,-Map,busybox_unstripped.map -Wl,--verbose
+gcc -Wall -Wshadow -Wwrite-strings -Wundef -Wstrict-prototypes -Wunused -Wunused-parameter -Wunused-function -Wunused-value -Wmissing-prototypes -Wmissing-declarations -Wno-format-security -Wdeclaration-after-statement -Wold-style-definition -finline-limit=0 -fno-builtin-strlen -fomit-frame-pointer -ffunction-sections -fdata-sections -fno-guess-branch-probability -funsigned-char -falign-functions=1 -falign-jumps=1 -falign-labels=1 -falign-loops=1 -fno-unwind-tables -fno-asynchronous-unwind-tables -fno-builtin-printf -g -Oz -static -o busybox_unstripped -Wl,--sort-common -Wl,--sort-section,alignment -Wl,--gc-sections -Wl,--start-group applets/built-in.o archival/lib.a archival/libarchive/lib.a console-tools/lib.a coreutils/lib.a coreutils/libcoreutils/lib.a debianutils/lib.a klibc-utils/lib.a e2fsprogs/lib.a editors/lib.a findutils/lib.a init/lib.a libbb/lib.a libpwdgrp/lib.a loginutils/lib.a mailutils/lib.a miscutils/lib.a modutils/lib.a networking/lib.a networking/libiproute/lib.a networking/udhcp/lib.a printutils/lib.a procps/lib.a runit/lib.a selinux/lib.a shell/lib.a sysklogd/lib.a util-linux/lib.a util-linux/volume_id/lib.a archival/built-in.o archival/libarchive/built-in.o console-tools/built-in.o coreutils/built-in.o coreutils/libcoreutils/built-in.o debianutils/built-in.o klibc-utils/built-in.o e2fsprogs/built-in.o editors/built-in.o findutils/built-in.o init/built-in.o libbb/built-in.o libpwdgrp/built-in.o loginutils/built-in.o mailutils/built-in.o miscutils/built-in.o modutils/built-in.o networking/built-in.o networking/libiproute/built-in.o networking/udhcp/built-in.o printutils/built-in.o procps/built-in.o runit/built-in.o selinux/built-in.o shell/built-in.o sysklogd/built-in.o util-linux/built-in.o util-linux/volume_id/built-in.o -Wl,--end-group -Wl,--warn-common -Wl,-Map,busybox_unstripped.map -Wl,--verbose
 ==========
 GNU ld (GNU Binutils) 2.40
   Supported emulations:
@@ -423,6 +423,7 @@ coreutils/lib.a
 (coreutils/lib.a)cat.o
 (coreutils/lib.a)echo.o
 (coreutils/lib.a)ls.o
+(coreutils/lib.a)printf.o
 coreutils/libcoreutils/lib.a
 debianutils/lib.a
 klibc-utils/lib.a
@@ -438,9 +439,11 @@ libbb/lib.a
 (libbb/lib.a)mode_string.o
 (libbb/lib.a)parse_mode.o
 (libbb/lib.a)printable_string.o
+(libbb/lib.a)process_escape_sequence.o
 (libbb/lib.a)read_key.o
 (libbb/lib.a)read_printf.o
 (libbb/lib.a)safe_poll.o
+(libbb/lib.a)skip_whitespace.o
 (libbb/lib.a)sysconf.o
 (libbb/lib.a)u_signal_names.o
 (libbb/lib.a)wfopen_input.o
@@ -679,6 +682,7 @@ attempt to open /usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)atoi.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)bsearch.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)qsort_nr.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)strtod.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)strtol.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)memcpy.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)memchr.lo
@@ -772,12 +776,18 @@ attempt to open /usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)__init_tls.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)_Exit.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)abort_lock.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)floatscan.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)intscan.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)procfdname.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)shgetc.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)langinfo.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)realloc.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)copysignl.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)fabsl.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)fmodl.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)frexpl.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)scalbn.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)scalbnl.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)mremap.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)internal.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)wctomb.lo
@@ -817,14 +827,11 @@ attempt to open /usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)iswalpha.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)iswblank.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)iswcntrl.lo
-(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)floatscan.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)vdso.lo
-(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)copysignl.lo
-(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)fabsl.lo
-(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)fmodl.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)fabs.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)copysign.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)fmod.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)frexp.lo
-(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)scalbn.lo
-(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)scalbnl.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)mbrtowc.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)mbsinit.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)wcrtomb.lo
@@ -838,9 +845,6 @@ attempt to open /usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)__map_file.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)__month_to_secs.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)isblank.lo
-(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)fabs.lo
-(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)copysign.lo
-(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)fmod.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)pthread_cleanup_push.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)pthread_testcancel.lo
 /usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/libgcc.a

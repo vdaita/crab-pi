@@ -166,7 +166,7 @@ pub fn basic_run() {
 }
 
 pub fn use_imu_to_color() {
-    i2c_init();
+    i2c_init(-1);
     let dev_addr: u32 = 0b1101000;
     mpu6050_reset(dev_addr);
 

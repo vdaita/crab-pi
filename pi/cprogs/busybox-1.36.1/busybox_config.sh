@@ -5,6 +5,9 @@ sed -i 's|# CONFIG_BUSYBOX is not set|CONFIG_BUSYBOX=y|' .config
 sed -i 's|# CONFIG_FEATURE_PREFER_APPLETS is not set|CONFIG_FEATURE_PREFER_APPLETS=y|' .config
 sed -i 's|# CONFIG_FEATURE_SH_STANDALONE is not set|CONFIG_FEATURE_SH_STANDALONE=y|' .config
 sed -i 's|# CONFIG_FEATURE_SH_NOFORK is not set|CONFIG_FEATURE_SH_NOFORK=y|' .config
+sed -i 's|# CONFIG_DEBUG is not set|CONFIG_DEBUG=y|' .config
+sed -i 's|# CONFIG_ASH_PRINTF is not set|CONFIG_ASH_PRINTF=y|' .config
+# sed -i 's|# CONFIG_ASH_JOB_CONTROL is not set|CONFIG_ASH_JOB_CONTROL=y|' .config
 
 # Disable ASH completely
 # sed -i 's/^CONFIG_ASH=y/# CONFIG_ASH is not set/' .config

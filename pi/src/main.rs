@@ -41,6 +41,7 @@ mod programs {
     pub mod lightstrip;
     pub mod memtrace;
     pub mod stepper_motor;
+    pub mod oled_display;
 }
 mod os {
     pub mod interrupts;
@@ -80,6 +81,7 @@ pub fn main() {
     uart::init();
     println!("Hello from Rust on the Pi!");
 
+    // programs::oled_display::test_oled_display();
     // programs::stepper_motor::run_stepper_motor();
     // memtrace::test_memtrace_with_ckalloc();
     // memtrace::test_memtrace();

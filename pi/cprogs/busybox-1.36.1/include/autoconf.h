@@ -2,7 +2,7 @@
  * Automatically generated C config: don't edit
  * Busybox version: 1.36.1
  */
-#define AUTOCONF_TIMESTAMP "2026-05-21 02:20:28 UTC"
+#define AUTOCONF_TIMESTAMP "2026-05-27 02:20:50 UTC"
 
 #define CONFIG_HAVE_DOT_CONFIG 1
 #define ENABLE_HAVE_DOT_CONFIG 1
@@ -284,10 +284,14 @@
 /*
  * Debugging Options
  */
-#undef CONFIG_DEBUG
-#define ENABLE_DEBUG 0
-#define IF_DEBUG(...)
-#define IF_NOT_DEBUG(...) __VA_ARGS__
+#define CONFIG_DEBUG 1
+#define ENABLE_DEBUG 1
+#ifdef MAKE_SUID
+# define IF_DEBUG(...) __VA_ARGS__ "CONFIG_DEBUG"
+#else
+# define IF_DEBUG(...) __VA_ARGS__
+#endif
+#define IF_NOT_DEBUG(...)
 #undef CONFIG_DEBUG_PESSIMIZE
 #define ENABLE_DEBUG_PESSIMIZE 0
 #define IF_DEBUG_PESSIMIZE(...)
@@ -4424,10 +4428,14 @@
 # define IF_ASH_ECHO(...) __VA_ARGS__
 #endif
 #define IF_NOT_ASH_ECHO(...)
-#undef CONFIG_ASH_PRINTF
-#define ENABLE_ASH_PRINTF 0
-#define IF_ASH_PRINTF(...)
-#define IF_NOT_ASH_PRINTF(...) __VA_ARGS__
+#define CONFIG_ASH_PRINTF 1
+#define ENABLE_ASH_PRINTF 1
+#ifdef MAKE_SUID
+# define IF_ASH_PRINTF(...) __VA_ARGS__ "CONFIG_ASH_PRINTF"
+#else
+# define IF_ASH_PRINTF(...) __VA_ARGS__
+#endif
+#define IF_NOT_ASH_PRINTF(...)
 #undef CONFIG_ASH_TEST
 #define ENABLE_ASH_TEST 0
 #define IF_ASH_TEST(...)

@@ -60,7 +60,7 @@ pub struct XYZ {
     pub z: i16
 }
 
-fn i2c_write(addr: u32, data: &[u8], nbytes: usize) {
+pub fn i2c_write(addr: u32, data: &[u8], nbytes: usize) {
     // wait until the transfer is not active
     while (bit_get(get32(I2C_S), 0) == 1) {
         // Timer::delay_us(10);
@@ -72,7 +72,7 @@ fn i2c_write(addr: u32, data: &[u8], nbytes: usize) {
     assert!(bit_get(get32(I2C_S), 9) == 0); // there was no timeout
 
     // clear the done field in status
-    put32(I2C_S, 1 << 1);
+    put32(I2C_S, 1 << 1 | 1 << 8);
 
     // set device address and length
 
@@ -161,7 +161,7 @@ fn i2c_read(addr: u32, nbytes: usize) -> [u8; 32] {
     data
 }
 
-pub fn i2c_init() {
+pub fn i2c_init(clk_div: i32) {
     set_function(0, 0x4);
     set_function(1, 0x4);
     set_function(2, 0x4); // FSEL_ALT0
@@ -171,7 +171,11 @@ pub fn i2c_init() {
     Timer::delay_ms(10);
 
     // put32(I2C_DIV, 625);
-    put32(I2C_DIV, 0);
+    if clk_div == -1 {
+        put32(I2C_DIV, 0);
+    } else {
+        put32(I2C_DIV, clk_div as u32);
+    }
     put32(I2C_CLKT, 0);
     println!("cdiv value: {:0x}", get32(I2C_DIV));
     println!("clkt value: {:0x}", get32(I2C_CLKT));
@@ -416,7 +420,7 @@ pub fn self_test_accel(dev_addr: u32) {
 
 pub fn imu_test() {
     println!("Testing the IMU.");
-    i2c_init();
+    i2c_init(-1);
 
     let dev_addr: u32 = 0b1101000;
     mpu6050_reset(dev_addr);

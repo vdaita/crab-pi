@@ -303,6 +303,8 @@ impl ElfLoader {
         self.pin_next(0x1000_0000, 0x1000_0000, kern);
         self.pin_next(0x1000_0000 + 16 * ONE_MB, 0x1000_0000 + 16 * ONE_MB, kern);
         self.pin_next(0x1000_0000 + 32 * ONE_MB, 0x1000_0000 + 32 * ONE_MB, kern);
+        // this will go from 0x1000_0000 to 0x1300_0000 incl.
+        // the main stack is 0x1700_0000 to 0x1800_0000 incl.
 
         // self.pin_next(64 * ONE_MB, 64 * ONE_MB, kern);
 
