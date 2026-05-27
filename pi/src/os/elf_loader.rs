@@ -177,6 +177,8 @@ unsafe fn install_kuser_helpers(pa: u32) {
         (pa + 0x00FF0FE0) as *mut u32, 2);
 }
 
+pub static mut elf_loader_program_start: usize = 0;
+pub static mut elf_loader_program_end: usize = 0;
 pub static mut elf_loader_heap_start: usize = 0;
 
 struct ElfLoader {
@@ -199,7 +201,6 @@ impl ElfLoader {
 
     unsafe fn run(&mut self, prog_name: &str, arg1: u32, arg2: u32, arg3: u32, asid: u32) {
         kmalloc::ensure_init();
-        elf_loader_heap_start = kmalloc::HEAP_CURR;
 
         let manager = get_fat32_manager();
         let file = (*manager).read_file(prog_name);
@@ -259,6 +260,8 @@ impl ElfLoader {
             }
         }
         let elf_base = lowest_paddr - lowest_offset;
+        elf_loader_program_start = elf_base as usize;
+        elf_loader_heap_start = kmalloc::HEAP_CURR;
         println!("ELF base address: {:#x} (p_paddr={:#x}, p_offset={:#x})",
             elf_base, lowest_paddr, lowest_offset);
         let ehdr_total = (*elf_header_ptr).e_phoff as usize
@@ -267,11 +270,15 @@ impl ElfLoader {
         println!("Diagnostics: lowest_offset={:#x}, ehdr_total={}", lowest_offset, ehdr_total);
 
         let ehdr_end = elf_base.wrapping_add(ehdr_total as u32);
+        let mut program_end = ehdr_end;
         for i in 0..(*elf_header_ptr).e_phnum {
             let ph = first_program_header_ptr.add(i as usize);
             if (*ph).p_type != 1 { continue; }
             let pstart = (*ph).p_paddr;
             let pend = pstart.wrapping_add((*ph).p_memsz);
+            if pend > program_end {
+                program_end = pend;
+            }
             let overlap = !(pend <= elf_base || pstart >= ehdr_end);
             println!(
                 "PT_LOAD[{}]: p_paddr={:#x}, p_filesz={}, p_memsz={}, overlaps_headers={}",
@@ -281,6 +288,7 @@ impl ElfLoader {
                 println!("  --> Overlap with headers region {:#x}-{:#x}", elf_base, ehdr_end);
             }
         }
+        elf_loader_program_end = program_end as usize;
         core::ptr::write_bytes(elf_base as *mut u8, 0, lowest_offset as usize);
         core::ptr::copy_nonoverlapping(
             (*file).data,

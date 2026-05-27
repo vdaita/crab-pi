@@ -241,6 +241,8 @@ struct PreForkData {
     return_sp: usize,
     return_heap_curr: usize,
     return_frame: SoftwareInterruptFrame,
+    saved_program: *mut u8,
+    saved_program_size: usize,
     saved_stack: *mut u8,
     saved_stack_size: usize,
     saved_heap: *mut u8,
@@ -270,6 +272,8 @@ static mut pre_fork_data: PreForkData = PreForkData {
         r12: 0,
         lr: 0,
     },
+    saved_program: core::ptr::null_mut(),
+    saved_program_size: 0,
     saved_stack: core::ptr::null_mut(),
     saved_stack_size: 0,
     saved_heap: core::ptr::null_mut(),
@@ -439,7 +443,8 @@ const DT_DIR: u8 = 4;
 const DT_REG: u8 = 8;
 const DIRENT64_BASE: usize = 19;
 
-const HEAP_COPY_ADDR: *mut u8 = 0x1400_0000 as *mut u8;
+const HEAP_COPY_ADDR: *mut u8 = 0x1500_0000 as *mut u8;
+const PROGRAM_COPY_ADDR: *mut u8 = 0x1300_0000 as *mut u8;
 const STACK_COPY_ADDR: *mut u8 = 0x1780_0000 as *mut u8;
 
 unsafe fn set_tls(tls: u32) {
@@ -495,6 +500,7 @@ unsafe fn handle_exit_or_fork_ret() {
         let heap_curr = kmalloc::HEAP_CURR;
         println!("Current heap location: 0x{:0x}", heap_curr);
 
+        reload_program_data();
         reload_heap_data();
         reload_stack_data();
         print_prefork_state();
@@ -540,6 +546,28 @@ fn reload_heap_data() -> *mut u8 {
 }
 
 #[inline(never)]
+fn reload_program_data() {
+    unsafe {
+        let saved_program = pre_fork_data.saved_program;
+        let size = pre_fork_data.saved_program_size;
+        let dest = elf_loader::elf_loader_program_start as *mut u8;
+        println!(
+            "Reloading program: source range={:p}->{:p}, dest range={:p}->{:p}, size={}",
+            saved_program,
+            saved_program.byte_add(size),
+            dest,
+            dest.byte_add(size),
+            size,
+        );
+        core::ptr::copy_nonoverlapping(
+            saved_program as *const u8,
+            dest,
+            size,
+        );
+    }
+}
+
+#[inline(never)]
 fn reload_stack_data() -> *mut u8 {
     unsafe {
         let stack_base = 0x0900_0000 - 128 * 4 as usize;
@@ -576,6 +604,29 @@ unsafe fn sequester_process_stack(stack_pointer: *const u8) -> *mut u8 {
         pre_fork_data.saved_stack_size = size;
         
         STACK_COPY_ADDR as *mut u8
+    }
+}
+
+#[inline(never)]
+fn sequester_process_program() -> *mut u8 {
+    unsafe {
+        let program_start = elf_loader::elf_loader_program_start;
+        let program_end = elf_loader::elf_loader_program_end;
+        let size = program_end - program_start;
+        println!(
+            "Current program image position: {:p}, size={}, source range={:0x}->{:0x}, dest range={:p}->{:p}",
+            program_start as *const u8,
+            size,
+            program_start,
+            program_end,
+            PROGRAM_COPY_ADDR,
+            PROGRAM_COPY_ADDR.byte_add(size),
+        );
+        core::ptr::copy_nonoverlapping(program_start as *const u8, PROGRAM_COPY_ADDR, size);
+        pre_fork_data.saved_program = PROGRAM_COPY_ADDR;
+        pre_fork_data.saved_program_size = size;
+
+        PROGRAM_COPY_ADDR
     }
 }
 
@@ -736,10 +787,12 @@ pub fn print_prefork_state() {
     unsafe {
         let state: PreForkData = pre_fork_data;
         println!(
-            "PreForkData state:\n  return_pc={:#x}\n  return_sp={:#x}\n  return_heap_curr={:#x}\n  saved_stack={:p}\n  saved_stack_size={}\n  saved_heap={:p}\n  saved_heap_size={}\n  process_running={}\n  process_collected={}",
+            "PreForkData state:\n  return_pc={:#x}\n  return_sp={:#x}\n  return_heap_curr={:#x}\n  saved_program={:p}\n  saved_program_size={}\n  saved_stack={:p}\n  saved_stack_size={}\n  saved_heap={:p}\n  saved_heap_size={}\n  process_running={}\n  process_collected={}",
             state.return_pc,
             state.return_sp,
             state.return_heap_curr,
+            state.saved_program,
+            state.saved_program_size,
             state.saved_stack,
             state.saved_stack_size,
             state.saved_heap,
@@ -783,57 +836,59 @@ pub extern "C" fn software_interrupt_vector(frame: *mut SoftwareInterruptFrame, 
             0
         }
         0x2 => {
-            unsafe {
-                sequester_process_heap();
-                let sp_usr = get_user_sp() as *mut u8;
-                sequester_process_stack(sp_usr);
-
-                kmalloc::kmalloc(1024);
-
-                reload_stack_data();
-                reload_heap_data();
-
-                print_frame(*frame);
-
-                fork_trampoline_back(svc_lr, sp_usr as u32, core::ptr::addr_of!(*frame));
-            }
-            3
             // unsafe {
-            //     print_prefork_state();
-            //     if (pre_fork_data.process_running && !pre_fork_data.process_collected) {
-            //         let pc = pre_fork_data.return_pc;
-            //         let sp = pre_fork_data.return_sp;
-            //         let heap_curr = pre_fork_data.return_heap_curr;
-            //         pre_fork_data.process_running = false; 
-            //         println!(
-            //             "[fork] re-entering child: return_pc={:#x}, return_sp={:#x}, return_heap_curr={:#x}",
-            //             pc, sp, heap_curr,
-            //         );
-            //         3
-            //     } else {
-            //         let heap_curr = kmalloc::HEAP_CURR;
-            //         let sp_usr = get_user_sp() as *mut u8;
-            //         println!(
-            //             "[fork] saving pre-fork state: pc={:#x}, sp_usr={:p}, heap_curr={:#x}",
-            //             svc_pc,
-            //             sp_usr,
-            //             heap_curr,
-            //         );
-            //         print_frame(*frame);
+            //     sequester_process_program();
+            //     sequester_process_heap();
+            //     let sp_usr = get_user_sp() as *mut u8;
+            //     sequester_process_stack(sp_usr);
 
-            //         pre_fork_data.return_pc = svc_pc;
-            //         pre_fork_data.return_heap_curr = heap_curr;
-            //         pre_fork_data.return_sp = sp_usr as usize;
-            //         pre_fork_data.return_frame = *frame;
+            //     kmalloc::kmalloc(1024);
 
-            //         pre_fork_data.process_running = true;
-            //         pre_fork_data.process_collected = false;
+            //     reload_stack_data();
+            //     reload_heap_data();
 
-            //         sequester_process_heap();
-            //         sequester_process_stack(sp_usr);
-            //         0
-            //     }
+            //     print_frame(*frame);
+
+            //     fork_trampoline_back(svc_lr, sp_usr as u32, core::ptr::addr_of!(*frame));
             // }
+            // 3
+            unsafe {
+                print_prefork_state();
+                if (pre_fork_data.process_running && !pre_fork_data.process_collected) {
+                    let pc = pre_fork_data.return_pc;
+                    let sp = pre_fork_data.return_sp;
+                    let heap_curr = pre_fork_data.return_heap_curr;
+                    pre_fork_data.process_running = false; 
+                    println!(
+                        "[fork] re-entering child: return_pc={:#x}, return_sp={:#x}, return_heap_curr={:#x}",
+                        pc, sp, heap_curr,
+                    );
+                    3
+                } else {
+                    let heap_curr = kmalloc::HEAP_CURR;
+                    let sp_usr = get_user_sp() as *mut u8;
+                    println!(
+                        "[fork] saving pre-fork state: pc={:#x}, sp_usr={:p}, heap_curr={:#x}",
+                        svc_pc,
+                        sp_usr,
+                        heap_curr,
+                    );
+                    print_frame(*frame);
+
+                    pre_fork_data.return_pc = svc_pc;
+                    pre_fork_data.return_heap_curr = heap_curr;
+                    pre_fork_data.return_sp = sp_usr as usize;
+                    pre_fork_data.return_frame = *frame;
+
+                    pre_fork_data.process_running = true;
+                    pre_fork_data.process_collected = false;
+
+                    sequester_process_program();
+                    sequester_process_heap();
+                    sequester_process_stack(sp_usr);
+                    0
+                }
+            }
         }
         0x3 => {
             let fd = frame.r0;
@@ -1008,7 +1063,7 @@ pub extern "C" fn software_interrupt_vector(frame: *mut SoftwareInterruptFrame, 
             }
         },
         0x72 => {
-            profiler::breakpoint_mismatch_start();
+            // profiler::breakpoint_mismatch_start();
             unsafe {
                 print_prefork_state();
                 if !pre_fork_data.process_collected {
