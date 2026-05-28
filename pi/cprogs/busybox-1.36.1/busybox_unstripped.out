@@ -421,10 +421,15 @@ archival/libarchive/lib.a
 console-tools/lib.a
 coreutils/lib.a
 (coreutils/lib.a)cat.o
+(coreutils/lib.a)cksum.o
+(coreutils/lib.a)cp.o
 (coreutils/lib.a)echo.o
+(coreutils/lib.a)env.o
 (coreutils/lib.a)ls.o
+(coreutils/lib.a)mkdir.o
 (coreutils/lib.a)printf.o
 coreutils/libcoreutils/lib.a
+(coreutils/libcoreutils/lib.a)cp_mv_stat.o
 debianutils/lib.a
 klibc-utils/lib.a
 e2fsprogs/lib.a
@@ -435,7 +440,12 @@ init/lib.a
 libbb/lib.a
 (libbb/lib.a)bb_cat.o
 (libbb/lib.a)common_bufsiz.o
+(libbb/lib.a)copy_file.o
+(libbb/lib.a)crc32.o
 (libbb/lib.a)endofname.o
+(libbb/lib.a)fflush_stdout_and_exit.o
+(libbb/lib.a)inode_hash.o
+(libbb/lib.a)make_directory.o
 (libbb/lib.a)mode_string.o
 (libbb/lib.a)parse_mode.o
 (libbb/lib.a)printable_string.o
@@ -448,7 +458,9 @@ libbb/lib.a
 (libbb/lib.a)u_signal_names.o
 (libbb/lib.a)wfopen_input.o
 (libbb/lib.a)xreadlink.o
+(libbb/lib.a)ask_confirmation.o
 (libbb/lib.a)auto_string.o
+(libbb/lib.a)concat_subpath_file.o
 (libbb/lib.a)wfopen.o
 (libbb/lib.a)xgetcwd.o
 libpwdgrp/lib.a
@@ -592,6 +604,7 @@ attempt to open /usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)prctl.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)settimeofday.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)sysinfo.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)utimes.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)__lctrans.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)calloc.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)free.lo
@@ -636,11 +649,16 @@ attempt to open /usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)signal.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)sigprocmask.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)sigsuspend.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)chmod.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)fstat.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)fstatat.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)futimesat.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)lstat.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)mkdir.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)mknod.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)stat.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)umask.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)utimensat.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)__fdopen.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)__lockfile.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)__stdio_close.lo
@@ -657,6 +675,7 @@ attempt to open /usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)fprintf.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)fputs.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)fwrite.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)getc_unlocked.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)getline.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)ofl.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)ofl_add.lo
@@ -738,6 +757,7 @@ attempt to open /usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)_exit.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)access.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)chdir.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)chown.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)close.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)dup.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)dup2.lo
@@ -750,6 +770,8 @@ attempt to open /usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)getppid.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)getuid.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)isatty.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)lchown.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)link.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)lseek.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)pipe.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)read.lo
@@ -760,6 +782,7 @@ attempt to open /usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)setsid.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)setuid.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)setxid.lo
+(/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)symlink.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)ttyname_r.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)unlink.lo
 (/usr/lib/gcc/armv6-alpine-linux-musleabihf/12.2.1/../../../libc.a)write.lo

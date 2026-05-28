@@ -1,12 +1,23 @@
 make allnoconfig
 sed -i 's|# CONFIG_STATIC is not set|CONFIG_STATIC=y|' .config
 sed -i 's|# CONFIG_LFS is not set|CONFIG_LFS=y|' .config
+sed -i 's|# CONFIG_ASH is not set|CONFIG_ASH=y|' .config
+sed -i 's|# CONFIG_SH_IS_ASH is not set|CONFIG_SH_IS_ASH=y|' .config
 sed -i 's|# CONFIG_BUSYBOX is not set|CONFIG_BUSYBOX=y|' .config
 sed -i 's|# CONFIG_FEATURE_PREFER_APPLETS is not set|CONFIG_FEATURE_PREFER_APPLETS=y|' .config
 sed -i 's|# CONFIG_FEATURE_SH_STANDALONE is not set|CONFIG_FEATURE_SH_STANDALONE=y|' .config
 sed -i 's|# CONFIG_FEATURE_SH_NOFORK is not set|CONFIG_FEATURE_SH_NOFORK=y|' .config
 sed -i 's|# CONFIG_DEBUG is not set|CONFIG_DEBUG=y|' .config
 sed -i 's|# CONFIG_ASH_PRINTF is not set|CONFIG_ASH_PRINTF=y|' .config
+sed -i 's|# CONFIG_CRC32 is not set|CONFIG_CRC32=y|' .config
+sed -i 's|# CONFIG_CP is not set|CONFIG_CP=y|' .config
+sed -i 's|# CONFIG_LS is not set|CONFIG_LS=y|' .config
+sed -i 's|# CONFIG_CAT is not set|CONFIG_CAT=y|' .config
+sed -i 's|# CONFIG_ENV is not set|CONFIG_ENV=y|' .config
+sed -i 's|# CONFIG_MKDIR is not set|CONFIG_MKDIR=y|' .config
+yes '' | make oldconfig
+
+# make oldconfig
 # sed -i 's|# CONFIG_ASH_JOB_CONTROL is not set|CONFIG_ASH_JOB_CONTROL=y|' .config
 
 # Disable ASH completely

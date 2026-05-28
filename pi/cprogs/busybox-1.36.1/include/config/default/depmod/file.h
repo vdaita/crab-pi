@@ -1,1 +1,1 @@
-#define CONFIG_DEFAULT_DEPMOD_FILE ""
+#define CONFIG_DEFAULT_DEPMOD_FILE "modules.dep"

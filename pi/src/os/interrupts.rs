@@ -1077,6 +1077,54 @@ pub extern "C" fn software_interrupt_vector(frame: *mut SoftwareInterruptFrame, 
                 }
             }
         }
+        0xb => unsafe {
+            let pathname = frame.r0 as *const u8;
+            let argv = frame.r1 as *mut *const u8;
+            let _envp = frame.r2 as *mut *const u8;
+            
+            if pathname.is_null() {
+                println!("[execve] pathname is null");
+                EINVAL
+            } else {
+                let path_str = c_str_to_str(pathname);
+                println!("[execve] pathname: {}", path_str);
+                
+                // Extract command name (e.g., "/bin/cat" -> "cat")
+                let cmd = if let Some(pos) = path_str.rfind('/') {
+                    &path_str[pos + 1..]
+                } else {
+                    path_str
+                };
+                
+                println!("[execve] command: {}", cmd);
+                
+                // Count argc and print argv
+                let mut argc = 0;
+                if !argv.is_null() {
+                    while !(*argv.add(argc)).is_null() {
+                        let arg_str = c_str_to_str(*argv.add(argc));
+                        println!("[execve] argv[{}]: {}", argc, arg_str);
+                        argc += 1;
+                    }
+                }
+                println!("[execve] argc: {}", argc);
+                
+                // Check if it's a known busybox applet
+                // For now, just check the ones we know about
+                match cmd {
+                    "cat" | "ls" | "mkdir" | "cp" | "env" | "crc32" | "printf" => {
+                        println!("[execve] recognized busybox applet: {}", cmd);
+                        // TODO: Actually call the applet main function
+                        // For now, just return ENOSYS to see what happens
+                        ENOSYS
+                    }
+                    _ => {
+                        println!("[execve] unknown command: {}", cmd);
+                        ENOENT
+                    }
+                }
+            }
+        }
         // 0xb3 => {
         //     // (-EINTR as i32) as u32
         //     // (-514i32) as u32

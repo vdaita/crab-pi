@@ -1,1 +1,1 @@
-#undef CONFIG_ASH_SLEEP
+#define CONFIG_ASH_SLEEP 1

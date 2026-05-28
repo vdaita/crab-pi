@@ -1,1 +1,1 @@
-#undef CONFIG_UBIRMVOL
+#define CONFIG_UBIRMVOL 1
