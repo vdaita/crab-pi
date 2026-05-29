@@ -1,1 +1,1 @@
-#define CONFIG_SLEEP 1
+#undef CONFIG_SLEEP

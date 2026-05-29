@@ -1,1 +1,1 @@
-#define CONFIG_UBIMKVOL 1
+#undef CONFIG_UBIMKVOL

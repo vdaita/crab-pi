@@ -1,1 +1,1 @@
-#define CONFIG_BZCAT 1
+#undef CONFIG_BZCAT

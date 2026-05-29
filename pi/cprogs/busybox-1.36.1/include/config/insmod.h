@@ -1,1 +1,1 @@
-#define CONFIG_INSMOD 1
+#undef CONFIG_INSMOD

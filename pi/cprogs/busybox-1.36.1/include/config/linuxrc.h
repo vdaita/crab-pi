@@ -1,1 +1,1 @@
-#define CONFIG_LINUXRC 1
+#undef CONFIG_LINUXRC

@@ -1,1 +1,1 @@
-#define CONFIG_LINUX32 1
+#undef CONFIG_LINUX32

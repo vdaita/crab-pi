@@ -1,1 +1,1 @@
-#define CONFIG_BLOCKDEV 1
+#undef CONFIG_BLOCKDEV

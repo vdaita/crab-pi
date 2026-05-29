@@ -1,1 +1,1 @@
-#define CONFIG_TC 1
+#undef CONFIG_TC

@@ -1,1 +1,1 @@
-#define CONFIG_LZOP 1
+#undef CONFIG_LZOP

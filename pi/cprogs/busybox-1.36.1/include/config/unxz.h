@@ -1,1 +1,1 @@
-#define CONFIG_UNXZ 1
+#undef CONFIG_UNXZ

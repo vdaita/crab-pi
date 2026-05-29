@@ -1,1 +1,1 @@
-#define CONFIG_ZCIP 1
+#undef CONFIG_ZCIP

@@ -1,1 +1,1 @@
-#define CONFIG_BB_ARCH 1
+#undef CONFIG_BB_ARCH

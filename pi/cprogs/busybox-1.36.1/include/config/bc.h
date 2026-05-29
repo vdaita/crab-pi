@@ -1,1 +1,1 @@
-#define CONFIG_BC 1
+#undef CONFIG_BC

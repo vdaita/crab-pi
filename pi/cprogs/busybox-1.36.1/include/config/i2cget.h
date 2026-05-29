@@ -1,1 +1,1 @@
-#define CONFIG_I2CGET 1
+#undef CONFIG_I2CGET

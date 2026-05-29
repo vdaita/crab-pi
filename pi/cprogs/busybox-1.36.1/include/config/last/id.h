@@ -1,1 +1,1 @@
-#define CONFIG_LAST_ID 60000
+#define CONFIG_LAST_ID 0

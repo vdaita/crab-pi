@@ -1,1 +1,1 @@
-#define CONFIG_XZCAT 1
+#undef CONFIG_XZCAT

@@ -1,1 +1,1 @@
-#define CONFIG_DEFAULT_MODULES_DIR "/lib/modules"
+#define CONFIG_DEFAULT_MODULES_DIR ""

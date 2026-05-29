@@ -1,1 +1,1 @@
-#define CONFIG_SEEDRNG 1
+#undef CONFIG_SEEDRNG

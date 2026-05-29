@@ -1,1 +1,1 @@
-#define CONFIG_ROUTE 1
+#undef CONFIG_ROUTE

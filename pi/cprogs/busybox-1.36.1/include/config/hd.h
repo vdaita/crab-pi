@@ -1,1 +1,1 @@
-#define CONFIG_HD 1
+#undef CONFIG_HD

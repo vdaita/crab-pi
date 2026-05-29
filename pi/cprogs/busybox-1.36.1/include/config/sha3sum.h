@@ -1,1 +1,1 @@
-#define CONFIG_SHA3SUM 1
+#undef CONFIG_SHA3SUM

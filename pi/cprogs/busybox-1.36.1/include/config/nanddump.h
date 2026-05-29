@@ -1,1 +1,1 @@
-#define CONFIG_NANDDUMP 1
+#undef CONFIG_NANDDUMP

@@ -1,1 +1,1 @@
-#define CONFIG_PASTE 1
+#undef CONFIG_PASTE

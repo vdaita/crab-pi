@@ -1,1 +1,1 @@
-#define CONFIG_RM 1
+#undef CONFIG_RM

@@ -1,1 +1,1 @@
-#define CONFIG_MODPROBE 1
+#undef CONFIG_MODPROBE

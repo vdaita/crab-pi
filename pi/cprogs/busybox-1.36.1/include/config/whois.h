@@ -1,1 +1,1 @@
-#define CONFIG_WHOIS 1
+#undef CONFIG_WHOIS

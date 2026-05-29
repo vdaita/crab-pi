@@ -1,1 +1,1 @@
-#define CONFIG_SHUF 1
+#undef CONFIG_SHUF

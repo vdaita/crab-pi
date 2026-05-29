@@ -1,1 +1,1 @@
-#define CONFIG_POWEROFF 1
+#undef CONFIG_POWEROFF

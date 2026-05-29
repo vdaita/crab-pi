@@ -1,1 +1,1 @@
-#define CONFIG_RESUME 1
+#undef CONFIG_RESUME

@@ -1,1 +1,1 @@
-#define CONFIG_ASH_HELP 1
+#undef CONFIG_ASH_HELP

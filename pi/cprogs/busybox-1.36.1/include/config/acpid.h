@@ -1,1 +1,1 @@
-#define CONFIG_ACPID 1
+#undef CONFIG_ACPID

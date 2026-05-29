@@ -1,1 +1,1 @@
-#define CONFIG_RMMOD 1
+#undef CONFIG_RMMOD

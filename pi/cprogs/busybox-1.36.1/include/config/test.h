@@ -1,1 +1,1 @@
-#define CONFIG_TEST 1
+#undef CONFIG_TEST

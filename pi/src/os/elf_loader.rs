@@ -334,9 +334,16 @@ impl ElfLoader {
 
         let argv0_bytes = b"sh\0";
         let argv0_heap = kmalloc::kmalloc(argv0_bytes.len()) as *mut u8;
+
+        // let argv1_bytes = b"HELLO.TXT\0";
+        // let argv1_heap = kmalloc::kmalloc(argv1_bytes.len()) as *mut u8;
+
         // println!("Allocated heap for argv0_bytes: {:p}", argv0_heap);
         core::ptr::copy_nonoverlapping(argv0_bytes.as_ptr(), argv0_heap, argv0_bytes.len());
+        // core::ptr::copy_nonoverlapping(argv1_bytes.as_ptr(), argv1_heap, argv1_bytes.len());
+
         let argv0_ptr = argv0_heap as u32;
+        // let argv1_ptr = argv1_heap as u32;
 
         // println!("Hello?");
 
@@ -360,9 +367,13 @@ impl ElfLoader {
         sp = sp.sub(1); *sp = 0;
 
         // argv pointers: argv[0], NULL
-        sp = sp.sub(1); *sp = 0;          // argv[1] == NULL
+        sp = sp.sub(1); *sp = 0;          // argv[2] == NULL
+        // sp = sp.sub(1); *sp = argv1_ptr; // argv[1]
         sp = sp.sub(1); *sp = argv0_ptr;  // argv[0]
 
+        // // argc = 2
+        // sp = sp.sub(1); *sp = 2;
+        
         // argc = 1
         sp = sp.sub(1); *sp = 1;
 

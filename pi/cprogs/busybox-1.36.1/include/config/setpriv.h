@@ -1,1 +1,1 @@
-#define CONFIG_SETPRIV 1
+#undef CONFIG_SETPRIV

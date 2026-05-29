@@ -1,1 +1,1 @@
-#define CONFIG_SWAPON 1
+#undef CONFIG_SWAPON

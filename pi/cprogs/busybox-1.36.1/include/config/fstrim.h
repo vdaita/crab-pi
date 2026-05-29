@@ -1,1 +1,1 @@
-#define CONFIG_FSTRIM 1
+#undef CONFIG_FSTRIM

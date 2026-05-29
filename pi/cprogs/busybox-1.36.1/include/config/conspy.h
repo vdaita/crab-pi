@@ -1,1 +1,1 @@
-#define CONFIG_CONSPY 1
+#undef CONFIG_CONSPY

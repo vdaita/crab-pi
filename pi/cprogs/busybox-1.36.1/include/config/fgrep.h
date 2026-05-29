@@ -1,1 +1,1 @@
-#define CONFIG_FGREP 1
+#undef CONFIG_FGREP

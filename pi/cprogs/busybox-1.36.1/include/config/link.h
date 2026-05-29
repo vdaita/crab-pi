@@ -1,1 +1,1 @@
-#define CONFIG_LINK 1
+#undef CONFIG_LINK

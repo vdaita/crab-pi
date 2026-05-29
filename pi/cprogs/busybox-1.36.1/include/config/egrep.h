@@ -1,1 +1,1 @@
-#define CONFIG_EGREP 1
+#undef CONFIG_EGREP

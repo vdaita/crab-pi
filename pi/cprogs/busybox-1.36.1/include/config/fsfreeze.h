@@ -1,1 +1,1 @@
-#define CONFIG_FSFREEZE 1
+#undef CONFIG_FSFREEZE

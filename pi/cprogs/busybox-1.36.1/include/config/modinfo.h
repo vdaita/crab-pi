@@ -1,1 +1,1 @@
-#define CONFIG_MODINFO 1
+#undef CONFIG_MODINFO
