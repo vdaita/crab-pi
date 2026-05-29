@@ -44,6 +44,7 @@ mod programs {
     pub mod oled_display;
 }
 mod os {
+    pub mod holder;
     pub mod interrupts;
     pub mod virtmem;
     pub mod elf_loader;

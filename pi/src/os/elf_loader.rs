@@ -300,8 +300,8 @@ impl ElfLoader {
         // set up MMU
         virtmem::mmu_reset();
         let user = MemPerm::perm_rw_user;
-        let dev = virtmem::make_global_pin_16mb(DOM_KERN, user, virtmem::MemAttr::MEM_device);
-        let kern = virtmem::make_global_pin_16mb(DOM_KERN, user, virtmem::MemAttr::MEM_uncached);
+        let dev = virtmem::make_global_pin(DOM_KERN, user, virtmem::MemAttr::MEM_device, virtmem::PageSizes::mb16);
+        let kern = virtmem::make_global_pin(DOM_KERN, user, virtmem::MemAttr::MEM_uncached, virtmem::PageSizes::mb16);
 
         self.pin_next(0x2000_0000, 0x2000_0000, dev);
         

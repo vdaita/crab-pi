@@ -1,8 +1,7 @@
 use crate::kmalloc;
 use crate::mem::{get32, put32};
 use crate::os::virtmem::{
-    make_global_pin, make_user_pin, mmu_disable, mmu_enable, mmu_reset, pin_mmu_sec, MemAttr,
-    MemPerm, pin_mmu_switch, pin_mmu_init, set_domain_access, mmu_is_enabled, make_global_pin_16mb
+    MemAttr, MemPerm, PageSizes, make_global_pin, make_global_pin_16mb, make_user_pin, mmu_disable, mmu_enable, mmu_is_enabled, mmu_reset, pin_mmu_init, pin_mmu_sec, pin_mmu_switch, set_domain_access
 };
 use crate::println;
 
@@ -25,9 +24,9 @@ pub fn vm_test() {
 
     // Device memory: kernel domain only, strongly ordered.
     // let dev = make_global_pin(DOM_KERN, no_user, MemAttr::MEM_device);
-    let dev = make_global_pin_16mb(DOM_KERN, no_user, MemAttr::MEM_device);
+    let dev = make_global_pin(DOM_KERN, no_user, MemAttr::MEM_device, PageSizes::mb16);
     // Kernel memory: kernel domain only, uncached normal memory.
-    let kern = make_global_pin_16mb(DOM_KERN, no_user, MemAttr::MEM_uncached);
+    let kern = make_global_pin(DOM_KERN, no_user, MemAttr::MEM_uncached, PageSizes::mb16);
 
     // Index into the 8 pinned TLB entries.
     let mut idx = 0;
@@ -54,7 +53,7 @@ pub fn vm_test() {
     idx += 1;
 
     // Create a single user mapping entry (non-global, ASID-tagged).
-    let user1 = make_user_pin(DOM_KERN, ASID1, no_user, MemAttr::MEM_uncached);
+    let user1 = make_user_pin(DOM_KERN, ASID1, no_user, MemAttr::MEM_uncached, PageSizes::mb1);
 
     let user_addr = ONE_MB * 16;
     assert_eq!((user_addr >> 12) % 16, 0);

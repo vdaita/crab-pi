@@ -8,8 +8,8 @@ use core::arch::asm;
 pub enum PageSizes {
     mb1 = 0b11,
     mb16 = 0b00,
-    kb64 = 0b01,
-    
+    kb64 = 0b10,
+    kb4 = 0b01
 }
 
 #[allow(non_camel_case_types)]
@@ -65,55 +65,33 @@ pub struct Pin {
     G: u32, // is this a global entry?
     asid: u32,
     dom: u32, // domain id
-    pagesize: u32, // 1MB or 16 MB
+    pagesize: PageSizes, // 1MB or 16 MB
 
     AP_perm: MemPerm,
     mem_attr: MemAttr
 }
 
+
+
 #[inline(never)]
-pub fn make_global_pin(dom: u32, ap_perm: MemPerm, mem_attr: MemAttr) -> Pin {
+pub fn make_global_pin(dom: u32, ap_perm: MemPerm, mem_attr: MemAttr, pagesize: PageSizes) -> Pin {
     Pin {
         G: 1,
         asid: 0,
         dom,
-        pagesize: 0b11,
+        pagesize: pagesize,
         AP_perm: ap_perm,
         mem_attr,
     }
 }
 
 #[inline(never)]
-pub fn make_global_pin_16mb(dom: u32, ap_perm: MemPerm, mem_attr: MemAttr) -> Pin {
-    Pin {
-        G: 1,
-        asid: 0,
-        dom,
-        pagesize: 0b00,
-        AP_perm: ap_perm,
-        mem_attr,
-    }
-}
-
-#[inline(never)]
-pub fn make_user_pin(dom: u32, asid: u32, ap_perm: MemPerm, mem_attr: MemAttr) -> Pin {
+pub fn make_user_pin(dom: u32, asid: u32, ap_perm: MemPerm, mem_attr: MemAttr, pagesize: PageSizes) -> Pin {
     Pin {
         G: 0,
         asid,
         dom,
-        pagesize: 0b11,
-        AP_perm: ap_perm,
-        mem_attr,
-    }
-}
-
-#[inline(never)]
-pub fn make_user_pin_16mb(dom: u32, asid: u32, ap_perm: MemPerm, mem_attr: MemAttr) -> Pin {
-    Pin {
-        G: 0,
-        asid,
-        dom,
-        pagesize: 0b00,
+        pagesize: pagesize,
         AP_perm: ap_perm,
         mem_attr,
     }
