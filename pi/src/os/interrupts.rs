@@ -1,4 +1,4 @@
-use crate::arch::{dev_barrier, gcc_mb};
+use crate::arch::{dev_barrier, gcc_mb, prefetch_flush};
 use crate::gpio::{read, set_input, set_output, set_on, set_off};
 use crate::os::virtmem::{mmu_disable, mmu_enable};
 use crate::pmu_profiler::EventBus::SoftwarePcChange;
@@ -195,6 +195,20 @@ fork_trampoline_back:
     
     @ Now jump with the correct lr
     movs pc, lr
+
+.globl elf_loader_tramp
+elf_loader_tramp:
+    ldr r1, [r0, #0]     @ user_stack
+    ldr r2, [r0, #4]     @ entry
+    ldr r3, [r0, #8]     @ arg0 (argc)
+    ldr r12, [r0, #12]   @ arg1 (argv)
+    ldr lr, [r0, #16]    @ arg2 (envp)
+    mov sp, r1            @ set user stack
+    mov r0, r3            @ argc
+    mov r1, r12           @ argv
+    mov r12, r2           @ save entry
+    mov r2, lr            @ envp
+    bx r12                @ jump to entry
 "#,
     SUPER_MODE = const CPSR_SUPER_MODE
 );
@@ -803,342 +817,7 @@ pub fn print_prefork_state() {
     }
 }
 
-#[unsafe(no_mangle)]
-#[inline(never)]
-pub extern "C" fn software_interrupt_vector(frame: *mut SoftwareInterruptFrame, svc_lr: u32) -> u32 {
-    dev_barrier();
-    mmu_disable();
-
-    // For SVC, lr points to the next instruction, so SVC is at lr - 4.
-    let svc_pc = svc_lr.wrapping_sub(4);
-    let instr = unsafe { core::ptr::read_volatile(svc_pc as *const u32) };
-    let imm = instr & 0x00ff_ffff;
-    let frame = unsafe { &mut *frame };
-
-    let nr = if imm == 0 {
-        frame.r7
-    } else if (imm & 0x00ff_0000) == 0x0090_0000 {
-        imm - 0x0090_0000
-    } else {
-        imm
-    };
-
-    let user_sp = get_user_sp();
-
-    println!(
-        "SWI called: pc={:#x}, instr={:#x}, arg0={:#x}, arg1={:#x}, arg2={:#x}, arg3={:#x}, arg4={:#x}, arg5={:#x}, nr={:#x}, user_sp={:#x}",
-        svc_pc, instr, frame.r0, frame.r1, frame.r2, frame.r3, frame.r4, frame.r5, nr, user_sp
-    );
-
-    let ret = match nr {
-        0x1 => {
-            unsafe { handle_exit_or_fork_ret(); }
-            0
-        }
-        0x2 => {
-            // unsafe {
-            //     sequester_process_program();
-            //     sequester_process_heap();
-            //     let sp_usr = get_user_sp() as *mut u8;
-            //     sequester_process_stack(sp_usr);
-
-            //     kmalloc::kmalloc(1024);
-
-            //     reload_stack_data();
-            //     reload_heap_data();
-
-            //     print_frame(*frame);
-
-            //     fork_trampoline_back(svc_lr, sp_usr as u32, core::ptr::addr_of!(*frame));
-            // }
-            // 3
-            unsafe {
-                print_prefork_state();
-                if (pre_fork_data.process_running && !pre_fork_data.process_collected) {
-                    let pc = pre_fork_data.return_pc;
-                    let sp = pre_fork_data.return_sp;
-                    let heap_curr = pre_fork_data.return_heap_curr;
-                    pre_fork_data.process_running = false; 
-                    println!(
-                        "[fork] re-entering child: return_pc={:#x}, return_sp={:#x}, return_heap_curr={:#x}",
-                        pc, sp, heap_curr,
-                    );
-                    3
-                } else {
-                    let heap_curr = kmalloc::HEAP_CURR;
-                    let sp_usr = get_user_sp() as *mut u8;
-                    println!(
-                        "[fork] saving pre-fork state: pc={:#x}, sp_usr={:p}, heap_curr={:#x}",
-                        svc_pc,
-                        sp_usr,
-                        heap_curr,
-                    );
-                    print_frame(*frame);
-
-                    pre_fork_data.return_pc = svc_pc;
-                    pre_fork_data.return_heap_curr = heap_curr;
-                    pre_fork_data.return_sp = sp_usr as usize;
-                    pre_fork_data.return_frame = *frame;
-
-                    pre_fork_data.process_running = true;
-                    pre_fork_data.process_collected = false;
-
-                    sequester_process_program();
-                    sequester_process_heap();
-                    sequester_process_stack(sp_usr);
-                    0
-                }
-            }
-        }
-        0x3 => {
-            let fd = frame.r0;
-            let buf_ptr = frame.r1 as *mut u8;
-            let len = frame.r2 as usize;
-            if fd != 0 {
-                unsafe {
-                    if fd == DIR_FD {
-                        if buf_ptr.is_null() {
-                            EINVAL
-                        } else if DIR_BUF.is_null() || DIR_BUF_OFF >= DIR_BUF_LEN {
-                            0
-                        } else {
-                            let remaining = DIR_BUF_LEN - DIR_BUF_OFF;
-                            let to_copy = if len < remaining { len } else { remaining };
-                            copy_nonoverlapping(DIR_BUF.add(DIR_BUF_OFF), buf_ptr, to_copy);
-                            DIR_BUF_OFF += to_copy;
-                            to_copy as u32
-                        }
-                    } else {
-                        EINVAL
-                    }
-                }
-            } else if len == 0 {
-                0
-            } else if buf_ptr.is_null() {
-                EINVAL
-            } else {
-                let buf = unsafe { core::slice::from_raw_parts_mut(buf_ptr, len) };
-                crate::uart::read_bytes(buf) as u32
-            }
-        }
-        0x4 => {
-            let fd = frame.r0;
-            let buf_ptr = frame.r1 as *const u8;
-            let len = frame.r2 as usize;
-            if (fd == 1 || fd == 2) && !buf_ptr.is_null() {
-                println!("writing out with fd={}, buf_ptr={:p}, len={}", fd, buf_ptr, len);
-                let bytes = unsafe { core::slice::from_raw_parts(buf_ptr, len) };
-                crate::uart::write_bytes("[prog]".as_bytes());
-                crate::uart::write_bytes(bytes);
-                crate::uart::write_bytes("[/prog]".as_bytes());
-                crate::uart::flush();
-                len as u32
-            } else {
-                EINVAL
-            }
-        }
-        0x2d => unsafe {
-            if PROGRAM_BREAK == 0 {
-                PROGRAM_BREAK = crate::kmalloc::kmalloc_aligned(4096, 4096) as u32;
-            }
-            if frame.r0 != 0 {
-                PROGRAM_BREAK = frame.r0;
-            }
-            PROGRAM_BREAK
-        },
-        0x92 => unsafe {
-            let fd = frame.r0;
-            let iov = frame.r1 as *const u32;
-            let iovcnt = frame.r2 as usize;
-            if fd != 1 && fd != 2 {
-                EINVAL
-            } else {
-                let mut total: u32 = 0;
-                for i in 0..iovcnt {
-                    let base = unsafe { core::ptr::read_volatile(iov.add(i * 2)) } as *const u8;
-                    let len  = unsafe { core::ptr::read_volatile(iov.add(i * 2 + 1)) } as usize;
-                    if !base.is_null() && len > 0 {
-                        let bytes = unsafe { core::slice::from_raw_parts(base, len) };
-                        if (fd == 1 || fd == 2){
-                            crate::uart::write_bytes("[prog]".as_bytes());
-                        }
-                        crate::uart::write_bytes(bytes);
-                        if (fd == 1 || fd == 2){
-                            crate::uart::write_bytes("[/prog]".as_bytes());
-                        }
-                        total = total.wrapping_add(len as u32);
-                    }
-                }
-                crate::uart::flush();
-                total as u32
-            }
-        },
-        0xc0 => unsafe {
-            let len = frame.r1 as usize;
-            let ptr = crate::kmalloc::kmalloc_aligned(len, 4096);
-            core::ptr::write_bytes(ptr, 0, len);
-            // println!("mmap2 returning {:#x}", ptr);
-            ptr as u32
-        },
-        0x14 => 0,
-        0x5 => unsafe {
-            let pathname = frame.r0 as *const u8;
-            let _flags = frame.r1;
-            let _mode = frame.r2;
-            if pathname.is_null() {
-                EINVAL
-            } else {
-                let path = normalize_path(c_str_to_str(pathname));
-                if path == "." || path == "/" {
-                    build_root_dir_listing();
-                    DIR_IDX = 0;
-                    DIR_FD
-                } else {
-                    ENOENT
-                }
-            }
-        },
-        0xf0005 => {
-            unsafe { set_tls(frame.r0); }
-            0
-        }
-        0x100 => set_tid_address(frame.r0),
-        0xf8 => {
-            unsafe { handle_exit_or_fork_ret(); }
-            0
-        },
-        0xac => 0,
-        0xae => 0,
-        0xaf => 0,
-        0x6 => 0,
-        0x5b => 0,
-        0xd9 => unsafe {
-            let fd = frame.r0;
-            let dirp = frame.r1 as *mut u8;
-            let count = frame.r2 as usize;
-            if fd != DIR_FD {
-                EINVAL
-            } else {
-                get_root_dirents64(dirp, count)
-            }
-        },
-        0xdd => 0,
-        0xc9 => {
-            println!("exit_group called with code {}", frame.r0);
-            0
-            // loop {}
-        },
-        0xb7 => {
-            let buf = frame.r0 as *mut u8;
-            unsafe {
-                *buf = b'/';
-                *buf.add(1) = 0;
-            }
-            frame.r0
-        },
-        0x36 => 0,
-        0x40 => 0,
-        0x18d => unsafe {
-            let _dirfd = frame.r0;
-            let pathname_bytes = frame.r1 as *mut u8;
-            let _flags = frame.r2;
-            let _mask = frame.r3;
-            let statx_out = frame.r4 as *mut fs_manager::Statx;
-
-            let mut filename_len = 0;
-            while *(pathname_bytes.add(filename_len)) != 0 && filename_len < 256 {
-                filename_len += 1;
-            }
-            let filename_slice = core::slice::from_raw_parts(pathname_bytes, filename_len);
-            let filename = core::str::from_utf8(filename_slice).unwrap_or("");
-            let filename = normalize_path(filename);
-
-            let fs_manager = fs_manager::get_fat32_manager();
-            let stat_ptr = fat32::fat32_stat(&(*fs_manager).fs, &(*fs_manager).root, filename);
-            if stat_ptr.is_null() {
-                ENOENT
-            } else {
-                (*statx_out) = (*fs_manager).get_file_stat(filename);
-                0
-            }
-        },
-        0x72 => {
-            // profiler::breakpoint_mismatch_start();
-            unsafe {
-                print_prefork_state();
-                if !pre_fork_data.process_collected {
-                    pre_fork_data.process_running = false;
-                    pre_fork_data.process_collected = true;
-                    println!("Process collected not true. WaitPID was executed. User stack is = {:0x}", get_user_sp());
-                    print_prefork_state();
-                    3
-                } else {
-                    (-10i32) as u32
-                }
-            }
-        }
-        0xb => unsafe {
-            let pathname = frame.r0 as *const u8;
-            let argv = frame.r1 as *mut *const u8;
-            let _envp = frame.r2 as *mut *const u8;
-            
-            if pathname.is_null() {
-                println!("[execve] pathname is null");
-                EINVAL
-            } else {
-                let path_str = c_str_to_str(pathname);
-                println!("[execve] pathname: {}", path_str);
-                
-                // Extract command name (e.g., "/bin/cat" -> "cat")
-                let cmd = if let Some(pos) = path_str.rfind('/') {
-                    &path_str[pos + 1..]
-                } else {
-                    path_str
-                };
-                
-                println!("[execve] command: {}", cmd);
-                
-                // Count argc and print argv
-                let mut argc = 0;
-                if !argv.is_null() {
-                    while !(*argv.add(argc)).is_null() {
-                        let arg_str = c_str_to_str(*argv.add(argc));
-                        println!("[execve] argv[{}]: {}", argc, arg_str);
-                        argc += 1;
-                    }
-                }
-                println!("[execve] argc: {}", argc);
-                
-                // Check if it's a known busybox applet
-                // For now, just check the ones we know about
-                match cmd {
-                    "cat" | "ls" | "mkdir" | "cp" | "env" | "crc32" | "printf" => {
-                        println!("[execve] recognized busybox applet: {}", cmd);
-                        // TODO: Actually call the applet main function
-                        // For now, just return ENOSYS to see what happens
-                        ENOSYS
-                    }
-                    _ => {
-                        println!("[execve] unknown command: {}", cmd);
-                        ENOENT
-                    }
-                }
-            }
-        }
-        // 0xb3 => {
-        //     // (-EINTR as i32) as u32
-        //     // (-514i32) as u32
-        // },
-        _ => {
-            println!("unknown SVC: {:#x}", nr);
-            ENOSYS
-        }
-    };
-
-    mmu_enable();
-    dev_barrier();
-    ret
-}
+// software_interrupt_vector moved to holder.rs
 
 pub fn start_interrupts(itable_start: usize, itable_end: usize) {
     println!("about to install interrupts");
@@ -1146,11 +825,14 @@ pub fn start_interrupts(itable_start: usize, itable_end: usize) {
         disable_interrupts_asm();
         core::ptr::write_volatile(IRQ_DISABLE_1 as *mut u32, 0xffffffff);
         core::ptr::write_volatile(IRQ_DISABLE_2 as *mut u32, 0xffffffff);
+        core::ptr::write_volatile(IRQ_DISABLE_BASIC as *mut u32, 0xffffffff);
         println!("just disabled interrupts");
     }
     dev_barrier();
     gcc_mb();
     move_table(itable_start, itable_end);
+    dev_barrier();
+    unsafe { prefetch_flush(); }
     gcc_mb();
      
     unsafe {

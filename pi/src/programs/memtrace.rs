@@ -192,9 +192,9 @@ pub fn memtrace_init(data: *const u32, trace_handler: fn(u32, u32)) {
 
     let unaccessible = virtmem::MemPerm::perm_na_priv;
     let no_user      = virtmem::MemPerm::perm_rw_priv;
-    let dev  = virtmem::make_global_pin_16mb(DOM_KERN, no_user,      virtmem::MemAttr::MEM_device);
-    let kern = virtmem::make_global_pin(DOM_KERN, no_user,      virtmem::MemAttr::MEM_uncached);
-    let heap = virtmem::make_global_pin_16mb(DOM_KERN, unaccessible, virtmem::MemAttr::MEM_uncached);
+    let dev  =     virtmem::make_global_pin(DOM_KERN, no_user,      virtmem::MemAttr::MEM_device,      virtmem::PageSizes::mb16);
+    let kern = virtmem::make_global_pin(DOM_KERN, no_user,      virtmem::MemAttr::MEM_uncached, virtmem::PageSizes::mb16);
+    let heap = virtmem::make_global_pin(DOM_KERN, unaccessible, virtmem::MemAttr::MEM_uncached, virtmem::PageSizes::mb16);
 
     virtmem::pin_mmu_sec(0, 0x2000_0000, 0x2000_0000, dev);
     virtmem::pin_mmu_sec(1, 0, 0, kern);

@@ -4,8 +4,8 @@ use core::mem::transmute;
 use core::ptr;
 use crate::arch::{prefetch_flush, dsb};
 use crate::os::virtmem::{
-    make_global_pin_16mb, make_user_pin, mmu_disable, mmu_enable, mmu_reset, pin_mmu_sec, MemAttr,
-    MemPerm, pin_mmu_switch, pin_mmu_init, mmu_is_enabled,
+    make_global_pin, make_user_pin, mmu_disable, mmu_enable, mmu_reset, pin_mmu_sec, MemAttr,
+    MemPerm, PageSizes, pin_mmu_switch, pin_mmu_init, mmu_is_enabled,
 };
 use crate::mem::{get32, put32};
 use crate::os::utils::{self, disable_branch_prediction, disable_dcache, disable_l1_instruction_cache, enable_branch_prediction, enable_dcache, enable_l1_instruction_cache, is_branch_prediction_enabled};
@@ -484,15 +484,15 @@ fn dcache_test() {
 
     let no_user = MemPerm::perm_rw_priv;
 
-    let dev = make_global_pin_16mb(DOM_KERN, no_user, MemAttr::MEM_device);
-    let kern = make_global_pin_16mb(DOM_KERN, no_user, MemAttr::MEM_uncached);
+    let dev = make_global_pin(DOM_KERN, no_user, MemAttr::MEM_device, PageSizes::mb16);
+    let kern = make_global_pin(DOM_KERN, no_user, MemAttr::MEM_uncached, PageSizes::mb16);
 
     // Index into the 8 pinned TLB entries.
     pin_mmu_sec(0, 0x2000_0000, 0x2000_0000,dev);
     pin_mmu_sec(1, 0, 0, kern);
     pin_mmu_sec(2, STACK_ADDR - ONE_MB, STACK_ADDR - ONE_MB, kern);
 
-    let user1 = make_user_pin(DOM_KERN, ASID1, no_user, MemAttr::MEM_cached);
+    let user1 = make_user_pin(DOM_KERN, ASID1, no_user, MemAttr::MEM_cached, PageSizes::mb16);
     let user_addr = ONE_MB * 16;
     assert_eq!((user_addr >> 12) % 16, 0);
     for i in 0..16 {

@@ -1,7 +1,7 @@
 use crate::kmalloc;
 use crate::mem::{get32, put32};
 use crate::os::virtmem::{
-    MemAttr, MemPerm, PageSizes, make_global_pin, make_global_pin_16mb, make_user_pin, mmu_disable, mmu_enable, mmu_is_enabled, mmu_reset, pin_mmu_init, pin_mmu_sec, pin_mmu_switch, set_domain_access
+    MemAttr, MemPerm, PageSizes, make_global_pin, make_user_pin, mmu_disable, mmu_enable, mmu_is_enabled, mmu_reset, pin_mmu_init, pin_mmu_sec, pin_mmu_switch, set_domain_access
 };
 use crate::println;
 

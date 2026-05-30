@@ -1,7 +1,6 @@
 use crate::fat32::{self, pi_file_t};
 use crate::os::threads::Thread;
 use crate::os::virtmem::{MemPerm, mmu_is_enabled};
-use core::arch::global_asm;
 use crate::os::virtmem;
 use crate::os::interrupts;
 use crate::{println, print};
@@ -66,43 +65,6 @@ struct ProgramContext {
     arg1: u32,
     arg2: u32,
 }
-
-pub static mut KERNEL_STACK: u32 = 0;
-pub static mut KERNEL_RETURN: u32 = 0;
-
-global_asm!(r#"
-.globl elf_loader_tramp
-.type elf_loader_tramp, %function
-elf_loader_tramp:
-    ldr r3, ={kernel_stack}
-    str sp, [r3]
-    ldr r3, ={kernel_return}
-    str lr, [r3]
-
-    ldr r1, [r0]        @ stack pointer
-    mov sp, r1
-
-    ldr r1, [r0, #4]    @ entry point
-    mov lr, r1
-
-    ldr r2, [r0, #16]   @ third argument
-    ldr r1, [r0, #12]   @ second argument
-    ldr r0, [r0, #8]    @ first argument
-
-    bx lr
-
-.globl elf_loader_return
-.type elf_loader_return, %function
-elf_loader_return:
-    ldr r3, ={kernel_stack}
-    ldr sp, [r3]
-    ldr r3, ={kernel_return}
-    ldr lr, [r3]
-    bx lr
-"#,
-    kernel_stack = sym KERNEL_STACK,
-    kernel_return = sym KERNEL_RETURN,
-);
 
 unsafe extern "C" {
     pub fn elf_loader_tramp(data: *mut ProgramContext);
@@ -406,10 +368,5 @@ pub fn test_elf_loader() {
         core::ptr::addr_of!(interrupts::INTERRUPT_TABLE_START) as usize,
         core::ptr::addr_of!(interrupts::INTERRUPT_TABLE_END) as usize
     );
-
-    unsafe {
-        let mut loader: ElfLoader = ElfLoader::new();
-        println!("About to run user program!");
-        loader.run("BUSYBOX", 0, 0, 0, 1);
-    }
+    crate::os::holder::launch_program("BUSYBOX", 0);
 }
