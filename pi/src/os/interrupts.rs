@@ -329,6 +329,26 @@ pub fn move_table(interrupt_table_start_addr: usize, interrupt_table_end_addr: u
     }
 }
 
+
+pub fn move_table_vbar(interrupt_table_start_addr: usize, interrupt_table_end_addr: usize, vbar: usize) {
+    let start: *const u32 = interrupt_table_start_addr as *const u32;
+    let end: *const u32 = interrupt_table_end_addr as *const u32;
+    let len = ((end as usize) - (start as usize)) / 4;
+    let dst = core::ptr::without_provenance_mut::<u32>(vbar);
+    unsafe {
+        for i in 0..len {
+            core::arch::asm!(
+                "ldr {t}, [{i}]",
+                "str {t}, [{o}]",
+                t = out(reg) _,
+                i = in(reg) start.add(i),
+                o = in(reg) dst.add(i),
+            )
+        }
+        // core::ptr::copy_nonoverlapping(start, dst, len);
+    }
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn print_asm(val: u32) {
     println!("ASM print val: {}", val);
@@ -1214,6 +1234,44 @@ pub fn report() {
 
         print!("lr = {}, pc = {}", lr, pc);
         print!("\n");
+    }
+}
+
+pub fn test_interrupts_vbar() {
+    unsafe {
+        const VBAR: usize = 0x1900_0000;
+
+        disable_interrupts_asm();
+        dev_barrier();
+        move_table_vbar(
+            core::ptr::addr_of!(INTERRUPT_TABLE_START) as usize,
+            core::ptr::addr_of!(INTERRUPT_TABLE_END) as usize,
+            VBAR
+        );
+
+        dev_barrier();
+        asm!("mcr p15, 0, {0}, c12, c0, 0", in(reg) VBAR, options(nostack, preserves_flags));
+        dev_barrier();
+
+        switch_to_user_mode();
+
+        let mut r0: u32 = 1; // for standard out
+        let test_str = "testing interrupt\n";
+        unsafe {
+            asm!(
+                "svc 0",
+                inout("r0") r0 => r0,
+                in("r1") test_str.as_ptr(),
+                in("r2") test_str.len(),
+                in("r7") 4u32,
+                options(nostack)
+            )
+        }
+
+        println!("Finished running SWI handler.");
+        let sp:u32;
+        unsafe{::core::arch::asm!("mov {t},sp",t=out(reg)sp)}
+        println!("Stack pointer: {sp:08x}");
     }
 }
 

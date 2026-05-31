@@ -244,7 +244,21 @@ pub fn mmu_disable() {
 
 #[inline(never)]
 pub fn pin_mmu_sec(idx: u32, va: u32, pa: u32, e: Pin) {
-    println!("about to map 0x{:0x} -> 0x{:0x} at index {}", va, pa, idx);
+    let page_bytes = match e.pagesize {
+        PageSizes::kb4 => 4 * 1024,
+        PageSizes::kb64 => 64 * 1024,
+        PageSizes::mb1 => 1024 * 1024,
+        PageSizes::mb16 => 16 * 1024 * 1024,
+    };
+    println!(
+        "MMU mapping {} 0x{:x}-0x{:x} --> 0x{:x}-0x{:x} ({:?})",
+        idx,
+        va,
+        va.wrapping_add(page_bytes - 1),
+        pa,
+        pa.wrapping_add(page_bytes - 1),
+        e.pagesize,
+    );
     cpsr_int_disable();
 
     let mut va_ent: u32 = (va & 0xFFFFF000) | ((e.G & 1) << 9);
@@ -252,7 +266,7 @@ pub fn pin_mmu_sec(idx: u32, va: u32, pa: u32, e: Pin) {
         va_ent |= e.asid & 0xFF;
     }
 
-    let mut pa_ent: u32 = pa | ((e.AP_perm as u32) << 1) | (e.pagesize << 6) | 1;
+    let mut pa_ent: u32 = pa | ((e.AP_perm as u32) << 1) | ((e.pagesize as u32) << 6) | 1;
     let mut attr: u32 = (e.dom << 7) | ((e.mem_attr as u32) << 1);
 
     unsafe {

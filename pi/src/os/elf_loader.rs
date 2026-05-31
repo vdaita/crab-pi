@@ -327,10 +327,10 @@ impl ElfLoader {
 
         virtmem::pin_mmu_init(!0);
         virtmem::mmu_enable();
-        // println!("MMU enabled");
+        println!("MMU enabled");
 
         interrupts::switch_to_user_mode();
-        // println!("Switched to user mode");
+        println!("Switched to user mode");
 
         let argv0_bytes = b"sh\0";
         let argv0_heap = kmalloc::kmalloc(argv0_bytes.len()) as *mut u8;

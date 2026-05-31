@@ -1,9 +1,8 @@
+#![feature(sync_unsafe_cell)]
 #![no_std]
 #![no_main]
 
 use core::arch::global_asm;
-
-use crate::{os::{interrupts::enable_interrupts_asm, utils::enable_branch_prediction}, programs::{lightstrip, memtrace}};
 
 mod arch;
 mod llvm_infra;
@@ -14,35 +13,35 @@ mod mem;
 mod gpio;
 mod start;
 mod uart;
-mod gpu;
-mod matmul;
-mod softmax;
 mod watchdog;
 mod timer;
 mod kmalloc;
 mod fat32;
 mod fast_hash;
 mod crc;
-mod gpt;
+// mod gpt;
+// mod gpu;
+// mod matmul;
+// mod softmax;
 mod ckalloc;
 mod profiler;
 mod pmu_profiler;
 mod bit_utils;
-mod programs {
-    pub mod gpu_test;
-    pub mod mandelbrot;
-    pub mod fat32_test;
-    pub mod matrix_load_test;
-    pub mod derive_jit;
-    pub mod ir;
-    pub mod ckmalloc_test;
-    pub mod vm_test;
-    pub mod imu;
-    pub mod lightstrip;
-    pub mod memtrace;
-    pub mod stepper_motor;
-    pub mod oled_display;
-}
+// mod programs {
+//     pub mod gpu_test;
+//     pub mod mandelbrot;
+//     pub mod fat32_test;
+//     pub mod matrix_load_test;
+//     pub mod derive_jit;
+//     pub mod ir;
+//     pub mod ckmalloc_test;
+//     pub mod vm_test;
+//     pub mod imu;
+//     pub mod lightstrip;
+//     pub mod memtrace;
+//     pub mod stepper_motor;
+//     pub mod oled_display;
+// }
 mod os {
     pub mod holder;
     pub mod interrupts;
@@ -77,10 +76,24 @@ pub fn main() {
         // os::utils::enable_l1_instruction_cache();
         // os::utils::enable_branch_prediction();
     }
-
-
     uart::init();
     println!("Hello from Rust on the Pi!");
+
+    // os::interrupts::test_interrupts();
+    // os::interrupts::test_interrupts_vbar();
+
+    // unsafe {
+    //     os::holder::mmu_identity_map_test();
+    // }
+
+    unsafe {
+        // os::holder::mmu_identity_map_test();
+        os::holder::OSHolder::init();    
+        let busybox_program_index = os::holder::OSHolder::os_holder_mut().load_elf("BUSYBOX");
+        println!("Program index: {}", busybox_program_index);
+        os::holder::OSHolder::os_holder_mut().run_elf(busybox_program_index, 0, 0, 0);
+        // let _ = hello_program_index;
+    }
 
     // programs::oled_display::test_oled_display();
     // programs::stepper_motor::run_stepper_motor();
@@ -92,7 +105,7 @@ pub fn main() {
     // profiler::test_profiler();
     // fat32::pi_sd_init();
     // programs::fat32_test::fat32_test();
-    os::elf_loader::test_elf_loader();
+    // os::elf_loader::test_elf_loader();
     // os::threads::test_threads();
     // programs::imu::imu_test();
     // os::interrupts::test_interrupts();
