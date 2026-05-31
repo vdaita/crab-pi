@@ -22,113 +22,113 @@ const DOM_KERN: u32 = 1;
 const DOM_USER: u32 = 2;
 const TINY_PAGE: usize = 4 * 1024;
 const LARGE_PAGE: usize = 16 * 1024 * 1024;
-const VBAR: usize = 0x1900_0000;
+pub const VBAR: usize = 0x1900_0000;
 const ONE_MB: usize = 1024 * 1024;
 const NUM_PROGRAMS: usize = 3;
-const MAX_ELF_SIZE: usize = 1024 * 1024;
-const MAX_STACK_SIZE: usize = 1024 * 64;
+const MAX_ELF_SIZE: usize = 1024 * 1024 * 2;
+const MAX_STACK_SIZE: usize = 1024 * 1024 * 4;
 const MAX_HEAP_SIZE: usize = 1024 * 1024;
 
-const KUSER_ADDR: usize = 0x1500_0000;
+pub const KUSER_ADDR: usize = 0x1600_0000;
 
 #[derive(Copy, Clone)]
-struct ELF {
-    data: [u8; MAX_ELF_SIZE],
+pub struct ELF {
+    pub data: [u8; MAX_ELF_SIZE],
 }
 
 #[derive(Copy, Clone)]
-struct Stack {
-    data: [u8; MAX_STACK_SIZE],
+pub struct Stack {
+    pub data: [u8; MAX_STACK_SIZE],
 }
 
 #[derive(Copy, Clone)]
-struct Heap {
-    data: [u8; MAX_HEAP_SIZE],
+pub struct Heap {
+    pub data: [u8; MAX_HEAP_SIZE],
 }
 
 #[derive(Clone, Copy, Default)]
 #[repr(C)]
-struct ElfHeader {
-    e_ident: [u8; 16],
-    e_type: u16,
-    e_machine: u16,
-    e_version: u32,
-    e_entry: usize,
-    e_phoff: usize,
-    e_shoff: usize,
-    e_flags: u32,
-    e_ehsize: u16,
-    e_phentsize: u16,
-    e_phnum: u16,
-    e_shentsize: u16,
-    e_shnum: u16,
-    e_shstrndx: u16
+pub struct ElfHeader {
+    pub e_ident: [u8; 16],
+    pub e_type: u16,
+    pub e_machine: u16,
+    pub e_version: u32,
+    pub e_entry: usize,
+    pub e_phoff: usize,
+    pub e_shoff: usize,
+    pub e_flags: u32,
+    pub e_ehsize: u16,
+    pub e_phentsize: u16,
+    pub e_phnum: u16,
+    pub e_shentsize: u16,
+    pub e_shnum: u16,
+    pub e_shstrndx: u16
 }
 
 #[repr(C)]
-struct ProgramHeader {
-    p_type: u32,
-    p_offset: usize,
-    p_vaddr: usize,
-    p_paddr: usize,
-    p_filesz: usize,
-    p_memsz: usize,
-    p_flags: u32,
-    p_align: u32
+pub struct ProgramHeader {
+    pub p_type: u32,
+    pub p_offset: usize,
+    pub p_vaddr: usize,
+    pub p_paddr: usize,
+    pub p_filesz: usize,
+    pub p_memsz: usize,
+    pub p_flags: u32,
+    pub p_align: u32
 }
 
 #[repr(C)]
-struct SectionHeader {
-    sh_name: u32,
-    sh_type: u32,
-    sh_flags: u32,
-    sh_addr: u32,
-    sh_offset: u32,
-    sh_size: u32,
-    sh_link: u32,
-    sh_info: u32,
-    sh_addralign: u32,
-    sh_entsize: u32
+pub struct SectionHeader {
+    pub sh_name: u32,
+    pub sh_type: u32,
+    pub sh_flags: u32,
+    pub sh_addr: u32,
+    pub sh_offset: u32,
+    pub sh_size: u32,
+    pub sh_link: u32,
+    pub sh_info: u32,
+    pub sh_addralign: u32,
+    pub sh_entsize: u32
 }
 
 #[derive(Copy, Clone, Default)]
 #[repr(C)]
 pub struct SoftwareInterruptFrame {
-    r0: u32,
-    r1: u32,
-    r2: u32,
-    r3: u32,
-    r4: u32,
-    r5: u32,
-    r6: u32,
-    r7: u32,
-    r8: u32,
-    r9: u32,
-    r10: u32,
-    r11: u32,
-    r12: u32,
-    lr: u32,
+    pub r0: u32,
+    pub r1: u32,
+    pub r2: u32,
+    pub r3: u32,
+    pub r4: u32,
+    pub r5: u32,
+    pub r6: u32,
+    pub r7: u32,
+    pub r8: u32,
+    pub r9: u32,
+    pub r10: u32,
+    pub r11: u32,
+    pub r12: u32,
+    pub lr: u32,
 }
 
 #[derive(Clone, Copy)]
 #[repr(C)]
-struct Program {
-    elf: ELF,
-    stack: Stack,
-    heap: Heap,
-    sp: usize,
-    heap_ptr: usize,
-    tid: u32,
-    frame: SoftwareInterruptFrame,
-    active: bool,
-    elf_header: ElfHeader,
-    elf_base: usize,
+pub struct Program {
+    pub elf: ELF,
+    pub stack: Stack,
+    pub heap: Heap,
+    pub sp: usize,
+    pub heap_ptr: usize,
+    pub tid: u32,
+    pub frame: SoftwareInterruptFrame,
+    pub active: bool,
+    pub elf_header: ElfHeader,
+    pub elf_base: usize,
 }
 
 #[repr(C)]
 pub struct OSHolder {
-    programs: [*mut Program; NUM_PROGRAMS],
-    current_program: usize
+    pub programs: [*mut Program; NUM_PROGRAMS],
+    pub current_program: usize
 }
 
 fn print_elf_header(elf_header: ElfHeader) {
@@ -147,41 +147,6 @@ fn print_elf_header(elf_header: ElfHeader) {
     println!("  e_shentsize = {:#06x}", elf_header.e_shentsize);
     println!("  e_shnum     = {:#06x}", elf_header.e_shnum);
     println!("  e_shstrndx  = {:#06x}", elf_header.e_shstrndx);
-}
-
-unsafe fn kuser_get_tls() -> u32 {
-    let tls: u32;
-    core::arch::asm!(
-        "mrc p15, 0, {tls}, c13, c0, 3",
-        tls = out(reg) tls,
-        options(nostack)
-    );
-    tls
-}
-
-unsafe fn kuser_cmpxchg(newval: u32, ptr: *mut u32) -> u32 {
-    let old: u32;
-    core::arch::asm!(
-        "ldr {old}, [{ptr}]",
-        "str {newval}, [{ptr}]",
-        ptr = in(reg) ptr,
-        newval = in(reg) newval,
-        old = out(reg) old,
-        options(nostack)
-    );
-    old
-}
-
-unsafe fn kuser_memory_barrier() {
-    core::arch::asm!(
-        "mcr p15, 0, {r0}, c7, c10, 5",
-        r0 = in(reg) 0u32,
-        options(nostack)
-    );
-}
-
-unsafe fn kuser_version() -> u32 {
-    return 5;
 }
 
 pub fn get_user_sp() -> u32 {
@@ -229,39 +194,36 @@ impl OSHolder {
         &mut *OS_HOLDER.get().cast::<OSHolder>()
     }
 
-    pub fn init() {
+    pub fn install_kuser_helpers() {
         unsafe {
-            interrupts::disable_interrupts_asm();
             dev_barrier();
-
-            core::ptr::write(OS_HOLDER.get().cast::<OSHolder>(), core::mem::zeroed());
-
             println!("About to copy Kuser helpers");
+ 
+            // __kernel_helper_version at VA 0xFFFF0FFC
+            core::ptr::write_volatile(
+                (KUSER_ADDR + 0x00FF0FFC) as *mut u32, elf_loader::kuser_version());
 
-            let holder = OSHolder::os_holder_mut();
-            
             // __kernel_get_tls at VA 0xFFFF0FA0
             core::ptr::copy_nonoverlapping(
-                kuser_get_tls as *const u32,
+                elf_loader::kuser_get_tls as *const u32,
                 (KUSER_ADDR + 0x00FF0FA0) as *mut u32, 4);
 
             // __kernel_cmpxchg at VA 0xFFFF0FC0
             core::ptr::copy_nonoverlapping(
-                kuser_cmpxchg as *const u32,
+                elf_loader::kuser_cmpxchg as *const u32,
                 (KUSER_ADDR + 0x00FF0FC0) as *mut u32, 8);
 
             // __kernel_memory_barrier at VA 0xFFFF0FE0
             core::ptr::copy_nonoverlapping(
-                kuser_memory_barrier as *const u32,
+                elf_loader::kuser_memory_barrier as *const u32,
                 (KUSER_ADDR + 0x00FF0FE0) as *mut u32, 2);
 
-            // __kernel_version at VA 0xFFFF0FFC
-            core::ptr::copy_nonoverlapping(
-                kuser_version as *const u32,
-                (KUSER_ADDR + 0x00FF0FFC) as *mut u32, 4);
-
             println!("Finished copying KUSER");
+        }
+    }
 
+    pub fn install_interrupts() {
+        unsafe {
             // copy over the interrupt table
             interrupts::move_table_vbar(
                 core::ptr::addr_of!(interrupts::INTERRUPT_TABLE_START) as usize,
@@ -272,16 +234,30 @@ impl OSHolder {
             dev_barrier();
             asm!("mcr p15, 0, {0}, c12, c0, 0", in(reg) VBAR, options(nostack, preserves_flags));
             dev_barrier();
+        }
+    }
+
+    pub fn init() {
+        unsafe {
+            core::ptr::write(OS_HOLDER.get().cast::<OSHolder>(), core::mem::zeroed());
+            OSHolder::install_kuser_helpers();
+            let holder = OSHolder::os_holder_mut();
+
 
             // initialize program pointers
             for i in 0..NUM_PROGRAMS {
-                let program_address = 0x0200_0000 + 0x0100_0000 * i;
-                holder.programs[i] = program_address as *mut Program;
+                // let program_address = 0x0200_0000 + 0x0100_0000 * i;
+                holder.programs[i] = 0x0000_0000 as *mut Program;
                 core::ptr::write_bytes(
-                    program_address as *mut u8,
+                    (holder.programs[i] as *mut u8).byte_add(0x0010_0000),
                     0,
                     core::mem::size_of::<Program>()
                 );
+                // core::ptr::write_bytes(
+                //     holder.programs[i] as *mut u8,
+                //     0,
+                //     core::mem::size_of::<Program>()
+                // );
             }            
             (*holder.programs[0]).active = true;
 
@@ -289,6 +265,8 @@ impl OSHolder {
                 println!("Program {} has memory location {:p}, active={}",
                     i, holder.programs[i], (*holder.programs[i]).active);
             }
+
+            interrupts::enable_interrupts_asm();
         }
     }
 
@@ -350,13 +328,17 @@ impl OSHolder {
                     continue;
                 }
 
-                println!("Loading segment {}: vaddr={:#x}, paddr={:#x}, offset={:#x}, filesz={}, memsz={}",
+                let source  = ((*file).data as *mut u8).add(prog_header.p_offset);
+                let dest = program.elf.data.as_mut_ptr().add(prog_header.p_paddr);
+
+                println!("Loading segment {}: vaddr={:#x}, paddr={:#x}, offset={:#x}, filesz={}, memsz={}, src={:p}, dst={:p}",
                     prog_header_idx, prog_header.p_vaddr, prog_header.p_paddr, 
-                    prog_header.p_offset, prog_header.p_filesz, prog_header.p_memsz);
+                    prog_header.p_offset, prog_header.p_filesz, prog_header.p_memsz,
+                    source, dest);
 
                 core::ptr::copy_nonoverlapping(
-                    ((*file).data as *mut u8).add(prog_header.p_offset),
-                    program.elf.data.as_mut_ptr().add(prog_header.p_paddr),
+                    source,
+                    dest,
                     prog_header.p_filesz
                 );
                 

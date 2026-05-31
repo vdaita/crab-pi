@@ -49,6 +49,7 @@ mod os {
     pub mod elf_loader;
     pub mod threads;
     pub mod utils;
+    pub mod elf_file;
 }
 
 unsafe fn enable_fpu() {

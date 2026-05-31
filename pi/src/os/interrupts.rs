@@ -47,7 +47,7 @@ _interrupt_asm:               .word interrupt_asm
 _interrupt_table_end:   @ end of the table.
 
 undefined_instruction_asm:                      @ A2-19
-    mov sp, 0x8800000
+    ldr sp, =0x17800000
     sub lr, lr, #4                              @ adjust lr to point to faulting instruction
     push {{r0-r12, lr}}
 
@@ -61,7 +61,7 @@ undefined_instruction_asm:                      @ A2-19
 
 software_interrupt_asm:                         @ A2-20
     cpsid i
-    mov sp, 0x8800000
+    ldr sp, =0x17800000
     push {{r0-r12, lr}}
 
     mov r0, sp
@@ -74,7 +74,7 @@ software_interrupt_asm:                         @ A2-20
     movs pc, lr
 
 prefetch_abort_asm:
-    mov sp, 0x8b00000 @ needs to be different...
+    ldr sp, =0x17b00000 @ needs to be different...
     sub lr, lr, #4
     push {{r0-r12, lr}}
 
@@ -86,7 +86,7 @@ prefetch_abort_asm:
     pop {{r0-r12, lr}}
     movs pc, lr
 data_abort_asm:
-    mov sp, 0x8800000
+    ldr sp, =0x17800000
     sub lr, lr, #4
     push {{r0-r12, lr}}
 
@@ -109,7 +109,7 @@ interrupt_asm:
   @  - <INT_STACK_ADDR> is a physical address we reserve 
   @   for exception stacks today.  we don't do recursive
   @   exception/interupts so one stack is enough.
-  mov sp, 0x8800000   @ Q: what if you delete?
+  ldr sp, =0x17800000   @ Q: what if you delete?
   sub   lr, lr, #4
 
   @ push regs: beter match a pop
