@@ -46,7 +46,7 @@ mod os {
     pub mod holder;
     pub mod interrupts;
     pub mod virtmem;
-    pub mod elf_loader;
+    // pub mod elf_loader;
     pub mod threads;
     pub mod utils;
     pub mod elf_file;
@@ -102,6 +102,8 @@ pub fn main() {
     //     // let _ = hello_program_index;
     // }
 
+    os::holder::test_elf_holder();
+
     // programs::oled_display::test_oled_display();
     // programs::stepper_motor::run_stepper_motor();
     // memtrace::test_memtrace_with_ckalloc();
@@ -112,7 +114,7 @@ pub fn main() {
     // profiler::test_profiler();
     // fat32::pi_sd_init();
     // programs::fat32_test::fat32_test();
-    os::elf_loader::test_elf_loader();
+    // os::elf_loader::test_elf_loader();
     // os::threads::test_threads();
     // programs::imu::imu_test();
     // os::interrupts::test_interrupts();

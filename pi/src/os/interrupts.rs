@@ -8,7 +8,6 @@ use crate::timer::{Timer};
 use core::arch::{asm, global_asm};
 use crate::mem::{get32, put32};
 use crate::gpio;
-use crate::os::elf_loader;
 use crate::profiler;
 use crate::fat32::{self, fs_manager};
 use core::ffi::{CStr, c_char};
