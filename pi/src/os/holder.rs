@@ -11,6 +11,7 @@ use crate::kmalloc;
 use core::cell::SyncUnsafeCell;
 use core::arch::asm;
 use core::mem::MaybeUninit;
+use crate::os::elf_loader;
 
 unsafe impl Sync for OSHolder {}
 
@@ -43,58 +44,6 @@ struct Stack {
 #[derive(Copy, Clone)]
 struct Heap {
     data: [u8; MAX_HEAP_SIZE],
-}
-
-global_asm!(r#"
-.globl os_holder_elf_loader_tramp
-.type os_holder_elf_loader_tramp, %function
-os_holder_elf_loader_tramp: 
-    str sp, [r2] 
-    str lr, [r3]
-
-    ldr r1, [r0]        @ stack pointer
-    mov sp, r1
-
-    ldr r1, [r0, #4]    @ entry point
-    mov lr, r1
-
-    ldr r2, [r0, #16]   @ third argument
-    ldr r1, [r0, #12]   @ second argument
-    ldr r0, [r0, #8]    @ first argument
-
-    bx lr
-
-.globl cswitch_tramp
-.type cswitch_tramp, %function
-cswitch_tramp:
-    @ r0 = pointer to frame
-    @ r1 = return sp
-
-    @ Set up SPSR for user mode  
-    mrs r12, cpsr
-    bic r12, r12, #0x1F
-    orr r12, r12, #0x10
-    msr spsr_cxsf, r12
-    
-    @ set user stack pointer
-    cps #0x1F
-    mov sp, r1
-    cps #0x13
-
-    @ load the return pc into lr
-    ldr lr, [r0, #52]  
-
-    @ load in all the general purpose registers
-    ldmia r1, {{r0-r12}}
-    movs pc, lr
-"#);
-
-unsafe extern "C" {
-    pub fn switch_to_user_mode();
-
-    pub fn os_holder_elf_loader_tramp(context: *mut ProgramContext, current_stack_save: *mut u32, current_save_lr: *mut u32);
-
-    pub fn cswitch_tramp(software_frame: *const SoftwareInterruptFrame, sp: *mut u8);
 }
 
 #[derive(Clone, Copy, Default)]
@@ -142,15 +91,6 @@ struct SectionHeader {
     sh_entsize: u32
 }
 
-#[repr(C)]
-struct ProgramContext {
-    user_stack: u32,
-    entry: u32,
-    arg0: u32,
-    arg1: u32,
-    arg2: u32,
-}
-
 #[derive(Copy, Clone, Default)]
 #[repr(C)]
 pub struct SoftwareInterruptFrame {
@@ -181,7 +121,8 @@ struct Program {
     tid: u32,
     frame: SoftwareInterruptFrame,
     active: bool,
-    elf_header: ElfHeader
+    elf_header: ElfHeader,
+    elf_base: usize,
 }
 
 #[repr(C)]
@@ -265,7 +206,6 @@ pub fn mmu_identity_map_test() {
     let kern_1mb = virtmem::make_global_pin(DOM_KERN, user, virtmem::MemAttr::MEM_uncached, virtmem::PageSizes::mb1);
 
     virtmem::pin_mmu_sec(0, 0x2000_0000, 0x2000_0000, dev);
-    // virtmem::pin_mmu_sec(1, 0x0, 0x0, kern);
     virtmem::pin_mmu_sec(2, 0x1000_0000, 0x1000_0000, kern);
     virtmem::pin_mmu_sec(3, (0x1000_0000 + 16 * ONE_MB) as u32, (0x1000_0000 + 16 * ONE_MB) as u32, kern);
     virtmem::pin_mmu_sec(4, (0x1800_0000 - 16 * ONE_MB) as u32, (0x1800_0000 - 16 * ONE_MB) as u32, kern);
@@ -291,6 +231,9 @@ impl OSHolder {
 
     pub fn init() {
         unsafe {
+            interrupts::disable_interrupts_asm();
+            dev_barrier();
+
             core::ptr::write(OS_HOLDER.get().cast::<OSHolder>(), core::mem::zeroed());
 
             println!("About to copy Kuser helpers");
@@ -326,7 +269,9 @@ impl OSHolder {
                 VBAR
             );
 
+            dev_barrier();
             asm!("mcr p15, 0, {0}, c12, c0, 0", in(reg) VBAR, options(nostack, preserves_flags));
+            dev_barrier();
 
             // initialize program pointers
             for i in 0..NUM_PROGRAMS {
@@ -374,6 +319,29 @@ impl OSHolder {
             println!("Current program index: {}", program_index);
             let program = self.get_program_mut(program_index);
             
+            // Find lowest address to determine ELF base
+            let mut lowest_paddr = usize::MAX;
+            let mut lowest_offset = usize::MAX;
+            
+            for prog_header_idx in 0..elf_header.e_phnum {
+                let prog_header_ptr = first_prog_header_ptr.add(prog_header_idx as usize);
+                let prog_header = core::ptr::read_unaligned(prog_header_ptr);
+                
+                if prog_header.p_type == 1 {  // PT_LOAD
+                    if prog_header.p_paddr < lowest_paddr {
+                        lowest_paddr = prog_header.p_paddr;
+                        lowest_offset = prog_header.p_offset;
+                    }
+                }
+            }
+            
+            let elf_base = lowest_paddr - lowest_offset;
+            program.elf_base = elf_base;
+            
+            println!("ELF base address: {:#x} (p_paddr={:#x}, p_offset={:#x})",
+                elf_base, lowest_paddr, lowest_offset);
+            
+            // Load segments
             for prog_header_idx in 0..elf_header.e_phnum {
                 let prog_header_ptr = first_prog_header_ptr.add(prog_header_idx as usize);
                 let prog_header = core::ptr::read_unaligned(prog_header_ptr);
@@ -382,9 +350,9 @@ impl OSHolder {
                     continue;
                 }
 
-                println!("Loading segment {}: vaddr={:#x}, offset={:#x}, filesz={}, memsz={}",
-                    prog_header_idx, prog_header.p_vaddr, prog_header.p_offset,
-                    prog_header.p_filesz, prog_header.p_memsz);
+                println!("Loading segment {}: vaddr={:#x}, paddr={:#x}, offset={:#x}, filesz={}, memsz={}",
+                    prog_header_idx, prog_header.p_vaddr, prog_header.p_paddr, 
+                    prog_header.p_offset, prog_header.p_filesz, prog_header.p_memsz);
 
                 core::ptr::copy_nonoverlapping(
                     ((*file).data as *mut u8).add(prog_header.p_offset),
@@ -395,21 +363,34 @@ impl OSHolder {
                 if prog_header.p_memsz > prog_header.p_filesz {
                     let bss_size = prog_header.p_memsz - prog_header.p_filesz;
                     core::ptr::write_bytes(
-                        program.elf.data.as_mut_ptr().add(prog_header.p_vaddr + prog_header.p_filesz),
+                        program.elf.data.as_mut_ptr().add(prog_header.p_paddr + prog_header.p_filesz),
                         0,
                         bss_size
                     );
                     println!("  Zeroed BSS: {} bytes", bss_size);
                 }
             }
+            
+            // Copy ELF header and program headers into memory
+            let ehdr_total = elf_header.e_phoff + 
+                elf_header.e_phnum as usize * elf_header.e_phentsize as usize;
+            
+            println!("Copying ELF headers: base={:#x}, size={}", elf_base, ehdr_total);
+            
+            core::ptr::write_bytes(program.elf.data.as_mut_ptr().add(elf_base), 0, lowest_offset);
+            core::ptr::copy_nonoverlapping(
+                (*file).data,
+                program.elf.data.as_mut_ptr().add(elf_base),
+                ehdr_total,
+            );
 
             program.elf_header = elf_header;
 
             println!("Loading ELF File with header: ");
             print_elf_header(elf_header);
 
-            program.sp = 0x00ff_ffff - 1024; // just going at the limits of this region
-            program.heap_ptr = 0x0088_8888; // TODO: find a better place to put the heap, this is just the midpoint of the region and could collide w/ stack pretty quickly
+            program.sp = 0x00ff_ffff - 1024;
+            program.heap_ptr = 0x0088_8888;
             program.tid = program_index as u32;
             program.active = true;
 
@@ -429,18 +410,37 @@ impl OSHolder {
         let kern_pin_mb16 = virtmem::make_global_pin(DOM_KERN, user, MemAttr::MEM_uncached, PageSizes::mb16);
         let kern_pin_kb4 = virtmem::make_global_pin(DOM_KERN, user, MemAttr::MEM_uncached, PageSizes::kb4);
 
-        virtmem::pin_mmu_sec(0, 0x2000_0000, 0x2000_0000, dev_pin_mb16); // pin the device memory    
-        virtmem::pin_mmu_sec(1, 0x1000_0000, 0x1000_0000, kern_pin_mb16); // pin the kernel memory
+        virtmem::pin_mmu_sec(0, 0x2000_0000, 0x2000_0000, dev_pin_mb16);
+        virtmem::pin_mmu_sec(1, 0x1000_0000, 0x1000_0000, kern_pin_mb16);
         virtmem::pin_mmu_sec(2, (0x1000_0000 + 16 * ONE_MB) as u32, (0x1000_0000 + 16 * ONE_MB) as u32, kern_pin_mb16);
         virtmem::pin_mmu_sec(3, (0x1800_0000 - 16 * ONE_MB) as u32, (0x1800_0000 - 16 * ONE_MB) as u32, kern_pin_mb16);
 
-        virtmem::pin_mmu_sec(4, VBAR as u32, VBAR as u32, kern_pin_kb4); // map the interrupt table
-        virtmem::pin_mmu_sec(5, 0xff00_0000, KUSER_ADDR as u32, kern_pin_mb16); // map the kuser helpers
+        virtmem::pin_mmu_sec(4, VBAR as u32, VBAR as u32, kern_pin_kb4);
+        virtmem::pin_mmu_sec(5, 0xff00_0000, KUSER_ADDR as u32, kern_pin_mb16);
         
-        virtmem::pin_mmu_sec(6, 0x0000_0000, self.programs[program_index] as u32, kern_pin_mb16); // map all of the user data
+        virtmem::pin_mmu_sec(6, 0x0000_0000, self.programs[program_index] as u32, kern_pin_mb16);
     }
 
-    pub fn run_elf(&mut self, program_index: usize, arg0: u32, arg1: u32, arg2: u32) {
+    pub fn test_swi() {
+        unsafe {
+            interrupts::switch_to_user_mode();
+            let mut r0: u32 = 1; // for standard out
+            let test_str = "testing interrupt\n";
+            unsafe {
+                asm!(
+                    "svc 0",
+                    inout("r0") r0 => r0,
+                    in("r1") test_str.as_ptr(),
+                    in("r2") test_str.len(),
+                    in("r7") 4u32,
+                    options(nostack)
+                )
+            }
+            println!("Finished running SWI handler.");
+        }
+    }
+
+    pub fn run_elf(&mut self, program_index: usize, prog_name: &str) {
         println!("Setting up MMU for program {}", program_index);
         self.map_program_mmu(program_index);
         
@@ -457,61 +457,82 @@ impl OSHolder {
             interrupts::enable_interrupts_asm();
             println!("Switched to user mode");
 
-            // program is mapped at va 0x0000_0000
             let program: &mut Program = &mut *(0x0000_0000 as *mut Program);
             crate::arch::dev_barrier();
             println!("Made reference to object at base memory");
-            println!("Data are at addresses: sp={:p}, elf_header={:p}", core::ptr::addr_of!(program.sp), core::ptr::addr_of!(program.elf_header));
             
-            println!("Stack pointer: 0x{:0x}", program.sp);
-            println!("e_entry: 0x{:0x}", program.elf_header.e_entry);
+            // Set up argv
+            let argv0_bytes = b"sh\0";
+            let argv0_ptr = program.heap.data.as_mut_ptr().add(program.heap_ptr);
+            core::ptr::copy_nonoverlapping(argv0_bytes.as_ptr(), argv0_ptr, argv0_bytes.len());
+            let argv0_addr = argv0_ptr as u32;
             
-            let mut context = ProgramContext {
-                user_stack: program.sp as u32,
+            // Set up stack
+            let stack_top = program.sp;
+            println!("User stack base: {:#x}", stack_top);
+            
+            core::ptr::write_bytes((stack_top - 1024) as *mut u8, 0, 1024);
+            
+            let mut sp = stack_top as *mut u32;
+            let phdr_addr = program.elf_base as u32 + program.elf_header.e_phoff as u32;
+            
+            sp = sp.sub(1); *sp = 0;                                        // AT_NULL val
+            sp = sp.sub(1); *sp = 0;                                        // AT_NULL type
+            sp = sp.sub(1); *sp = 4096;                                     // AT_PAGESZ val
+            sp = sp.sub(1); *sp = 6;                                        // AT_PAGESZ type
+            sp = sp.sub(1); *sp = program.elf_header.e_phnum as u32;        // AT_PHNUM val
+            sp = sp.sub(1); *sp = 5;                                        // AT_PHNUM type
+            sp = sp.sub(1); *sp = program.elf_header.e_phentsize as u32;    // AT_PHENT val
+            sp = sp.sub(1); *sp = 4;                                        // AT_PHENT type
+            sp = sp.sub(1); *sp = phdr_addr;                                // AT_PHDR val
+            sp = sp.sub(1); *sp = 3;                                        // AT_PHDR type
+            sp = sp.sub(1); *sp = 0;                                        // envp terminator
+            
+            sp = sp.sub(1); *sp = 0;           // argv[1] == NULL
+            sp = sp.sub(1); *sp = argv0_addr;  // argv[0]
+            
+            sp = sp.sub(1); *sp = 1;
+            
+            // Align stack to 8 bytes
+            if (sp as usize) & 7 != 0 {
+                sp = sp.sub(1);
+                *sp = 0;
+            }
+            
+            println!("Stack pointer: {:#x}", sp as u32);
+            println!("Entry point: {:#x}", program.elf_header.e_entry);
+            
+            let mut context = elf_loader::ProgramContext {
+                user_stack: sp as u32,
                 entry: program.elf_header.e_entry as u32,
-                arg0,
-                arg1,
-                arg2,
+                arg0: 1,                                    // argc
+                arg1: (sp.add(1) as *const u32) as u32,     // argv
+                arg2: 0,                                    // envp (NULL)
             };
 
-            println!("About to trampoline to entry point {:#x} with stack {:#x}",
-                context.entry, context.user_stack);
-
-
-            let save_program = self.get_program_mut(self.current_program);
-            let mut saved_sp = save_program.sp;
-            let mut saved_lr = save_program.frame.lr;
+            println!("Jumping to entry point via trampoline");
+            elf_loader::print_program_context(&context);
             
-            self.current_program = program_index;
-
-            os_holder_elf_loader_tramp(
-                core::ptr::addr_of_mut!(context),
-                core::ptr::addr_of_mut!(saved_sp) as *mut u32,
-                core::ptr::addr_of_mut!(saved_lr),
-            );
-            
-            let save_program = self.get_program_mut(self.current_program);
-            save_program.sp = saved_sp;
-            save_program.frame.lr = saved_lr;
+            elf_loader::elf_loader_tramp(core::ptr::addr_of_mut!(context));
         }
     }
 
-    pub fn switch_to_program(&mut self, program_index: usize) {
-        println!("Switching to program {}", program_index);
+    // pub fn switch_to_program(&mut self, program_index: usize) {
+    //     println!("Switching to program {}", program_index);
         
-        virtmem::mmu_disable();
-        self.map_program_mmu(program_index);
-        virtmem::mmu_enable();
+    //     virtmem::mmu_disable();
+    //     self.map_program_mmu(program_index);
+    //     virtmem::mmu_enable();
 
-        self.current_program = program_index;
+    //     self.current_program = program_index;
         
-        unsafe {
-            let program = self.get_program(program_index);
+    //     unsafe {
+    //         let program = self.get_program(program_index);
             
-            cswitch_tramp(
-                &program.frame as *const SoftwareInterruptFrame,
-                program.sp as *mut u8
-            );
-        }
-    }
+    //         cswitch_tramp(
+    //             &program.frame as *const SoftwareInterruptFrame,
+    //             program.sp as *mut u8
+    //         );
+    //     }
+    // }
 }

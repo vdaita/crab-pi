@@ -86,14 +86,20 @@ pub fn main() {
     //     os::holder::mmu_identity_map_test();
     // }
 
-    unsafe {
-        // os::holder::mmu_identity_map_test();
-        os::holder::OSHolder::init();    
-        let busybox_program_index = os::holder::OSHolder::os_holder_mut().load_elf("BUSYBOX");
-        println!("Program index: {}", busybox_program_index);
-        os::holder::OSHolder::os_holder_mut().run_elf(busybox_program_index, 0, 0, 0);
-        // let _ = hello_program_index;
-    }
+
+    // unsafe {
+    //     os::holder::OSHolder::init();
+    //     os::holder::OSHolder::test_swi();
+    // }
+
+    // unsafe {
+    //     // os::holder::mmu_identity_map_test();
+    //     os::holder::OSHolder::init();    
+    //     let busybox_program_index = os::holder::OSHolder::os_holder_mut().load_elf("BUSYBOX");
+    //     println!("Program index: {}", busybox_program_index);
+    //     os::holder::OSHolder::os_holder_mut().run_elf(busybox_program_index, "BUSYBOX");
+    //     // let _ = hello_program_index;
+    // }
 
     // programs::oled_display::test_oled_display();
     // programs::stepper_motor::run_stepper_motor();
@@ -105,7 +111,7 @@ pub fn main() {
     // profiler::test_profiler();
     // fat32::pi_sd_init();
     // programs::fat32_test::fat32_test();
-    // os::elf_loader::test_elf_loader();
+    os::elf_loader::test_elf_loader();
     // os::threads::test_threads();
     // programs::imu::imu_test();
     // os::interrupts::test_interrupts();

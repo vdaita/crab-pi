@@ -59,12 +59,21 @@ struct SectionHeader {
 }
 
 #[repr(C)]
-struct ProgramContext {
-    user_stack: u32,
-    entry: u32,
-    arg0: u32,
-    arg1: u32,
-    arg2: u32,
+pub struct ProgramContext {
+    pub user_stack: u32,
+    pub entry: u32,
+    pub arg0: u32,
+    pub arg1: u32,
+    pub arg2: u32,
+}
+
+pub fn print_program_context(program_context: &ProgramContext) {
+    println!("Printing program context:");
+    println!("      -> User stack: {:x}", program_context.user_stack);
+    println!("      -> Entry: {:x}", program_context.entry);
+    println!("      -> Arg0: {}", program_context.arg0);
+    println!("      -> Arg1: {}", program_context.arg1);
+    println!("      -> Arg2: {}", program_context.arg2);
 }
 
 pub static mut KERNEL_STACK: u32 = 0;
@@ -391,6 +400,8 @@ impl ElfLoader {
             arg1: (sp.add(1) as *const u32) as u32, // r1 = &argv[0] (pointer to first argv pointer)
             arg2: 0,                                 // r2 = envp (NULL)
         };
+
+        print_program_context(&context);
 
         println!("want to run the following instructions: ");
         hexdump(context.entry as *const u8, 8);
