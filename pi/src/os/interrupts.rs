@@ -827,7 +827,7 @@ pub fn print_prefork_state() {
 #[inline(never)]
 pub extern "C" fn software_interrupt_vector(frame: *mut SoftwareInterruptFrame, svc_lr: u32) -> u32 {
     dev_barrier();
-    mmu_disable();
+    // mmu_disable();
 
     // For SVC, lr points to the next instruction, so SVC is at lr - 4.
     let svc_pc = svc_lr.wrapping_sub(4);
@@ -1155,7 +1155,7 @@ pub extern "C" fn software_interrupt_vector(frame: *mut SoftwareInterruptFrame, 
         }
     };
 
-    mmu_enable();
+    // mmu_enable();
     dev_barrier();
     ret
 }

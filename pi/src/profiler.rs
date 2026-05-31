@@ -249,6 +249,7 @@ pub fn breakpoint_mismatch_start() {
             in(reg) new_dscr_state,
             options(nomem, nostack)
         );
+        println!("wrote dscr state");
         // print_binary_table("dscr", new_dscr_state);
         prefetch_flush();
 
@@ -262,7 +263,9 @@ pub fn breakpoint_mismatch_start() {
         // );
         // println!("verify dscr = 0b{:0b}", verify_dscr);
 
-        breakpoint_mismatch_set(0);
+        println!("setting mismatch");
+
+        breakpoint_mismatch_set(0xffff_ffff);
         prefetch_flush();
     }
 }

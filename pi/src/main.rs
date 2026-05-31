@@ -94,7 +94,7 @@ pub fn main() {
     // }
 
     // unsafe {
-    //     // os::holder::mmu_identity_map_test();
+        // os::holder::mmu_identity_map_test();
     //     os::holder::OSHolder::init();    
     //     let busybox_program_index = os::holder::OSHolder::os_holder_mut().load_elf("BUSYBOX");
     //     println!("Program index: {}", busybox_program_index);

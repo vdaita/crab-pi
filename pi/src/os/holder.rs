@@ -25,8 +25,8 @@ const LARGE_PAGE: usize = 16 * 1024 * 1024;
 pub const VBAR: usize = 0x1900_0000;
 const ONE_MB: usize = 1024 * 1024;
 const NUM_PROGRAMS: usize = 3;
-const MAX_ELF_SIZE: usize = 1024 * 1024 * 2;
-const MAX_STACK_SIZE: usize = 1024 * 1024 * 4;
+const MAX_ELF_SIZE: usize = 1024 * 1024 * 12;
+const MAX_STACK_SIZE: usize = 1024 * 1024 * 12;
 const MAX_HEAP_SIZE: usize = 1024 * 1024;
 
 pub const KUSER_ADDR: usize = 0x1600_0000;
@@ -68,11 +68,11 @@ pub struct ElfHeader {
 #[repr(C)]
 pub struct ProgramHeader {
     pub p_type: u32,
-    pub p_offset: usize,
-    pub p_vaddr: usize,
-    pub p_paddr: usize,
-    pub p_filesz: usize,
-    pub p_memsz: usize,
+    pub p_offset: u32,
+    pub p_vaddr: u32,
+    pub p_paddr: u32,
+    pub p_filesz: u32,
+    pub p_memsz: u32,
     pub p_flags: u32,
     pub p_align: u32
 }
@@ -174,6 +174,8 @@ pub fn mmu_identity_map_test() {
     virtmem::pin_mmu_sec(2, 0x1000_0000, 0x1000_0000, kern);
     virtmem::pin_mmu_sec(3, (0x1000_0000 + 16 * ONE_MB) as u32, (0x1000_0000 + 16 * ONE_MB) as u32, kern);
     virtmem::pin_mmu_sec(4, (0x1800_0000 - 16 * ONE_MB) as u32, (0x1800_0000 - 16 * ONE_MB) as u32, kern);
+
+    unsafe { *(0x0650_0000 as *mut u8) = 10; }
 
     virtmem::pin_mmu_sec(5, 0x0500_0000, 0x0600_0000, kern);
 
@@ -278,110 +280,110 @@ impl OSHolder {
         &*self.programs[index]
     }
 
-    pub fn load_elf(&mut self, prog_name: &str) -> usize {
-        unsafe {
-            let file_manager = get_fat32_manager();
-            let file = (*file_manager).read_file(prog_name);
-            let elf_header_ptr = (*file).data as *mut ElfHeader;
-            let elf_header = core::ptr::read_unaligned(elf_header_ptr);
-            let first_prog_header_ptr = (*file).data.byte_add(elf_header.e_phoff) as *mut ProgramHeader;
+    // pub fn load_elf(&mut self, prog_name: &str) -> usize {
+    //     unsafe {
+    //         let file_manager = get_fat32_manager();
+    //         let file = (*file_manager).read_file(prog_name);
+    //         let elf_header_ptr = (*file).data as *mut ElfHeader;
+    //         let elf_header = core::ptr::read_unaligned(elf_header_ptr);
+    //         let first_prog_header_ptr = (*file).data.byte_add(elf_header.e_phoff) as *mut ProgramHeader;
             
-            let mut program_index = 0;
-            for i in 0..NUM_PROGRAMS {
-                if !self.get_program(i).active {
-                    program_index = i;
-                    break;
-                }
-            }
+    //         let mut program_index = 0;
+    //         for i in 0..NUM_PROGRAMS {
+    //             if !self.get_program(i).active {
+    //                 program_index = i;
+    //                 break;
+    //             }
+    //         }
 
-            println!("Current program index: {}", program_index);
-            let program = self.get_program_mut(program_index);
+    //         println!("Current program index: {}", program_index);
+    //         let program = self.get_program_mut(program_index);
             
-            // Find lowest address to determine ELF base
-            let mut lowest_paddr = usize::MAX;
-            let mut lowest_offset = usize::MAX;
+    //         // Find lowest address to determine ELF base
+    //         let mut lowest_paddr = usize::MAX;
+    //         let mut lowest_offset = usize::MAX;
             
-            for prog_header_idx in 0..elf_header.e_phnum {
-                let prog_header_ptr = first_prog_header_ptr.add(prog_header_idx as usize);
-                let prog_header = core::ptr::read_unaligned(prog_header_ptr);
+    //         for prog_header_idx in 0..elf_header.e_phnum {
+    //             let prog_header_ptr = first_prog_header_ptr.add(prog_header_idx as usize);
+    //             let prog_header = core::ptr::read_unaligned(prog_header_ptr);
                 
-                if prog_header.p_type == 1 {  // PT_LOAD
-                    if prog_header.p_paddr < lowest_paddr {
-                        lowest_paddr = prog_header.p_paddr;
-                        lowest_offset = prog_header.p_offset;
-                    }
-                }
-            }
+    //             if prog_header.p_type == 1 {  // PT_LOAD
+    //                 if prog_header.p_paddr < lowest_paddr {
+    //                     lowest_paddr = prog_header.p_paddr;
+    //                     lowest_offset = prog_header.p_offset;
+    //                 }
+    //             }
+    //         }
             
-            let elf_base = lowest_paddr - lowest_offset;
-            program.elf_base = elf_base;
+    //         let elf_base = lowest_paddr - lowest_offset;
+    //         program.elf_base = elf_base;
             
-            println!("ELF base address: {:#x} (p_paddr={:#x}, p_offset={:#x})",
-                elf_base, lowest_paddr, lowest_offset);
+    //         println!("ELF base address: {:#x} (p_paddr={:#x}, p_offset={:#x})",
+    //             elf_base, lowest_paddr, lowest_offset);
             
-            // Load segments
-            for prog_header_idx in 0..elf_header.e_phnum {
-                let prog_header_ptr = first_prog_header_ptr.add(prog_header_idx as usize);
-                let prog_header = core::ptr::read_unaligned(prog_header_ptr);
+    //         // Load segments
+    //         for prog_header_idx in 0..elf_header.e_phnum {
+    //             let prog_header_ptr = first_prog_header_ptr.add(prog_header_idx as usize);
+    //             let prog_header = core::ptr::read_unaligned(prog_header_ptr);
                 
-                if prog_header.p_type != 1 {
-                    continue;
-                }
+    //             if prog_header.p_type != 1 {
+    //                 continue;
+    //             }
 
-                let source  = ((*file).data as *mut u8).add(prog_header.p_offset);
-                let dest = program.elf.data.as_mut_ptr().add(prog_header.p_paddr);
+    //             let source  = ((*file).data as *mut u8).add(prog_header.p_offset);
+    //             let dest = program.elf.data.as_mut_ptr().add(prog_header.p_paddr);
 
-                println!("Loading segment {}: vaddr={:#x}, paddr={:#x}, offset={:#x}, filesz={}, memsz={}, src={:p}, dst={:p}",
-                    prog_header_idx, prog_header.p_vaddr, prog_header.p_paddr, 
-                    prog_header.p_offset, prog_header.p_filesz, prog_header.p_memsz,
-                    source, dest);
+    //             println!("Loading segment {}: vaddr={:#x}, paddr={:#x}, offset={:#x}, filesz={}, memsz={}, src={:p}, dst={:p}",
+    //                 prog_header_idx, prog_header.p_vaddr, prog_header.p_paddr, 
+    //                 prog_header.p_offset, prog_header.p_filesz, prog_header.p_memsz,
+    //                 source, dest);
 
-                core::ptr::copy_nonoverlapping(
-                    source,
-                    dest,
-                    prog_header.p_filesz
-                );
+    //             core::ptr::copy_nonoverlapping(
+    //                 source,
+    //                 dest,
+    //                 prog_header.p_filesz
+    //             );
                 
-                if prog_header.p_memsz > prog_header.p_filesz {
-                    let bss_size = prog_header.p_memsz - prog_header.p_filesz;
-                    core::ptr::write_bytes(
-                        program.elf.data.as_mut_ptr().add(prog_header.p_paddr + prog_header.p_filesz),
-                        0,
-                        bss_size
-                    );
-                    println!("  Zeroed BSS: {} bytes", bss_size);
-                }
-            }
+    //             if prog_header.p_memsz > prog_header.p_filesz {
+    //                 let bss_size = prog_header.p_memsz - prog_header.p_filesz;
+    //                 core::ptr::write_bytes(
+    //                     program.elf.data.as_mut_ptr().add(prog_header.p_paddr + prog_header.p_filesz),
+    //                     0,
+    //                     bss_size
+    //                 );
+    //                 println!("  Zeroed BSS: {} bytes", bss_size);
+    //             }
+    //         }
             
-            // Copy ELF header and program headers into memory
-            let ehdr_total = elf_header.e_phoff + 
-                elf_header.e_phnum as usize * elf_header.e_phentsize as usize;
+    //         // Copy ELF header and program headers into memory
+    //         let ehdr_total = elf_header.e_phoff + 
+    //             elf_header.e_phnum as usize * elf_header.e_phentsize as usize;
             
-            println!("Copying ELF headers: base={:#x}, size={}", elf_base, ehdr_total);
+    //         println!("Copying ELF headers: base={:#x}, size={}", elf_base, ehdr_total);
             
-            core::ptr::write_bytes(program.elf.data.as_mut_ptr().add(elf_base), 0, lowest_offset);
-            core::ptr::copy_nonoverlapping(
-                (*file).data,
-                program.elf.data.as_mut_ptr().add(elf_base),
-                ehdr_total,
-            );
+    //         core::ptr::write_bytes(program.elf.data.as_mut_ptr().add(elf_base), 0, lowest_offset);
+    //         core::ptr::copy_nonoverlapping(
+    //             (*file).data,
+    //             program.elf.data.as_mut_ptr().add(elf_base),
+    //             ehdr_total,
+    //         );
 
-            program.elf_header = elf_header;
+    //         program.elf_header = elf_header;
 
-            println!("Loading ELF File with header: ");
-            print_elf_header(elf_header);
+    //         println!("Loading ELF File with header: ");
+    //         print_elf_header(elf_header);
 
-            program.sp = 0x00ff_ffff - 1024;
-            program.heap_ptr = 0x0088_8888;
-            program.tid = program_index as u32;
-            program.active = true;
+    //         program.sp = 0x00ff_ffff - 1024;
+    //         program.heap_ptr = 0x0088_8888;
+    //         program.tid = program_index as u32;
+    //         program.active = true;
 
-            println!("Loaded ELF entry point: {:#x}", program.elf_header.e_entry);
-            println!("Size of written program object: {} bytes", size_of::<Program>());
+    //         println!("Loaded ELF entry point: {:#x}", program.elf_header.e_entry);
+    //         println!("Size of written program object: {} bytes", size_of::<Program>());
 
-            program_index
-        }
-    }
+    //         program_index
+    //     }
+    // }
 
     fn map_program_mmu(&mut self, program_index: usize) {
         virtmem::mmu_disable();
