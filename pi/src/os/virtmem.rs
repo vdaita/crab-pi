@@ -250,15 +250,15 @@ pub fn pin_mmu_sec(idx: u32, va: u32, pa: u32, e: Pin) {
         PageSizes::mb1 => 1024 * 1024,
         PageSizes::mb16 => 16 * 1024 * 1024,
     };
-    println!(
-        "MMU mapping {} 0x{:x}-0x{:x} --> 0x{:x}-0x{:x} ({:?})",
-        idx,
-        va,
-        va.wrapping_add(page_bytes - 1),
-        pa,
-        pa.wrapping_add(page_bytes - 1),
-        e.pagesize,
-    );
+    // println!(
+    //     "MMU mapping {} 0x{:x}-0x{:x} --> 0x{:x}-0x{:x} ({:?})",
+    //     idx,
+    //     va,
+    //     va.wrapping_add(page_bytes - 1),
+    //     pa,
+    //     pa.wrapping_add(page_bytes - 1),
+    //     e.pagesize,
+    // );
     cpsr_int_disable();
 
     let mut va_ent: u32 = (va & 0xFFFFF000) | ((e.G & 1) << 9);

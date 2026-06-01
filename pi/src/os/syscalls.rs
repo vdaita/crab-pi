@@ -496,7 +496,7 @@ fn syscall_fork(holder: &mut OSHolder) -> u32 {
 		println!("Finished copying program {} -> {}", holder.current_program, next_prog_index);
 
 		// ensure child appears to return 0
-		new_prog.frame.r0 = 0;
+		new_prog.frame.r0 = 0; // this indicates that you are in the forked process
 
 		// diagnostic dump: instructions at lr and stack words at sp
 		let pc = new_prog.frame.lr;
@@ -588,15 +588,41 @@ pub fn handle_software_interrupt(frame: *mut InterruptFrame, svc_lr: u32) -> u32
 		let holder = OSHolder::os_holder_mut(); 
 		if holder.active[holder.current_program] {
 			mmu_disable(); // disable the MMU
-			let syscall_ret = dispatch_syscall(holder, frame, nr);
-			frame.r0 = syscall_ret; // updating the ret value with this
+			// let syscall_ret = dispatch_syscall(holder, frame, nr);
+			// frame.r0 = syscall_ret; // updating the ret value with this
+			// let user_sp = holder::get_user_sp();
+			// interrupts::update_current_program_frame(frame, user_sp as usize); // update the current program frame
+
 			let user_sp = holder::get_user_sp();
-			interrupts::update_current_program_frame(frame, user_sp as usize); // update the current program frame
+			interrupts::update_current_program_frame(frame, user_sp as usize);
+			let syscall_ret = dispatch_syscall(holder, frame, nr);
+			frame.r0 = syscall_ret; 
+			interrupts::update_current_program_frame(frame, user_sp as usize);
+
+			// move the program
+			holder.current_program = match holder.should_cswitch {
+				true => {
+					holder.get_next_active_program_index(holder.current_program)
+				}
+				false => {
+					holder.current_program
+				}
+			};
+			holder.should_cswitch = false;
+
+			// enable the mmu
+			holder.map_program_mmu(holder.current_program);
+
 			// re-enable the MMU before continuing on with the program
 			mmu_enable();
 
-			interrupts::fork_trampoline_back(frame.lr, user_sp, frame as *const InterruptFrame);
-			// note: this is **not** referencing the pointer object. that would take a remapping to work properly.
+			let mapped_program_ptr = 0x0000_0000 as *mut holder::Program;
+            let mapped_program = unsafe { &mut *mapped_program_ptr };
+            let mapped_next_frame: InterruptFrame = mapped_program.frame;
+			let mapped_next_frame_ptr = &mapped_next_frame as *const InterruptFrame;
+			interrupts::fork_trampoline_back(mapped_next_frame.lr, mapped_program.sp as u32, mapped_next_frame_ptr);
+
+			// interrupts::fork_trampoline_back(frame.lr, user_sp, frame as *const InterruptFrame); // -> valid because you are not referencing the pointer memory address
 
 			panic!("should not reach this point of the code");
 			// execute the syscall... and save the output to the frame

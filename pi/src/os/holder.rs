@@ -148,7 +148,7 @@ impl OSHolder {
             core::ptr::write(OS_HOLDER.get().cast::<OSHolder>(), core::mem::zeroed());
             kuser::install_kuser_helpers();
             interrupts::install_interrupts_vbar();
-            // interrupts::enable_timer_interrupts();         // -> this shit is causing me hell    
+            interrupts::enable_timer_interrupts();         // -> this shit is causing me hell    
 
             let holder = OSHolder::os_holder_mut();
 
