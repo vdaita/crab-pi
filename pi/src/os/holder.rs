@@ -12,6 +12,7 @@ use core::cell::SyncUnsafeCell;
 use core::arch::asm;
 use core::mem::MaybeUninit;
 use crate::os::elf_file::{ElfHeader, ProgramHeader, SectionHeader};
+use crate::os::interrupts::InterruptFrame;
 
 unsafe impl Sync for OSHolder {}
 
@@ -44,31 +45,13 @@ pub struct Heap {
     pub data: [u8; MAX_HEAP_SIZE],
 }
 
-#[derive(Copy, Clone, Default)]
-#[repr(C)]
-pub struct SoftwareInterruptFrame {
-    pub r0: u32,
-    pub r1: u32,
-    pub r2: u32,
-    pub r3: u32,
-    pub r4: u32,
-    pub r5: u32,
-    pub r6: u32,
-    pub r7: u32,
-    pub r8: u32,
-    pub r9: u32,
-    pub r10: u32,
-    pub r11: u32,
-    pub r12: u32,
-    pub lr: u32,
-}
-
 #[derive(Clone, Copy)]
 #[repr(C)]
 pub struct Program {
     pub elf: ELF,
     pub stack: Stack,
     pub heap: Heap,
+    pub frame: InterruptFrame,
     pub sp: usize,
     pub heap_ptr: usize,
     pub tid: u32,
@@ -208,6 +191,10 @@ impl OSHolder {
             core::ptr::write(OS_HOLDER.get().cast::<OSHolder>(), core::mem::zeroed());
             kuser::install_kuser_helpers();
             interrupts::install_interrupts_vbar();
+            
+            // configure timer interrupts
+            
+
             let holder = OSHolder::os_holder_mut();
 
             // initialize program pointers
@@ -235,6 +222,15 @@ impl OSHolder {
 
     pub unsafe fn get_program(&self, index: usize) -> &'static Program {
         &*self.programs[index]
+    }
+
+    pub unsafe fn get_next_empty_index(&self) -> usize {
+        for i in 0..NUM_PROGRAMS {
+            if !(*self.programs[i]).active {
+                return i
+            }
+        }
+        panic!("out of program slots!");
     }
 
     fn map_program_mmu(&mut self, program_index: usize) {
@@ -288,99 +284,14 @@ impl OSHolder {
             println!("File size from FAT32: {}", (*file).n_data);
             hexdump((*file).data, 8);
 
-            let elf_header_ptr: *mut ElfHeader = (*file).data as *mut ElfHeader;
-            let first_program_header_ptr: *mut ProgramHeader =
-                ((*file).data as *mut u8).add((*elf_header_ptr).e_phoff as usize) as *mut ProgramHeader;
-
-            println!("number of program headers: {}", (*elf_header_ptr).e_phnum);
-            println!("Program entry point (physical): {:#x}", (*elf_header_ptr).e_entry);
-
             let program_ptr = 0x0000_0000 as *mut Program;
             let program: &mut Program = &mut *program_ptr;
             program.active = true;
-            program.elf_header = *elf_header_ptr;
 
-            for prog_header_idx in 0..(*elf_header_ptr).e_phnum {
-                let program_header_ptr: *mut ProgramHeader = first_program_header_ptr.add(prog_header_idx as usize);
+            crate::os::elf_file::load_elf_into_program((*file).data as *const u8, program);
 
-                if (*program_header_ptr).p_type != 1 {  // PT_LOAD
-                    continue;
-                }
-
-                let paddr = (program.elf.data.as_mut_ptr()).byte_add((*program_header_ptr).p_paddr as usize) as u32;
-                println!("Loading segment: p_paddr={:#x} -> paddr={:#x}, filesz={}",
-                    (*program_header_ptr).p_paddr, paddr, (*program_header_ptr).p_filesz);
-
-                // Copy segment data
-                core::ptr::copy_nonoverlapping(
-                    ((*file).data as *mut u8).add((*program_header_ptr).p_offset as usize),
-                    paddr as *mut u8,
-                    (*program_header_ptr).p_filesz as usize,
-                );
-
-                println!("Finished copying.");
-
-                // Zero BSS (uninitialized data)
-                let bss_start = (paddr as *mut u8).add((*program_header_ptr).p_filesz as usize);
-                let bss_size = (*program_header_ptr).p_memsz - (*program_header_ptr).p_filesz;
-                if bss_size > 0 {
-                    core::ptr::write_bytes(bss_start, 0, bss_size as usize);
-                    println!("Zeroed BSS: size={}", bss_size);
-                }
-            }
-
-            // Copy ELF header and program headers into memory.
-            let mut lowest_paddr = u32::MAX;
-            let mut lowest_offset = u32::MAX;
-            for i in 0..(*elf_header_ptr).e_phnum {
-                let ph = first_program_header_ptr.add(i as usize);
-                if (*ph).p_type == 1 {
-                    if (*ph).p_paddr < lowest_paddr {
-                        lowest_paddr = (*ph).p_paddr;
-                        lowest_offset = (*ph).p_offset;
-                    }
-                }
-            }
-            let elf_base = lowest_paddr - lowest_offset;
-            program.elf_base = elf_base as usize;
-            
-            println!("ELF base address: {:#x} (p_paddr={:#x}, p_offset={:#x})",
-                elf_base, lowest_paddr, lowest_offset);
-            
-            let ehdr_total = (*elf_header_ptr).e_phoff as usize
-                + (*elf_header_ptr).e_phnum as usize * (*elf_header_ptr).e_phentsize as usize;
-
-            println!("Diagnostics: lowest_offset={:#x}, ehdr_total={}", lowest_offset, ehdr_total);
-
-            let ehdr_end = elf_base.wrapping_add(ehdr_total as u32);
-            let mut program_end = ehdr_end;
-            for i in 0..(*elf_header_ptr).e_phnum {
-                let ph = first_program_header_ptr.add(i as usize);
-                if (*ph).p_type != 1 { continue; }
-                let pstart = (*ph).p_paddr;
-                let pend = pstart.wrapping_add((*ph).p_memsz);
-                if pend > program_end {
-                    program_end = pend;
-                }
-                let overlap = !(pend <= elf_base || pstart >= ehdr_end);
-                println!(
-                    "PT_LOAD[{}]: p_paddr={:#x}, p_filesz={}, p_memsz={}, overlaps_headers={}",
-                    i, pstart, (*ph).p_filesz, (*ph).p_memsz, overlap
-                );
-                if overlap {
-                    println!("  --> Overlap with headers region {:#x}-{:#x}", elf_base, ehdr_end);
-                }
-            }
-
-            let phys_elf_base = (program.elf.data.as_mut_ptr()).byte_add(elf_base as usize) as u32;
-            println!("elf base {:x} -> phys elf base: {:x}", elf_base, phys_elf_base);
-
-            core::ptr::write_bytes(phys_elf_base as *mut u8, 0, lowest_offset as usize);
-            core::ptr::copy_nonoverlapping(
-                (*file).data,
-                phys_elf_base as *mut u8,
-                ehdr_total,
-            );
+            println!("number of program headers: {}", program.elf_header.e_phnum);
+            println!("Program entry point (physical): {:#x}", program.elf_header.e_entry);
 
             let program_addr = program_ptr as usize;
             let user_stack_base = (program.stack.data.as_ptr() as usize) - (program_addr as usize);
@@ -402,15 +313,15 @@ impl OSHolder {
             println!("User stack base just written to: {:#x}", stack_top);
 
             let mut sp = stack_top as *mut u32;
-            let phdr_addr = elf_base + (*elf_header_ptr).e_phoff as u32;
+            let phdr_addr = (program.elf_base as u32).wrapping_add(program.elf_header.e_phoff as u32);
             
             sp = sp.sub(1); *sp = 0;                             // AT_NULL val
             sp = sp.sub(1); *sp = 0;                             // AT_NULL type
             sp = sp.sub(1); *sp = 4096;                          // AT_PAGESZ val
             sp = sp.sub(1); *sp = 6;                             // AT_PAGESZ type
-            sp = sp.sub(1); *sp = (*elf_header_ptr).e_phnum as u32; // AT_PHNUM val
+            sp = sp.sub(1); *sp = program.elf_header.e_phnum as u32; // AT_PHNUM val
             sp = sp.sub(1); *sp = 5;                             // AT_PHNUM type
-            sp = sp.sub(1); *sp = (*elf_header_ptr).e_phentsize as u32; // AT_PHENT val
+            sp = sp.sub(1); *sp = program.elf_header.e_phentsize as u32; // AT_PHENT val
             sp = sp.sub(1); *sp = 4;                             // AT_PHENT type
             sp = sp.sub(1); *sp = phdr_addr;                     // AT_PHDR val
             sp = sp.sub(1); *sp = 3;                             // AT_PHDR type

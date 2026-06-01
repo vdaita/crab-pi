@@ -4,7 +4,7 @@ use crate::circular::{CircularQueue};
 use core::arch::{asm, global_asm};
 use crate::ckalloc::{ckalloc, ckfree};
 use crate::kmalloc;
-use crate::os::syscalls::SoftwareInterruptFrame;
+use crate::os::interrupts::InterruptFrame;
 
 const MAX_STACK_SIZE: usize = 64 * 1024;
 const MAX_THREADS: usize = 4096;
@@ -142,7 +142,7 @@ impl ThreadManager {
         }
     }
 
-    pub fn os_fork(&mut self, frame: SoftwareInterruptFrame) -> u32 {
+    pub fn os_fork(&mut self, frame: InterruptFrame) -> u32 {
         unsafe {
             let child_thread: *mut Thread = ckalloc(
                 core::mem::size_of::<Thread>()
@@ -168,7 +168,7 @@ impl ThreadManager {
                 (*child_thread).heap_start - (*parent_thread).heap_start
             );
 
-            // TODO: copy over the attributes from the SoftwareInterruptFrame into the elf loader
+            // TODO: copy over the attributes from the InterruptFrame into the elf loader
             // jump to this process
             0
         }

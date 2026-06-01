@@ -50,8 +50,6 @@ mod os {
     pub mod threads;
     pub mod utils;
     pub mod elf_file;
-    // pub mod elf_loader;
-
     pub mod kuser;
 }
 

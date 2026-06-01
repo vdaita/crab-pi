@@ -5,7 +5,39 @@ use core::arch::{asm, global_asm};
 use crate::mem::{get32, put32};
 use crate::gpio;
 use crate::profiler;
-use crate::os::syscalls::{self, SoftwareInterruptFrame};
+use crate::os::syscalls::{self};
+use crate::os::holder::OSHolder;
+
+fn update_current_program_frame(frame: *mut InterruptFrame) {
+    unsafe {
+        let holder = OSHolder::os_holder_mut();
+        let idx = holder.current_program;
+        // only update if program pointer is non-null and active
+        if !holder.programs[idx].is_null() {
+            let prog = holder.get_program_mut(idx);
+            prog.frame = *frame;
+        }
+    }
+}
+
+#[derive(Copy, Clone)]
+#[repr(C)]
+pub struct InterruptFrame {
+	pub r0: u32,
+	pub r1: u32,
+	pub r2: u32,
+	pub r3: u32,
+	pub r4: u32,
+	pub r5: u32,
+	pub r6: u32,
+	pub r7: u32,
+	pub r8: u32,
+	pub r9: u32,
+	pub r10: u32,
+	pub r11: u32,
+	pub r12: u32,
+	pub lr: u32,
+}
 
 global_asm!(r#"
 .globl _interrupt_table
@@ -243,7 +275,7 @@ unsafe extern "C" {
     pub unsafe fn switch_to_super_mode(regs: *const u32);
 
     #[link_name = "fork_trampoline_back"]
-    fn fork_trampoline_back(return_pc: u32, return_sp: u32, return_frame: *const SoftwareInterruptFrame);
+    fn fork_trampoline_back(return_pc: u32, return_sp: u32, return_frame: *const InterruptFrame);
 
     #[link_name = "_interrupt_table"]
     pub static INTERRUPT_TABLE_START: u8;
@@ -316,16 +348,18 @@ pub extern "C" fn fast_interrupt_vector(pc: u32) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn os_undefined_instruction_vector(frame: *mut SoftwareInterruptFrame, pc: u32) {
+pub extern "C" fn os_undefined_instruction_vector(frame: *mut InterruptFrame, pc: u32) {
     unsafe {
+        update_current_program_frame(frame);
         let frame = unsafe { &mut *frame };
         println!("Undefined instruction at pc={:#x}, inst={:#x}", pc, *(pc as *const u32));
     }
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn os_data_abort_vector(frame: *mut SoftwareInterruptFrame, pc: u32) {
+pub extern "C" fn os_data_abort_vector(frame: *mut InterruptFrame, pc: u32) {
     unsafe { 
+        update_current_program_frame(frame);
         let far: u32;
         core::arch::asm!("mrc p15, 0, {}, c6, c0, 0", out(reg) far);
         let instr = *(pc as *const u32);
@@ -333,15 +367,10 @@ pub extern "C" fn os_data_abort_vector(frame: *mut SoftwareInterruptFrame, pc: u
     }
 }
 
-// #[unsafe(no_mangle)]
-// pub extern "C" fn os_prefetch_abort_vector(frame: *mut SoftwareInterruptFrame, pc: u32) {
-//     println!("Prefetch abort vector at pc:{:#x}", pc);
-// }
-
-
 #[unsafe(no_mangle)]
-pub extern "C" fn os_prefetch_abort_vector(frame: *mut SoftwareInterruptFrame, pc: u32) {
+pub extern "C" fn os_prefetch_abort_vector(frame: *mut InterruptFrame, pc: u32) {
     unsafe {
+        update_current_program_frame(frame);
         let frame = &*frame;
         let instr = core::ptr::read_volatile(pc as *const u32);
         println!(
@@ -369,7 +398,8 @@ pub extern "C" fn os_prefetch_abort_vector(frame: *mut SoftwareInterruptFrame, p
 
 #[unsafe(no_mangle)]
 #[inline(never)]
-pub extern "C" fn software_interrupt_vector(frame: *mut SoftwareInterruptFrame, svc_lr: u32) -> u32 {
+pub extern "C" fn software_interrupt_vector(frame: *mut InterruptFrame, svc_lr: u32) -> u32 {
+    update_current_program_frame(frame);
     syscalls::handle_software_interrupt(frame, svc_lr)
 }
 

@@ -3,28 +3,10 @@ use crate::fat32::{self, fs_manager};
 use crate::kmalloc;
 use crate::os::holder::{self, OSHolder};
 use crate::os::virtmem::{mmu_disable, mmu_enable};
+use crate::os::interrupts::{InterruptFrame};
 use crate::println;
 use core::arch::asm;
 use core::ptr::copy_nonoverlapping;
-
-#[derive(Copy, Clone)]
-#[repr(C)]
-pub struct SoftwareInterruptFrame {
-	pub r0: u32,
-	pub r1: u32,
-	pub r2: u32,
-	pub r3: u32,
-	pub r4: u32,
-	pub r5: u32,
-	pub r6: u32,
-	pub r7: u32,
-	pub r8: u32,
-	pub r9: u32,
-	pub r10: u32,
-	pub r11: u32,
-	pub r12: u32,
-	pub lr: u32,
-}
 
 const ENOSYS: u32 = (-38i32) as u32;
 const EINVAL: u32 = (-22i32) as u32;
@@ -62,7 +44,7 @@ fn set_tid_address(tidptr: u32) -> u32 {
 	CURRENT_TID
 }
 
-fn decode_syscall_number(frame: &SoftwareInterruptFrame, instr: u32) -> u32 {
+fn decode_syscall_number(frame: &InterruptFrame, instr: u32) -> u32 {
 	let imm = instr & 0x00ff_ffff;
 	if imm == 0 {
 		frame.r7
@@ -70,53 +52,6 @@ fn decode_syscall_number(frame: &SoftwareInterruptFrame, instr: u32) -> u32 {
 		imm - 0x0090_0000
 	} else {
 		imm
-	}
-}
-
-unsafe fn maybe_print_return_location(holder: &mut OSHolder, frame: &SoftwareInterruptFrame) {
-	if unsafe { DID_PRINT_RETURN_LOCATION } {
-		return;
-	}
-
-	let program_location = holder.programs[holder.current_program];
-	let program = unsafe { holder.get_program_mut(holder.current_program) };
-	let return_sp_addr = core::ptr::addr_of_mut!(program.return_sp);
-	let return_lr_addr = core::ptr::addr_of_mut!(program.return_lr);
-	println!(
-		"Location of where to return sp={:p}, return lr={:p}, program_location: {:p}",
-		return_sp_addr, return_lr_addr, program_location
-	);
-
-	// Also print the saved program attributes to help debugging SP/LR preservation
-	println!(
-		"Program[{}] attrs: sp={:#x}, return_sp={:#x}, return_lr={:#x}, frame.lr={:#x}",
-		holder.current_program,
-		program.sp,
-		program.return_sp,
-		program.return_lr,
-		frame.lr,
-	);
-
-	println!(
-		"SWI frame regs: r0={:#x} r1={:#x} r2={:#x} r3={:#x} r4={:#x} r5={:#x} r6={:#x} r7={:#x} r8={:#x} r9={:#x} r10={:#x} r11={:#x} r12={:#x} lr={:#x}",
-		frame.r0,
-		frame.r1,
-		frame.r2,
-		frame.r3,
-		frame.r4,
-		frame.r5,
-		frame.r6,
-		frame.r7,
-		frame.r8,
-		frame.r9,
-		frame.r10,
-		frame.r11,
-		frame.r12,
-		frame.lr,
-	);
-
-	unsafe {
-		DID_PRINT_RETURN_LOCATION = true;
 	}
 }
 
@@ -257,12 +192,12 @@ fn syscall_exit(holder: &mut OSHolder) -> u32 {
 	0
 }
 
-fn syscall_exit_group(holder: &mut OSHolder, frame: &SoftwareInterruptFrame) -> u32 { // apparently implementing exit_group to do nothing works
+fn syscall_exit_group(holder: &mut OSHolder, frame: &InterruptFrame) -> u32 { // apparently implementing exit_group to do nothing works
 	println!("exit_group called with code {}", frame.r0);
     0
 }
 
-fn syscall_read(holder: &OSHolder, frame: &SoftwareInterruptFrame) -> u32 {
+fn syscall_read(holder: &OSHolder, frame: &InterruptFrame) -> u32 {
 	let fd = frame.r0;
 	let buf_ptr = user_ptr_mut(holder, frame.r1);
 	let len = frame.r2 as usize;
@@ -295,7 +230,7 @@ fn syscall_read(holder: &OSHolder, frame: &SoftwareInterruptFrame) -> u32 {
 	}
 }
 
-fn syscall_write(holder: &OSHolder, frame: &SoftwareInterruptFrame) -> u32 {
+fn syscall_write(holder: &OSHolder, frame: &InterruptFrame) -> u32 {
 	let fd = frame.r0;
 	let buf_ptr = user_ptr_const(holder, frame.r1);
 	let len = frame.r2 as usize;
@@ -313,7 +248,7 @@ fn syscall_write(holder: &OSHolder, frame: &SoftwareInterruptFrame) -> u32 {
 	}
 }
 
-fn syscall_writev(holder: &OSHolder, frame: &SoftwareInterruptFrame) -> u32 {
+fn syscall_writev(holder: &OSHolder, frame: &InterruptFrame) -> u32 {
 	let fd = frame.r0;
 	let iov = user_ptr_const(holder, frame.r1) as *const u32;
 	let iovcnt = frame.r2 as usize;
@@ -339,68 +274,46 @@ fn syscall_writev(holder: &OSHolder, frame: &SoftwareInterruptFrame) -> u32 {
 	total
 }
 
-fn syscall_brk(holder: &mut OSHolder, frame: &SoftwareInterruptFrame) -> u32 {
+fn heap_alloc(holder: &mut OSHolder, alloc_len: usize) -> u32 {
+    unsafe {
+        let program = holder.get_program_mut(holder.current_program);
+        let heap_size = core::mem::size_of_val(&program.heap.data);
+
+        if program.heap_ptr == 0 {
+            program.heap_ptr = 0;
+        }
+
+        let align = 4096usize;
+        let mut heap_curr = program.heap_ptr;
+        if heap_curr % align != 0 {
+            heap_curr = (heap_curr + align - 1) & !(align - 1);
+        }
+
+        if heap_curr + alloc_len > heap_size {
+            println!("syscall_brk: out of heap: heap_ptr={:#x}, alloc_len={}", heap_curr, alloc_len);
+            return EINVAL;
+        }
+
+        let user_ptr = (program.heap.data.as_mut_ptr() as usize + heap_curr) as u32;
+        program.heap_ptr = heap_curr + alloc_len;
+        println!("syscall_brk: allocated {} bytes at {:#x}, new heap_ptr={:#x}", alloc_len, user_ptr, program.heap_ptr);
+        user_ptr
+    }
+}
+
+fn syscall_brk(holder: &mut OSHolder, frame: &InterruptFrame) -> u32 {
 	let len = frame.r0 as usize;
 	let alloc_len = if len == 0 { 1 } else { len };
-	unsafe {
-		let program = holder.get_program_mut(holder.current_program);
-		let heap_size = core::mem::size_of_val(&program.heap.data);
-
-		if program.heap_ptr == 0 {
-			program.heap_ptr = 0;
-		}
-
-		let align = 4096usize;
-		let mut heap_curr = program.heap_ptr;
-		if heap_curr % align != 0 {
-			heap_curr = (heap_curr + align - 1) & !(align - 1);
-		}
-
-		if heap_curr + alloc_len > heap_size {
-			println!("syscall_brk: out of heap: heap_ptr={:#x}, alloc_len={}", heap_curr, alloc_len);
-			return EINVAL;
-		}
-
-		let user_ptr = (program.heap.data.as_mut_ptr() as usize + heap_curr) as u32;
-		program.heap_ptr = heap_curr + alloc_len;
-		println!("syscall_brk: allocated {} bytes at {:#x}, new heap_ptr={:#x}", alloc_len, user_ptr, program.heap_ptr);
-		user_ptr
-	}
+	heap_alloc(holder, alloc_len)
 }
 
-fn syscall_mmap2(holder: &mut OSHolder, frame: &SoftwareInterruptFrame) -> u32 {
+fn syscall_mmap2(holder: &mut OSHolder, frame: &InterruptFrame) -> u32 {
 	let len = frame.r1 as usize;
 	let alloc_len = if len == 0 { 1 } else { len };
-	unsafe {
-		// allocate from the program's heap region
-		let program = holder.get_program_mut(holder.current_program);
-		let heap_size = core::mem::size_of_val(&program.heap.data);
-
-		// initialize heap_ptr if zero
-		if program.heap_ptr == 0 {
-			program.heap_ptr = 0;
-		}
-
-		// align to 4KB
-		let align = 4096usize;
-		let mut heap_curr = program.heap_ptr;
-		if heap_curr % align != 0 {
-			heap_curr = (heap_curr + align - 1) & !(align - 1);
-		}
-
-		if heap_curr + alloc_len > heap_size {
-			println!("syscall_mmap2: out of heap: heap_ptr={:#x}, alloc_len={}", heap_curr, alloc_len);
-			return EINVAL;
-		}
-
-		let user_ptr = (program.heap.data.as_mut_ptr() as usize + heap_curr) as u32;
-		program.heap_ptr = heap_curr + alloc_len;
-		println!("syscall_mmap2: allocated {} bytes at {:#x}, new heap_ptr={:#x}", alloc_len, user_ptr, program.heap_ptr);
-		user_ptr
-	}
+	heap_alloc(holder, alloc_len)
 }
 
-fn syscall_open(holder: &OSHolder, frame: &SoftwareInterruptFrame) -> u32 {
+fn syscall_open(holder: &OSHolder, frame: &InterruptFrame) -> u32 {
 	let pathname = user_ptr_const(holder, frame.r0);
 	if pathname.is_null() {
 		return EINVAL;
@@ -418,7 +331,7 @@ fn syscall_open(holder: &OSHolder, frame: &SoftwareInterruptFrame) -> u32 {
 	}
 }
 
-fn syscall_getdents64(holder: &OSHolder, frame: &SoftwareInterruptFrame) -> u32 {
+fn syscall_getdents64(holder: &OSHolder, frame: &InterruptFrame) -> u32 {
 	let fd = frame.r0;
 	let dirp = user_ptr_mut(holder, frame.r1);
 	let count = frame.r2 as usize;
@@ -431,7 +344,7 @@ fn syscall_getdents64(holder: &OSHolder, frame: &SoftwareInterruptFrame) -> u32 
 	}
 }
 
-fn syscall_getcwd(holder: &OSHolder, frame: &SoftwareInterruptFrame) -> u32 {
+fn syscall_getcwd(holder: &OSHolder, frame: &InterruptFrame) -> u32 {
 	let buf = user_ptr_mut(holder, frame.r0);
 	if buf.is_null() {
 		return EINVAL;
@@ -443,7 +356,7 @@ fn syscall_getcwd(holder: &OSHolder, frame: &SoftwareInterruptFrame) -> u32 {
 	frame.r0
 }
 
-fn syscall_statx(holder: &OSHolder, frame: &SoftwareInterruptFrame) -> u32 {
+fn syscall_statx(holder: &OSHolder, frame: &InterruptFrame) -> u32 {
 	let pathname_bytes = user_ptr_mut(holder, frame.r1);
 	let statx_out = user_ptr_mut(holder, frame.r4) as *mut fs_manager::Statx;
 	unsafe {
@@ -466,7 +379,7 @@ fn syscall_statx(holder: &OSHolder, frame: &SoftwareInterruptFrame) -> u32 {
 	}
 }
 
-fn syscall_execve(holder: &OSHolder, frame: &SoftwareInterruptFrame) -> u32 {
+fn syscall_execve(holder: &OSHolder, frame: &InterruptFrame) -> u32 {
 	let pathname = user_ptr_const(holder, frame.r0);
 	let argv = user_ptr_mut(holder, frame.r1) as *mut *const u8;
 
@@ -513,30 +426,46 @@ fn syscall_execve(holder: &OSHolder, frame: &SoftwareInterruptFrame) -> u32 {
 	}
 }
 
-fn syscall_set_tls(frame: &SoftwareInterruptFrame) -> u32 {
+fn syscall_set_tls(frame: &InterruptFrame) -> u32 {
 	unsafe { set_tls(frame.r0) };
 	0
 }
 
-fn syscall_set_tid_address(frame: &SoftwareInterruptFrame) -> u32 {
+fn syscall_set_tid_address(frame: &InterruptFrame) -> u32 {
 	set_tid_address(frame.r0)
 }
 
-fn syscall_waitpid_like(_frame: &SoftwareInterruptFrame) -> u32 {
+fn syscall_waitpid_like(_frame: &InterruptFrame) -> u32 {
 	(-10i32) as u32
 }
 
-fn syscall_getpid(_frame: &SoftwareInterruptFrame) -> u32 {
+fn syscall_getpid(_frame: &InterruptFrame) -> u32 {
 	0
 }
 
-fn syscall_noop(_frame: &SoftwareInterruptFrame) -> u32 {
+fn syscall_noop(_frame: &InterruptFrame) -> u32 {
 	0
 }
 
-fn dispatch_syscall(holder: &mut OSHolder, frame: &SoftwareInterruptFrame, nr: u32) -> u32 {
+fn syscall_fork(holder: &mut OSHolder) -> u32 {
+    // copy the stuff from this into the next active slot
+    unsafe {
+        let next_prog_index = holder.get_next_empty_index();
+        let new_prog = holder.get_program_mut(next_prog_index);
+        core::ptr::copy(
+            holder.programs[holder.current_program],
+            holder.programs[next_prog_index],
+            size_of::<holder::Program>()
+        );
+        new_prog.frame.r0 = 0; // this will return thinking that it is the copy
+        next_prog_index as u32 + 1 // to say which pid needs to be tracked
+    }
+}
+
+fn dispatch_syscall(holder: &mut OSHolder, frame: &InterruptFrame, nr: u32) -> u32 {
 	match nr {
 		0x1 => syscall_exit(holder),
+        0x2 => syscall_fork(holder),
 		0x3 => syscall_read(holder, frame),
 		0x4 => syscall_write(holder, frame),
 		0x5 => syscall_open(holder, frame),
@@ -568,7 +497,7 @@ fn dispatch_syscall(holder: &mut OSHolder, frame: &SoftwareInterruptFrame, nr: u
 }
 
 #[inline(never)]
-pub fn handle_software_interrupt(frame: *mut SoftwareInterruptFrame, svc_lr: u32) -> u32 {
+pub fn handle_software_interrupt(frame: *mut InterruptFrame, svc_lr: u32) -> u32 {
 	dev_barrier();
 	mmu_disable();
 
@@ -584,12 +513,6 @@ pub fn handle_software_interrupt(frame: *mut SoftwareInterruptFrame, svc_lr: u32
 
 	unsafe {
 		let holder = OSHolder::os_holder_mut();
-		println!(
-			"Processing software interrupt with current program: {}",
-			holder.current_program
-		);
-		maybe_print_return_location(holder, frame);
-
 		let ret = dispatch_syscall(holder, frame, nr);
 		mmu_enable();
 		dev_barrier();
