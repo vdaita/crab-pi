@@ -2,7 +2,7 @@
  * Automatically generated C config: don't edit
  * Busybox version: 1.36.1
  */
-#define AUTOCONF_TIMESTAMP "2026-05-28 04:48:50 UTC"
+#define AUTOCONF_TIMESTAMP "2026-06-01 21:55:09 UTC"
 
 #define CONFIG_HAVE_DOT_CONFIG 1
 #define ENABLE_HAVE_DOT_CONFIG 1
@@ -840,14 +840,10 @@
 #define ENABLE_FEATURE_HUMAN_READABLE 0
 #define IF_FEATURE_HUMAN_READABLE(...)
 #define IF_NOT_FEATURE_HUMAN_READABLE(...) __VA_ARGS__
-#define CONFIG_BASENAME 1
-#define ENABLE_BASENAME 1
-#ifdef MAKE_SUID
-# define IF_BASENAME(...) __VA_ARGS__ "CONFIG_BASENAME"
-#else
-# define IF_BASENAME(...) __VA_ARGS__
-#endif
-#define IF_NOT_BASENAME(...)
+#undef CONFIG_BASENAME
+#define ENABLE_BASENAME 0
+#define IF_BASENAME(...)
+#define IF_NOT_BASENAME(...) __VA_ARGS__
 #define CONFIG_CAT 1
 #define ENABLE_CAT 1
 #ifdef MAKE_SUID
@@ -856,22 +852,14 @@
 # define IF_CAT(...) __VA_ARGS__
 #endif
 #define IF_NOT_CAT(...)
-#define CONFIG_FEATURE_CATN 1
-#define ENABLE_FEATURE_CATN 1
-#ifdef MAKE_SUID
-# define IF_FEATURE_CATN(...) __VA_ARGS__ "CONFIG_FEATURE_CATN"
-#else
-# define IF_FEATURE_CATN(...) __VA_ARGS__
-#endif
-#define IF_NOT_FEATURE_CATN(...)
-#define CONFIG_FEATURE_CATV 1
-#define ENABLE_FEATURE_CATV 1
-#ifdef MAKE_SUID
-# define IF_FEATURE_CATV(...) __VA_ARGS__ "CONFIG_FEATURE_CATV"
-#else
-# define IF_FEATURE_CATV(...) __VA_ARGS__
-#endif
-#define IF_NOT_FEATURE_CATV(...)
+#undef CONFIG_FEATURE_CATN
+#define ENABLE_FEATURE_CATN 0
+#define IF_FEATURE_CATN(...)
+#define IF_NOT_FEATURE_CATN(...) __VA_ARGS__
+#undef CONFIG_FEATURE_CATV
+#define ENABLE_FEATURE_CATV 0
+#define IF_FEATURE_CATV(...)
+#define IF_NOT_FEATURE_CATV(...) __VA_ARGS__
 #undef CONFIG_CHGRP
 #define ENABLE_CHGRP 0
 #define IF_CHGRP(...)
@@ -1344,14 +1332,10 @@
 #define ENABLE_TIMEOUT 0
 #define IF_TIMEOUT(...)
 #define IF_NOT_TIMEOUT(...) __VA_ARGS__
-#define CONFIG_TOUCH 1
-#define ENABLE_TOUCH 1
-#ifdef MAKE_SUID
-# define IF_TOUCH(...) __VA_ARGS__ "CONFIG_TOUCH"
-#else
-# define IF_TOUCH(...) __VA_ARGS__
-#endif
-#define IF_NOT_TOUCH(...)
+#undef CONFIG_TOUCH
+#define ENABLE_TOUCH 0
+#define IF_TOUCH(...)
+#define IF_NOT_TOUCH(...) __VA_ARGS__
 #undef CONFIG_FEATURE_TOUCH_SUSV3
 #define ENABLE_FEATURE_TOUCH_SUSV3 0
 #define IF_FEATURE_TOUCH_SUSV3(...)
@@ -1452,14 +1436,10 @@
 #define ENABLE_WHOAMI 0
 #define IF_WHOAMI(...)
 #define IF_NOT_WHOAMI(...) __VA_ARGS__
-#define CONFIG_YES 1
-#define ENABLE_YES 1
-#ifdef MAKE_SUID
-# define IF_YES(...) __VA_ARGS__ "CONFIG_YES"
-#else
-# define IF_YES(...) __VA_ARGS__
-#endif
-#define IF_NOT_YES(...)
+#undef CONFIG_YES
+#define ENABLE_YES 0
+#define IF_YES(...)
+#define IF_NOT_YES(...) __VA_ARGS__
 
 /*
  * Console Utilities
@@ -1468,14 +1448,10 @@
 #define ENABLE_CHVT 0
 #define IF_CHVT(...)
 #define IF_NOT_CHVT(...) __VA_ARGS__
-#define CONFIG_CLEAR 1
-#define ENABLE_CLEAR 1
-#ifdef MAKE_SUID
-# define IF_CLEAR(...) __VA_ARGS__ "CONFIG_CLEAR"
-#else
-# define IF_CLEAR(...) __VA_ARGS__
-#endif
-#define IF_NOT_CLEAR(...)
+#undef CONFIG_CLEAR
+#define ENABLE_CLEAR 0
+#define IF_CLEAR(...)
+#define IF_NOT_CLEAR(...) __VA_ARGS__
 #undef CONFIG_DEALLOCVT
 #define ENABLE_DEALLOCVT 0
 #define IF_DEALLOCVT(...)
@@ -1592,14 +1568,10 @@
 #define ENABLE_FEATURE_START_STOP_DAEMON_FANCY 0
 #define IF_FEATURE_START_STOP_DAEMON_FANCY(...)
 #define IF_NOT_FEATURE_START_STOP_DAEMON_FANCY(...) __VA_ARGS__
-#define CONFIG_WHICH 1
-#define ENABLE_WHICH 1
-#ifdef MAKE_SUID
-# define IF_WHICH(...) __VA_ARGS__ "CONFIG_WHICH"
-#else
-# define IF_WHICH(...) __VA_ARGS__
-#endif
-#define IF_NOT_WHICH(...)
+#undef CONFIG_WHICH
+#define ENABLE_WHICH 0
+#define IF_WHICH(...)
+#define IF_NOT_WHICH(...) __VA_ARGS__
 
 /*
  * klibc-utils
@@ -1636,22 +1608,14 @@
 #define ENABLE_FEATURE_AWK_GNU_EXTENSIONS 0
 #define IF_FEATURE_AWK_GNU_EXTENSIONS(...)
 #define IF_NOT_FEATURE_AWK_GNU_EXTENSIONS(...) __VA_ARGS__
-#define CONFIG_CMP 1
-#define ENABLE_CMP 1
-#ifdef MAKE_SUID
-# define IF_CMP(...) __VA_ARGS__ "CONFIG_CMP"
-#else
-# define IF_CMP(...) __VA_ARGS__
-#endif
-#define IF_NOT_CMP(...)
-#define CONFIG_DIFF 1
-#define ENABLE_DIFF 1
-#ifdef MAKE_SUID
-# define IF_DIFF(...) __VA_ARGS__ "CONFIG_DIFF"
-#else
-# define IF_DIFF(...) __VA_ARGS__
-#endif
-#define IF_NOT_DIFF(...)
+#undef CONFIG_CMP
+#define ENABLE_CMP 0
+#define IF_CMP(...)
+#define IF_NOT_CMP(...) __VA_ARGS__
+#undef CONFIG_DIFF
+#define ENABLE_DIFF 0
+#define IF_DIFF(...)
+#define IF_NOT_DIFF(...) __VA_ARGS__
 #undef CONFIG_FEATURE_DIFF_LONG_OPTIONS
 #define ENABLE_FEATURE_DIFF_LONG_OPTIONS 0
 #define IF_FEATURE_DIFF_LONG_OPTIONS(...)
@@ -1672,11 +1636,15 @@
 #define ENABLE_SED 0
 #define IF_SED(...)
 #define IF_NOT_SED(...) __VA_ARGS__
-#undef CONFIG_VI
-#define ENABLE_VI 0
-#define IF_VI(...)
-#define IF_NOT_VI(...) __VA_ARGS__
-#define CONFIG_FEATURE_VI_MAX_LEN 0
+#define CONFIG_VI 1
+#define ENABLE_VI 1
+#ifdef MAKE_SUID
+# define IF_VI(...) __VA_ARGS__ "CONFIG_VI"
+#else
+# define IF_VI(...) __VA_ARGS__
+#endif
+#define IF_NOT_VI(...)
+#define CONFIG_FEATURE_VI_MAX_LEN 4096
 #define ENABLE_FEATURE_VI_MAX_LEN 1
 #ifdef MAKE_SUID
 # define IF_FEATURE_VI_MAX_LEN(...) __VA_ARGS__ "CONFIG_FEATURE_VI_MAX_LEN"
@@ -4688,14 +4656,10 @@
 # define IF_FEATURE_SH_STANDALONE(...) __VA_ARGS__
 #endif
 #define IF_NOT_FEATURE_SH_STANDALONE(...)
-#define CONFIG_FEATURE_SH_NOFORK 1
-#define ENABLE_FEATURE_SH_NOFORK 1
-#ifdef MAKE_SUID
-# define IF_FEATURE_SH_NOFORK(...) __VA_ARGS__ "CONFIG_FEATURE_SH_NOFORK"
-#else
-# define IF_FEATURE_SH_NOFORK(...) __VA_ARGS__
-#endif
-#define IF_NOT_FEATURE_SH_NOFORK(...)
+#undef CONFIG_FEATURE_SH_NOFORK
+#define ENABLE_FEATURE_SH_NOFORK 0
+#define IF_FEATURE_SH_NOFORK(...)
+#define IF_NOT_FEATURE_SH_NOFORK(...) __VA_ARGS__
 #undef CONFIG_FEATURE_SH_READ_FRAC
 #define ENABLE_FEATURE_SH_READ_FRAC 0
 #define IF_FEATURE_SH_READ_FRAC(...)

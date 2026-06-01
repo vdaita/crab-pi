@@ -192,7 +192,13 @@ fn syscall_exit(holder: &mut OSHolder) -> u32 {
 		let current_program = holder.get_program_mut(holder.current_program);
 		holder.active[holder.current_program] = false;
 		println!("Current program id: {}, return sp: {:x}, return lr: {:x}", holder.current_program, current_program.return_sp, current_program.return_lr);
-        holder::elf_loader_return(current_program.return_sp, current_program.return_lr);
+
+		// if no other program is active, return to loader (exit)
+		let any_other = holder.active.iter().enumerate().any(|(idx, &a)| idx != holder.current_program && a);
+		if !any_other {
+			println!("No other active programs — exiting to loader");
+			holder::elf_loader_return(current_program.return_sp, current_program.return_lr);
+		}
 	}
 	0
 }
