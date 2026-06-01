@@ -19,14 +19,14 @@ unsafe impl Sync for OSHolder {}
 pub static OS_HOLDER: SyncUnsafeCell<MaybeUninit<OSHolder>> = 
     SyncUnsafeCell::new(MaybeUninit::zeroed());
 
-const DOM_KERN: u32 = 1;
+pub const DOM_KERN: u32 = 1;
 const DOM_USER: u32 = 2;
 const TINY_PAGE: usize = 4 * 1024;
 const LARGE_PAGE: usize = 16 * 1024 * 1024;
 const ONE_MB: usize = 1024 * 1024;
 const NUM_PROGRAMS: usize = 3;
-const MAX_ELF_SIZE: usize = 1024 * 1024 * 12;
-const MAX_STACK_SIZE: usize = 1024 * 1024 * 12;
+const MAX_ELF_SIZE: usize = 1024 * 1024 * 4;
+const MAX_STACK_SIZE: usize = 1024 * 1024 * 4;
 const MAX_HEAP_SIZE: usize = 1024 * 1024;
 
 
@@ -55,7 +55,6 @@ pub struct Program {
     pub sp: usize,
     pub heap_ptr: usize,
     pub tid: u32,
-    pub active: bool,
     pub elf_header: ElfHeader,
     pub elf_base: usize,
 
@@ -109,7 +108,11 @@ unsafe extern "C" {
 #[repr(C)]
 pub struct OSHolder {
     pub programs: [*mut Program; NUM_PROGRAMS],
-    pub current_program: usize
+    pub current_program: usize,
+    pub active: [bool; NUM_PROGRAMS],
+    
+    pub should_cswitch: bool
+
 }
 
 unsafe fn hexdump(ptr: *const u8, lines: u32) {
@@ -145,23 +148,25 @@ impl OSHolder {
             core::ptr::write(OS_HOLDER.get().cast::<OSHolder>(), core::mem::zeroed());
             kuser::install_kuser_helpers();
             interrupts::install_interrupts_vbar();
-            interrupts::enable_timer_interrupts();            
+            // interrupts::enable_timer_interrupts();         // -> this shit is causing me hell    
 
             let holder = OSHolder::os_holder_mut();
 
             // initialize program pointers
             for i in 0..NUM_PROGRAMS {
-                holder.programs[i] = (0x0200_0000 * i) as *mut Program; // this is actually the address that they are supposed to be mapped to 
+                holder.programs[i] = (0x0200_0000 * i + 0x0100_0000) as *mut Program; // this is actually the address that they are supposed to be mapped to 
+                // note: these memory addresses are properly aligned - 
                 core::ptr::write_bytes(
                     (holder.programs[i] as *mut u8),
                     0,
                     core::mem::size_of::<Program>()
                 );
+                holder.active[i] = false;
             }            
 
             for i in 0..NUM_PROGRAMS {
                 println!("Program {} has memory location {:p}, active={}",
-                    i, holder.programs[i], (*holder.programs[i]).active);
+                    i, holder.programs[i], holder.active[i]);
             }
         }
     }
@@ -169,7 +174,7 @@ impl OSHolder {
     pub unsafe fn get_next_active_program_index(&mut self, index: usize) -> usize {
         for offset in 1..(NUM_PROGRAMS + 1) {
             let next_index = (index + offset) % NUM_PROGRAMS;
-            if self.get_program(next_index).active {
+            if self.active[next_index] {
                 return next_index;
             }
         }
@@ -186,7 +191,7 @@ impl OSHolder {
 
     pub unsafe fn get_next_empty_index(&self) -> usize {
         for i in 0..NUM_PROGRAMS {
-            if !(*self.programs[i]).active {
+            if !self.active[i] {
                 return i
             }
         }
@@ -207,6 +212,7 @@ impl OSHolder {
         let program_addr = self.programs[program_index] as u32;
 
         // Program index memory mapping
+        // virtmem::pin_mmu_sec(1, 00, 0x0000, kern);
         virtmem::pin_mmu_sec(1, 0x0000, program_addr, kern);
         virtmem::pin_mmu_sec(2, 0x0000 + 16 * ONE_MB as u32, program_addr + 16 * ONE_MB as u32, kern);
         
@@ -227,12 +233,15 @@ impl OSHolder {
 
     pub fn run_elf(&mut self, program_index: usize, prog_name: &str) {
         unsafe {
+            interrupts::disable_interrupts_asm();
+
             kmalloc::ensure_init();
 
             println!("Setting up MMU for program {}", program_index);
             self.map_program_mmu(program_index);
             
             dev_barrier();
+            println!("About to enable MMU");
             virtmem::mmu_enable();
             println!("MMU enabled");
             
@@ -323,17 +332,23 @@ impl OSHolder {
                 interrupts::switch_to_user_mode as *const (),
                 &stack_top as *const _
             );
-            interrupts::switch_to_user_mode();
-            println!("Switched to user mode");
 
-            interrupts::enable_interrupts_asm();
-            interrupts::verify_timer_setup();
+
+            // interrupts::verify_timer_setup();
 
             let holder = OSHolder::os_holder_mut();
             holder.current_program = program_index;
-            program.active = true;
+            holder.active[program_index] = true;
 
-            println!("about to trampoline out");
+            println!("Set variables in holder.");
+
+            // profiler::breakpoint_mismatch_start();
+
+            interrupts::switch_to_user_mode();
+            println!("Switched to user mode");
+            
+            // interrupts::run_test_interrupt(); // expect the text to be off because buffer mismatch
+            // interrupts::switch_to_user_mode();
             elf_loader_tramp(core::ptr::addr_of_mut!(context), core::ptr::addr_of_mut!(program.return_sp), core::ptr::addr_of_mut!(program.return_lr));
         }
     }

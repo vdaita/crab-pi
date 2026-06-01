@@ -103,6 +103,8 @@ pub fn main() {
     //     // let _ = hello_program_index;
     // }
 
+    // os::interrupts::test_interrupts_vbar_vmem();
+
     os::holder::test_elf_holder();
 
     // programs::oled_display::test_oled_display();

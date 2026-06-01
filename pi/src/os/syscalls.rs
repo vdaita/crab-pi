@@ -2,8 +2,8 @@ use crate::arch::dev_barrier;
 use crate::fat32::{self, fs_manager};
 use crate::kmalloc;
 use crate::os::holder::{self, OSHolder};
-use crate::os::virtmem::{mmu_disable, mmu_enable};
-use crate::os::interrupts::{InterruptFrame};
+use crate::os::virtmem::{mmu_disable, mmu_enable, mmu_is_enabled};
+use crate::os::interrupts::{self, InterruptFrame};
 use crate::println;
 use crate::print;
 use core::arch::asm;
@@ -187,7 +187,10 @@ fn syscall_exit(holder: &mut OSHolder) -> u32 {
 			let tidptr = user_ptr_mut(holder, CLEAR_CHILD_TID);
 			core::ptr::write_volatile(tidptr as *mut u32, 0);
 		}
+		println!("Program finished, calling exit");
+
 		let current_program = holder.get_program_mut(holder.current_program);
+		holder.active[holder.current_program] = false;
 		println!("Current program id: {}, return sp: {:x}, return lr: {:x}", holder.current_program, current_program.return_sp, current_program.return_lr);
         holder::elf_loader_return(current_program.return_sp, current_program.return_lr);
 	}
@@ -296,7 +299,8 @@ fn heap_alloc(holder: &mut OSHolder, alloc_len: usize) -> u32 {
             return EINVAL;
         }
 
-        let user_ptr = (program.heap.data.as_mut_ptr() as usize + heap_curr) as u32;
+		let program_base = holder.programs[holder.current_program] as usize;
+		let user_ptr = ((program.heap.data.as_mut_ptr() as usize - program_base) + heap_curr) as u32;
         program.heap_ptr = heap_curr + alloc_len;
         println!("syscall_brk: allocated {} bytes at {:#x}, new heap_ptr={:#x}", alloc_len, user_ptr, program.heap_ptr);
         user_ptr
@@ -437,12 +441,40 @@ fn syscall_set_tid_address(frame: &InterruptFrame) -> u32 {
 	set_tid_address(frame.r0)
 }
 
-fn syscall_waitpid_like(_frame: &InterruptFrame) -> u32 {
-	(-10i32) as u32
+fn syscall_waitpid(holder: &OSHolder, _frame: &InterruptFrame) -> u32 {
+    let pid = _frame.r0 as i32; // Treat as signed integer
+    
+    println!("Waiting for process with PID: {}", pid);
+    
+    if pid == -1 {
+        println!("Waiting for any child process...");        
+        let any_active: bool = holder.active.iter()
+            .enumerate()
+            .any(|(idx, &active)| idx != holder.current_program && active);
+        if any_active {
+            println!("Child processes still active, waiting");
+            (-10i32) as u32
+        } else {
+            println!("No active child processes, done");
+            0 
+        }
+    } else if pid > 0 && (pid as usize) <= holder.active.len() {
+        let pid_idx = (pid as usize) - 1;
+        if holder.active[pid_idx] {
+            println!("Process {} is still active, waiting", pid);
+            (-10i32) as u32
+        } else {
+            println!("Process {} has terminated, continuing", pid);
+            0
+        }
+    } else {
+        println!("Invalid PID: {}", pid);
+        (-1i32) as u32
+    }
 }
 
-fn syscall_getpid(_frame: &InterruptFrame) -> u32 {
-	0
+fn syscall_getpid(holder: &OSHolder, frame: &InterruptFrame) -> u32 {
+	holder.current_program as u32 + 1 
 }
 
 fn syscall_noop(_frame: &InterruptFrame) -> u32 {
@@ -459,10 +491,12 @@ fn syscall_fork(holder: &mut OSHolder) -> u32 {
 			holder.programs[next_prog_index] as *mut u8,
 			size_of::<holder::Program>()
 		);
+		holder.active[next_prog_index] = true;
+
 		println!("Finished copying program {} -> {}", holder.current_program, next_prog_index);
 
 		// ensure child appears to return 0
-		// new_prog.frame.r0 = 0;
+		new_prog.frame.r0 = 0;
 
 		// diagnostic dump: instructions at lr and stack words at sp
 		let pc = new_prog.frame.lr;
@@ -487,15 +521,11 @@ fn syscall_fork(holder: &mut OSHolder) -> u32 {
 			print!(" {:08x}", w);
 		}
 		println!();
+
+		println!("returning next program index: {}", next_prog_index as u32 + 1);
 		next_prog_index as u32 + 1 // to say which pid needs to be tracked
 	}
 }
-
-// fn syscall_waitpid(holder: &mut OSHolder) -> u32 {
-// 	unsafe {
-		
-// 	}
-// }
 
 fn dispatch_syscall(holder: &mut OSHolder, frame: &InterruptFrame, nr: u32) -> u32 {
 	match nr {
@@ -505,17 +535,18 @@ fn dispatch_syscall(holder: &mut OSHolder, frame: &InterruptFrame, nr: u32) -> u
 		0x4 => syscall_write(holder, frame),
 		0x5 => syscall_open(holder, frame),
 		0xb => syscall_execve(holder, frame),
-		0x14 => syscall_getpid(frame),
+		0x14 => syscall_getpid(holder, frame),
 		0x2d => syscall_brk(holder, frame),
 		0x36 => syscall_noop(frame),
 		0x40 => syscall_noop(frame),
 		0x5b => syscall_noop(frame),
-		0x72 => syscall_waitpid_like(frame),
+		0x72 => syscall_waitpid(holder, frame),
 		0x92 => syscall_writev(holder, frame),
 		0x100 => syscall_set_tid_address(frame),
 		0xac => syscall_noop(frame),
 		0xae => syscall_noop(frame),
 		0xaf => syscall_noop(frame),
+		0x7d => syscall_noop(frame),
 		0xb7 => syscall_getcwd(holder, frame),
 		0xc0 => syscall_mmap2(holder, frame),
 		0xc9 => syscall_exit_group(holder, frame),
@@ -534,7 +565,11 @@ fn dispatch_syscall(holder: &mut OSHolder, frame: &InterruptFrame, nr: u32) -> u
 #[inline(never)]
 pub fn handle_software_interrupt(frame: *mut InterruptFrame, svc_lr: u32) -> u32 {
 	dev_barrier();
-	mmu_disable();
+	let should_toggle_mmu = mmu_is_enabled();
+
+	if should_toggle_mmu {
+		mmu_disable();
+	}
 
 	let svc_pc = svc_lr.wrapping_sub(4);
 	let instr = unsafe { core::ptr::read_volatile(svc_pc as *const u32) };
@@ -546,11 +581,29 @@ pub fn handle_software_interrupt(frame: *mut InterruptFrame, svc_lr: u32) -> u32
 		svc_pc, instr, frame.r0, frame.r1, frame.r2, frame.r3, frame.r4, frame.r5, nr
 	);
 
+	dev_barrier();
+
 	unsafe {
-		let holder = OSHolder::os_holder_mut();
-		let ret = dispatch_syscall(holder, frame, nr);
-		mmu_enable();
-		dev_barrier();
-		ret
+		// there are two options: this is being called from the program, or this is being called in some testing code inside the kernel
+		let holder = OSHolder::os_holder_mut(); 
+		if holder.active[holder.current_program] {
+			mmu_disable(); // disable the MMU
+			let syscall_ret = dispatch_syscall(holder, frame, nr);
+			frame.r0 = syscall_ret; // updating the ret value with this
+			let user_sp = holder::get_user_sp();
+			interrupts::update_current_program_frame(frame, user_sp as usize); // update the current program frame
+			// re-enable the MMU before continuing on with the program
+			mmu_enable();
+
+			interrupts::fork_trampoline_back(frame.lr, user_sp, frame as *const InterruptFrame);
+			// note: this is **not** referencing the pointer object. that would take a remapping to work properly.
+
+			panic!("should not reach this point of the code");
+			// execute the syscall... and save the output to the frame
+			// check context switching
+			// trampoline back instead of standard return back
+		} else {
+			dispatch_syscall(holder, frame, nr)
+		}
 	}
 }

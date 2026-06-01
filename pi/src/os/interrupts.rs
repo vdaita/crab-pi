@@ -9,14 +9,14 @@ use crate::profiler;
 use crate::os::syscalls::{self};
 use crate::os::holder::{self, OSHolder};
 
-fn update_current_program_frame(frame: *mut InterruptFrame) { // note: this must only be called from a SWI handler or something that disables the MMU beforehand
+pub fn update_current_program_frame(frame: *mut InterruptFrame, sp: usize) { // note: this must only be called from a SWI handler or something that disables the MMU beforehand
     unsafe {
         let holder = OSHolder::os_holder_mut();
         let idx = holder.current_program;
         let prog = holder.get_program_mut(idx);
-        if prog.active {
+        if holder.active[idx] {
             prog.frame = *frame;
-            prog.sp = holder::get_user_sp() as usize;   
+            prog.sp = sp;
 
             println!("Saving program frame for {}, lr={:x}, sp={:x}", idx, prog.frame.lr, prog.sp);
         }
@@ -134,7 +134,7 @@ interrupt_asm:
   @  - <INT_STACK_ADDR> is a physical address we reserve 
   @   for exception stacks today.  we don't do recursive
   @   exception/interupts so one stack is enough.
-  ldr sp, =0x17800000   @ Q: what if you delete?
+  ldr sp, =0x17c00000   @ Q: what if you delete?
   sub   lr, lr, #4
 
   @ push regs: beter match a pop
@@ -179,7 +179,7 @@ switch_to_user_mode:
     mrs r0, cpsr
     bic r0, r0, #0b11111  @ clear mode bits (bits 0-4)
     orr r0, r0, #0b10000  @ set user mode
-    @ bic r0, r0, #0b10000000  @ enable IRQs (clear I bit)
+    bic r0, r0, #0b10000000  @ enable IRQs (clear I bit)
 
     push {{sp}}
     ldm sp, {{sp}}^
@@ -206,6 +206,7 @@ fork_trampoline_back:
     mrs r12, cpsr
     bic r12, r12, #0x1F
     orr r12, r12, #0x10
+    bic r12, r12, #0x80
     msr spsr_cxsf, r12
     
     @ Set user SP
@@ -271,6 +272,7 @@ pub const ARM_TIMER_CTRL_ENABLE: u32 = ( 1 << 7 );
 pub const LOAD_PERIOD: u32 = 1000;
 
 
+// pub const VBAR: usize = 0x0900_0000;
 pub const VBAR: usize = 0x0900_0000;
 
 unsafe extern "C" {
@@ -290,7 +292,7 @@ unsafe extern "C" {
     pub unsafe fn switch_to_super_mode(regs: *const u32);
 
     #[link_name = "fork_trampoline_back"]
-    fn fork_trampoline_back(return_pc: u32, return_sp: u32, return_frame: *const InterruptFrame);
+    pub fn fork_trampoline_back(return_pc: u32, return_sp: u32, return_frame: *const InterruptFrame);
 
     #[link_name = "_interrupt_table"]
     pub static INTERRUPT_TABLE_START: u8;
@@ -325,6 +327,9 @@ pub fn move_table_vbar(interrupt_table_start_addr: usize, interrupt_table_end_ad
     let end: *const u32 = interrupt_table_end_addr as *const u32;
     let len = ((end as usize) - (start as usize)) / 4;
     let dst = core::ptr::without_provenance_mut::<u32>(vbar);
+
+    println!("copying interrupt table from {:p} start -> {:p} end to dst {:p}", start, end, dst);
+
     unsafe {
         for i in 0..len {
             core::arch::asm!(
@@ -344,79 +349,94 @@ pub extern "C" fn print_asm(val: u32) {
     println!("ASM print val: {}", val);
 }
 
-
 #[unsafe(no_mangle)]
-pub extern "C" fn interrupt_vector(pc: u32, frame: *mut InterruptFrame) {
+pub extern "C" fn interrupt_vector(pc: u32, frame: *mut InterruptFrame) { // don't do anything other than mark the value
     unsafe {
         let pending: u32 = get32(IRQ_BASIC_PENDING as u32);
         if((pending & ARM_TIMER_IRQ) == 0) {
-            println!("This aint a timer interrupt: {:0b}", pending);
-            virtmem::mmu_enable();
+            println!("not a timer interrupt: {:0b}", pending);
             dev_barrier();
             return;
         }
+
         put32(ARM_TIMER_IRQ_CLEAR as u32, 1);
-        println!("This appears to be a timer interrupt.");
-
-        if virtmem::mmu_is_enabled() { // means we have a program
-            virtmem::mmu_disable();
-
-
-            let holder = OSHolder::os_holder_mut();
-
-            if !holder.get_program(holder.current_program).active {
-                println!("Current program not active");
-                virtmem::mmu_enable();
-                return;
-            }
-            
-            update_current_program_frame(frame);
-            let next_program_index = holder.get_next_active_program_index(holder.current_program);
-            println!("Timer interrupt, moving from program {} -> {}", holder.current_program, next_program_index);
-            holder.current_program = next_program_index;
-            holder.map_program_mmu(holder.current_program);
-
-            virtmem::mmu_enable();
-
-            let mapped_program_ptr = 0x0000_0000 as *mut holder::Program;
-            let mapped_program = unsafe { &mut *mapped_program_ptr };
-            let mapped_next_frame: InterruptFrame = mapped_program.frame;
-
-            let return_pc = mapped_next_frame.lr;
-            let return_sp = mapped_program.sp as u32;
-            let return_frame_ptr = &mapped_program.frame as *const InterruptFrame;
-
-            println!("Returning to program: pc={:x}, sp={:x}", return_pc, return_sp);
-            unsafe {
-                print!("instr bytes:");
-                for i in 0..8 {
-                    let b = *((return_pc as *const u8).add(i));
-                    print!(" {:02x}", b);
-                }
-                println!();
-
-                print!("stack words at sp:");
-                for i in 0..8 {
-                    let w = *((return_sp as *const u32).add(i));
-                    print!(" {:08x}", w);
-                }
-                println!();
-
-                println!("fork: saved regs: r0={:x} r1={:x} r2={:x} r3={:x} r4={:x} r5={:x} r6={:x} r7={:x}",
-                    &mapped_program.frame.r0, &mapped_program.frame.r1, &mapped_program.frame.r2, &mapped_program.frame.r3,
-                    &mapped_program.frame.r4, &mapped_program.frame.r5, &mapped_program.frame.r6,&mapped_program.frame.r7);
-                println!("fork: saved regs cont: r8={:x} r9={:x} r10={:x} r11={:x} r12={:x} lr={:x}",
-                    &mapped_program.frame.r8, &mapped_program.frame.r9, &mapped_program.frame.r10, &mapped_program.frame.r11,
-                    &mapped_program.frame.r12, &mapped_program.frame.lr);
-            }
-
-            fork_trampoline_back(return_pc, return_sp, return_frame_ptr);
-        } else {
-            // println!("MMU disabled, skipping");
-        }
-
+        println!("timer interrupt");
+        
+        let holder = OSHolder::os_holder_mut();
+        holder.should_cswitch = true;
     }
 }
+
+// #[unsafe(no_mangle)]
+// pub extern "C" fn interrupt_vector(pc: u32, frame: *mut InterruptFrame) {
+//     unsafe {
+//         let pending: u32 = get32(IRQ_BASIC_PENDING as u32);
+//         if((pending & ARM_TIMER_IRQ) == 0) {
+//             println!("This aint a timer interrupt: {:0b}", pending);
+//             dev_barrier();
+//             return;
+//         }
+//         put32(ARM_TIMER_IRQ_CLEAR as u32, 1);
+//         println!("This appears to be a timer interrupt.");
+
+//         if virtmem::mmu_is_enabled() { // means we have a program
+//             virtmem::mmu_disable();
+
+
+//             let holder = OSHolder::os_holder_mut();
+
+//             if !holder.active[holder.current_program] {
+//                 println!("Current program not active");
+//                 virtmem::mmu_enable();
+//                 return;
+//             }
+            
+//             update_current_program_frame(frame);
+//             let next_program_index = holder.get_next_active_program_index(holder.current_program);
+//             println!("Timer interrupt, moving from program {} -> {}", holder.current_program, next_program_index);
+//             holder.current_program = next_program_index;
+//             holder.map_program_mmu(holder.current_program);
+
+//             virtmem::mmu_enable();
+
+//             let mapped_program_ptr = 0x0000_0000 as *mut holder::Program;
+//             let mapped_program = unsafe { &mut *mapped_program_ptr };
+//             let mapped_next_frame: InterruptFrame = mapped_program.frame;
+
+//             let return_pc = mapped_next_frame.lr;
+//             let return_sp = mapped_program.sp as u32;
+//             let return_frame_ptr = &mapped_program.frame as *const InterruptFrame;
+
+//             println!("Returning to program: pc={:x}, sp={:x}", return_pc, return_sp);
+//             unsafe {
+//                 print!("instr bytes:");
+//                 for i in 0..8 {
+//                     let b = *((return_pc as *const u8).add(i));
+//                     print!(" {:02x}", b);
+//                 }
+//                 println!();
+
+//                 print!("stack words at sp:");
+//                 for i in 0..8 {
+//                     let w = *((return_sp as *const u32).add(i));
+//                     print!(" {:08x}", w);
+//                 }
+//                 println!();
+
+//                 println!("timer back regs: r0={:x} r1={:x} r2={:x} r3={:x} r4={:x} r5={:x} r6={:x} r7={:x}",
+//                     mapped_program.frame.r0, mapped_program.frame.r1, mapped_program.frame.r2, mapped_program.frame.r3,
+//                     mapped_program.frame.r4, mapped_program.frame.r5, mapped_program.frame.r6, mapped_program.frame.r7);
+//                 println!("timer back regs cont: r8={:x} r9={:x} r10={:x} r11={:x} r12={:x} lr={:x}",
+//                     mapped_program.frame.r8, mapped_program.frame.r9, mapped_program.frame.r10, mapped_program.frame.r11,
+//                     mapped_program.frame.r12, mapped_program.frame.lr);
+//             }
+
+//             fork_trampoline_back(return_pc, return_sp, return_frame_ptr);
+//         } else {
+//             println!("MMU disabled, skipping");
+//         }
+//     }
+// }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn fast_interrupt_vector(pc: u32) {
@@ -426,7 +446,6 @@ pub extern "C" fn fast_interrupt_vector(pc: u32) {
 #[unsafe(no_mangle)]
 pub extern "C" fn os_undefined_instruction_vector(frame: *mut InterruptFrame, pc: u32) {
     unsafe {
-        update_current_program_frame(frame);
         let frame = unsafe { &mut *frame };
         println!("Undefined instruction at pc={:#x}, inst={:#x}", pc, *(pc as *const u32));
     }
@@ -435,7 +454,6 @@ pub extern "C" fn os_undefined_instruction_vector(frame: *mut InterruptFrame, pc
 #[unsafe(no_mangle)]
 pub extern "C" fn os_data_abort_vector(frame: *mut InterruptFrame, pc: u32) {
     unsafe { 
-        update_current_program_frame(frame);
         let far: u32;
         core::arch::asm!("mrc p15, 0, {}, c6, c0, 0", out(reg) far);
         let instr = *(pc as *const u32);
@@ -446,7 +464,6 @@ pub extern "C" fn os_data_abort_vector(frame: *mut InterruptFrame, pc: u32) {
 #[unsafe(no_mangle)]
 pub extern "C" fn os_prefetch_abort_vector(frame: *mut InterruptFrame, pc: u32) {
     unsafe {
-        update_current_program_frame(frame);
         let frame = &*frame;
         let instr = core::ptr::read_volatile(pc as *const u32);
         println!(
@@ -475,7 +492,6 @@ pub extern "C" fn os_prefetch_abort_vector(frame: *mut InterruptFrame, pc: u32) 
 #[unsafe(no_mangle)]
 #[inline(never)]
 pub extern "C" fn software_interrupt_vector(frame: *mut InterruptFrame, svc_lr: u32) -> u32 {
-    update_current_program_frame(frame);
     syscalls::handle_software_interrupt(frame, svc_lr)
 }
 
@@ -571,28 +587,88 @@ pub fn install_interrupts_vbar() {
     }
 }
 
+
+
+pub fn run_test_interrupt() {
+    let mut r0: u32 = 1; // for standard out
+    let test_str = "testing interrupt\n";
+
+    println!("before executing the actual asm instruction, string address: {:p}", core::ptr::addr_of!(test_str));
+
+    unsafe {
+        asm!(
+            "svc 0",
+            inout("r0") r0 => r0,
+            in("r1") test_str.as_ptr(),
+            in("r2") test_str.len(),
+            in("r7") 4u32,
+            options(nostack)
+        )
+    }
+
+    println!("Finished running SWI handler.");
+    let sp:u32;
+    unsafe{::core::arch::asm!("mov {t},sp",t=out(reg)sp)}
+    println!("Stack pointer: {sp:08x}");
+}
+
 pub fn test_interrupts_vbar() {
     unsafe {
         install_interrupts_vbar();
         switch_to_user_mode();
+        run_test_interrupt();
+    }
+}
 
-        let mut r0: u32 = 1; // for standard out
-        let test_str = "testing interrupt\n";
+pub fn test_interrupts_vbar_vmem() {
+    unsafe {
+        virtmem::mmu_reset();
+        
+        let user = virtmem::MemPerm::perm_rw_user;
+        let dev = virtmem::make_global_pin(holder::DOM_KERN, user, virtmem::MemAttr::MEM_device, virtmem::PageSizes::mb16);
+        let kern = virtmem::make_global_pin(holder::DOM_KERN, user,virtmem::MemAttr::MEM_uncached, virtmem::PageSizes::mb16);
+
+        let ONE_MB = 1024 * 1024;
+
+        install_interrupts_vbar();
+
+        // Peripherals
+        virtmem::pin_mmu_sec(0, 0x2000_0000, 0x2000_0000, dev);
+
+        // virtmem::pin_mmu_sec(1, 0x0, 0x0, kern);
+        // Kernel memory mappings (identity)
+        virtmem::pin_mmu_sec(3, 0x1000_0000, 0x1000_0000, kern);
+        virtmem::pin_mmu_sec(4, 0x1000_0000 + 16 * ONE_MB as u32, 0x1000_0000 + 16 * ONE_MB as u32, kern);
+
+        // VBAR helpers
+        virtmem::pin_mmu_sec(5, VBAR as u32, VBAR as u32, kern);
+
+        // Stack region
+        virtmem::pin_mmu_sec(6, 0x1800_0000 - 16 * ONE_MB as u32, 0x1800_0000 - 16 * ONE_MB as u32, kern);
+
+        virtmem::pin_mmu_init(!0);
+
+        // profiler::breakpoint_mismatch_start();
+
+        virtmem::mmu_enable();
+
+        println!("enabled!");
+
+        let vbar: u32;
         unsafe {
-            asm!(
-                "svc 0",
-                inout("r0") r0 => r0,
-                in("r1") test_str.as_ptr(),
-                in("r2") test_str.len(),
-                in("r7") 4u32,
-                options(nostack)
-            )
+            core::arch::asm!("mrc p15, 0, {}, c12, c0, 0", out(reg) vbar);
         }
+        println!("VBAR = 0x{:08x}", vbar);
 
-        println!("Finished running SWI handler.");
-        let sp:u32;
-        unsafe{::core::arch::asm!("mov {t},sp",t=out(reg)sp)}
-        println!("Stack pointer: {sp:08x}");
+
+        switch_to_user_mode();
+
+        println!("switched to user mode");
+
+        run_test_interrupt();
+
+        println!("Finished the interrupt test!");
+        // virtmem::mmu_disable(); -> this doesn't work because you are not in special mode 
     }
 }
 
@@ -618,31 +694,7 @@ pub fn test_interrupts() {
     println!("Stack pointer: {:0x}", get_stack_pointer());
 
     unsafe { switch_to_user_mode(); }
-    println!("Switched to user mode!");
-    print_cpsr();
-
-    println!("Switched to user mode.");
-    println!("Address of this function: {:p}", test_interrupts as *const u32);
-
-    // here print out the stack
-    
-    let mut r0: u32 = 1; // for standard out
-    let test_str = "testing interrupt\n";
-    unsafe {
-        asm!(
-            "svc 0",
-            inout("r0") r0 => r0,
-            in("r1") test_str.as_ptr(),
-            in("r2") test_str.len(),
-            in("r7") 4u32,
-            options(nostack)
-        )
-    }
-
-    println!("Finished running SWI handler.");
-    let sp:u32;
-    unsafe{::core::arch::asm!("mov {t},sp",t=out(reg)sp)}
-    println!("Stack pointer: {sp:08x}");
+    run_test_interrupt();
     // println!("Stack pointer: {:0x}", get_stack_pointer());
 
     // report();
