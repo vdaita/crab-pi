@@ -347,3 +347,31 @@ pub fn pin_mmu_switch(pid: u32, asid: u32) {
             "mcr p15, 0, {zero}, c7, c5, 4",
             zero = in(reg) 0u32);} 
  }
+
+ // originally from holder.rs
+//  pub fn mmu_identity_map_test() {
+//     virtmem::mmu_reset();
+//     let user = MemPerm::perm_rw_user;
+//     let dev = virtmem::make_global_pin(DOM_KERN, user, virtmem::MemAttr::MEM_device, virtmem::PageSizes::mb16);
+//     let kern = virtmem::make_global_pin(DOM_KERN, user, virtmem::MemAttr::MEM_uncached, virtmem::PageSizes::mb16);
+//     let kern_1mb = virtmem::make_global_pin(DOM_KERN, user, virtmem::MemAttr::MEM_uncached, virtmem::PageSizes::mb1);
+
+//     virtmem::pin_mmu_sec(0, 0x2000_0000, 0x2000_0000, dev);
+//     virtmem::pin_mmu_sec(2, 0x1000_0000, 0x1000_0000, kern);
+//     virtmem::pin_mmu_sec(3, (0x1000_0000 + 16 * ONE_MB) as u32, (0x1000_0000 + 16 * ONE_MB) as u32, kern);
+//     virtmem::pin_mmu_sec(4, (0x1800_0000 - 16 * ONE_MB) as u32, (0x1800_0000 - 16 * ONE_MB) as u32, kern);
+
+//     unsafe { *(0x0650_0000 as *mut u8) = 10; }
+
+//     virtmem::pin_mmu_sec(5, 0x0500_0000, 0x0600_0000, kern);
+
+//     virtmem::pin_mmu_init(!0);
+//     println!("About to pin the identity test!");
+//     virtmem::mmu_enable();
+//     println!("MMU successfully enabled");
+
+//     unsafe { println!("testing out a memory access to: {}", *(0x0550_0000 as *mut u8)); }
+
+//     virtmem::mmu_disable();
+//     println!("Ok done");
+// }

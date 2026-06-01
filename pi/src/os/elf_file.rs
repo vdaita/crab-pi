@@ -109,3 +109,21 @@ pub unsafe fn load_elf_into_program(file_data: *const u8, program: &mut crate::o
 
     println!("ELF loaded: elf_base={:#x}, phys_elf_base={:#x}", elf_base, phys_elf_base as usize);
 }
+
+fn print_elf_header(elf_header: ElfHeader) {
+    println!("ELF header:");
+    println!("  e_ident     = {:02x?}", elf_header.e_ident);
+    println!("  e_type      = {:#06x}", elf_header.e_type);
+    println!("  e_machine   = {:#06x}", elf_header.e_machine);
+    println!("  e_version   = {:#010x}", elf_header.e_version);
+    println!("  e_entry     = {:#010x}", elf_header.e_entry);
+    println!("  e_phoff     = {:#010x}", elf_header.e_phoff);
+    println!("  e_shoff     = {:#010x}", elf_header.e_shoff);
+    println!("  e_flags     = {:#010x}", elf_header.e_flags);
+    println!("  e_ehsize    = {:#06x}", elf_header.e_ehsize);
+    println!("  e_phentsize = {:#06x}", elf_header.e_phentsize);
+    println!("  e_phnum     = {:#06x}", elf_header.e_phnum);
+    println!("  e_shentsize = {:#06x}", elf_header.e_shentsize);
+    println!("  e_shnum     = {:#06x}", elf_header.e_shnum);
+    println!("  e_shstrndx  = {:#06x}", elf_header.e_shstrndx);
+}

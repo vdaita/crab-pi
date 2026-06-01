@@ -12,7 +12,7 @@ use core::cell::SyncUnsafeCell;
 use core::arch::asm;
 use core::mem::MaybeUninit;
 use crate::os::elf_file::{ElfHeader, ProgramHeader, SectionHeader};
-use crate::os::interrupts::InterruptFrame;
+use crate::os::interrupts::{InterruptFrame};
 
 unsafe impl Sync for OSHolder {}
 
@@ -112,24 +112,6 @@ pub struct OSHolder {
     pub current_program: usize
 }
 
-fn print_elf_header(elf_header: ElfHeader) {
-    println!("ELF header:");
-    println!("  e_ident     = {:02x?}", elf_header.e_ident);
-    println!("  e_type      = {:#06x}", elf_header.e_type);
-    println!("  e_machine   = {:#06x}", elf_header.e_machine);
-    println!("  e_version   = {:#010x}", elf_header.e_version);
-    println!("  e_entry     = {:#010x}", elf_header.e_entry);
-    println!("  e_phoff     = {:#010x}", elf_header.e_phoff);
-    println!("  e_shoff     = {:#010x}", elf_header.e_shoff);
-    println!("  e_flags     = {:#010x}", elf_header.e_flags);
-    println!("  e_ehsize    = {:#06x}", elf_header.e_ehsize);
-    println!("  e_phentsize = {:#06x}", elf_header.e_phentsize);
-    println!("  e_phnum     = {:#06x}", elf_header.e_phnum);
-    println!("  e_shentsize = {:#06x}", elf_header.e_shentsize);
-    println!("  e_shnum     = {:#06x}", elf_header.e_shnum);
-    println!("  e_shstrndx  = {:#06x}", elf_header.e_shstrndx);
-}
-
 unsafe fn hexdump(ptr: *const u8, lines: u32) {
     for i in 0..lines {
         for j in 0..8 {
@@ -153,34 +135,6 @@ pub fn get_user_sp() -> u32 {
     user_sp
 }
 
-pub fn mmu_identity_map_test() {
-    virtmem::mmu_reset();
-    let user = MemPerm::perm_rw_user;
-    let dev = virtmem::make_global_pin(DOM_KERN, user, virtmem::MemAttr::MEM_device, virtmem::PageSizes::mb16);
-    let kern = virtmem::make_global_pin(DOM_KERN, user, virtmem::MemAttr::MEM_uncached, virtmem::PageSizes::mb16);
-    let kern_1mb = virtmem::make_global_pin(DOM_KERN, user, virtmem::MemAttr::MEM_uncached, virtmem::PageSizes::mb1);
-
-    virtmem::pin_mmu_sec(0, 0x2000_0000, 0x2000_0000, dev);
-    virtmem::pin_mmu_sec(2, 0x1000_0000, 0x1000_0000, kern);
-    virtmem::pin_mmu_sec(3, (0x1000_0000 + 16 * ONE_MB) as u32, (0x1000_0000 + 16 * ONE_MB) as u32, kern);
-    virtmem::pin_mmu_sec(4, (0x1800_0000 - 16 * ONE_MB) as u32, (0x1800_0000 - 16 * ONE_MB) as u32, kern);
-
-    unsafe { *(0x0650_0000 as *mut u8) = 10; }
-
-    virtmem::pin_mmu_sec(5, 0x0500_0000, 0x0600_0000, kern);
-
-    virtmem::pin_mmu_init(!0);
-    println!("About to pin the identity test!");
-    virtmem::mmu_enable();
-    println!("MMU successfully enabled");
-
-    unsafe { println!("testing out a memory access to: {}", *(0x0550_0000 as *mut u8)); }
-
-    virtmem::mmu_disable();
-    println!("Ok done");
-}
-
-
 impl OSHolder {
     pub unsafe fn os_holder_mut() -> &'static mut OSHolder {
         &mut *OS_HOLDER.get().cast::<OSHolder>()
@@ -191,9 +145,7 @@ impl OSHolder {
             core::ptr::write(OS_HOLDER.get().cast::<OSHolder>(), core::mem::zeroed());
             kuser::install_kuser_helpers();
             interrupts::install_interrupts_vbar();
-            
-            // configure timer interrupts
-            
+            interrupts::enable_timer_interrupts();            
 
             let holder = OSHolder::os_holder_mut();
 
@@ -354,6 +306,12 @@ impl OSHolder {
 
             println!("Jumping to entry point: {:#x}", context.entry);
 
+            dev_barrier();
+
+            let ret_sp_addr = core::ptr::addr_of_mut!((*program_ptr).return_sp);
+            let ret_lr_addr = core::ptr::addr_of_mut!((*program_ptr).return_lr);
+            println!("Location of where to return sp={:p}, return lr={:p}, program_location: {:p}", ret_sp_addr, ret_lr_addr, program_ptr);
+
             println!("About to switch to user mode from PC: {:p}, SP: {:p}", 
                 interrupts::switch_to_user_mode as *const (),
                 &stack_top as *const _
@@ -361,11 +319,7 @@ impl OSHolder {
             interrupts::switch_to_user_mode();
             println!("Switched to user mode");
 
-            dev_barrier();
-
-            let ret_sp_addr = core::ptr::addr_of_mut!((*program_ptr).return_sp);
-            let ret_lr_addr = core::ptr::addr_of_mut!((*program_ptr).return_lr);
-            println!("Location of where to return sp={:p}, return lr={:p}, program_location: {:p}", ret_sp_addr, ret_lr_addr, program_ptr);
+            interrupts::verify_timer_setup();
 
             elf_loader_tramp(core::ptr::addr_of_mut!(context), core::ptr::addr_of_mut!(program.return_sp), core::ptr::addr_of_mut!(program.return_lr));
         }

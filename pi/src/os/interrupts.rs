@@ -256,6 +256,16 @@ const PARTHIV_PIN: u32 = 27;
 pub const CPSR_USER_MODE: u32 = 0b10000;
 pub const CPSR_SUPER_MODE: u32 = 0b10011;
 
+pub const ARM_TIMER_CTRL_32BIT: u32 = ( 1 << 1 );
+pub const ARM_TIMER_CTRL_PRESCALE_1: u32 = ( 0 << 2 );
+pub const ARM_TIMER_CTRL_PRESCALE_16: u32 = ( 1 << 2 );
+pub const ARM_TIMER_CTRL_PRESCALE_256: u32 = ( 2 << 2 );
+pub const ARM_TIMER_CTRL_INT_ENABLE: u32 = ( 1 << 5 );
+pub const ARM_TIMER_CTRL_ENABLE: u32 = ( 1 << 7 );
+
+pub const LOAD_PERIOD: u32 = 1000;
+
+
 pub const VBAR: usize = 0x0900_0000;
 
 unsafe extern "C" {
@@ -332,9 +342,9 @@ pub extern "C" fn print_asm(val: u32) {
 #[unsafe(no_mangle)]
 pub extern "C" fn interrupt_vector(pc: u32) {
     dev_barrier();
-    let pending: u32 = get32(IRQ_PENDING_1 as u32);
+    let pending: u32 = get32(IRQ_BASIC_PENDING as u32);
     if((pending & ARM_TIMER_IRQ) == 0) {
-        println!("This doesn't seem to be a timer interrupt.");
+        println!("This aint a timer interrupt: {:0b}", pending);
         return;
     }
     put32(ARM_TIMER_IRQ_CLEAR as u32, 1);
@@ -580,4 +590,66 @@ pub fn test_interrupts() {
 
     // println!("passing value test: {}", ret);
     // println!("disabled interrupts, svc write returned: {}", r0 as i32);
+}
+
+pub fn enable_timer_interrupts() {
+    unsafe {
+        dev_barrier();        
+        put32(IRQ_ENABLE_BASIC as u32, ARM_TIMER_IRQ);
+        dev_barrier();        
+        put32(ARM_TIMER_LOAD as u32, LOAD_PERIOD);
+        dev_barrier();        
+        let control_value = ARM_TIMER_CTRL_32BIT |
+                           ARM_TIMER_CTRL_ENABLE |
+                           ARM_TIMER_CTRL_INT_ENABLE |
+                           ARM_TIMER_CTRL_PRESCALE_256;
+        
+        put32(ARM_TIMER_CONTROL as u32, control_value);
+        dev_barrier();        
+        put32(ARM_TIMER_IRQ_CLEAR as u32, 1);
+        dev_barrier();
+    }
+}
+
+pub fn verify_timer_setup() {
+    unsafe {
+        let control_value = ARM_TIMER_CTRL_32BIT |
+                           ARM_TIMER_CTRL_ENABLE |
+                           ARM_TIMER_CTRL_INT_ENABLE |
+                           ARM_TIMER_CTRL_PRESCALE_256;
+        
+        let ctrl_readback = get32(ARM_TIMER_CONTROL as u32);
+        let load_readback = get32(ARM_TIMER_LOAD as u32);
+        let irq_enabled = get32(IRQ_ENABLE_BASIC as u32);
+        
+        println!("Timer Setup Verification:");
+        println!("  Control register: {:#010x} (expected: {:#010x})", 
+                 ctrl_readback, control_value);
+        println!("  Load value: {} (expected: 1000)", load_readback);
+        println!("  IRQ enabled bits: {:#010x} (expected: {:#010x})", 
+                 irq_enabled, ARM_TIMER_IRQ);
+        
+        if ctrl_readback != control_value {
+            panic!("  Control register mismatch!");
+        }
+        if load_readback != LOAD_PERIOD {
+            panic!("  Load value mismatch!");
+        }
+        if (irq_enabled & ARM_TIMER_IRQ) == 0 {
+            panic!("  Timer IRQ not enabled in controller!");
+        }
+        
+        let timer_val1 = get32(ARM_TIMER_VALUE as u32);
+        for _ in 0..10000 { asm!("nop"); }
+        let timer_val2 = get32(ARM_TIMER_VALUE as u32);
+        
+        println!("  Timer value 1: {}", timer_val1);
+        println!("  Timer value 2: {}", timer_val2);
+        
+        let pending = get32(IRQ_BASIC_PENDING as u32);
+        println!("  Pending IRQs: {:#010x}", pending);
+        if (pending & ARM_TIMER_IRQ) != 0 {
+            println!("  Timer interrupt is PENDING!");
+        }
+    }
 }
