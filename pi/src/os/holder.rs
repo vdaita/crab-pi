@@ -1,7 +1,7 @@
 use core::arch::global_asm;
 use crate::arch::dev_barrier;
 use crate::mem::{get32, put32};
-use crate::os::interrupts;
+use crate::os::{interrupts, kuser};
 use crate::os::virtmem::{self, MemPerm, MemAttr, PageSizes, mmu_disable, mmu_enable};
 use crate::{println, print};
 use crate::circular::CircularQueue;
@@ -11,7 +11,7 @@ use crate::kmalloc;
 use core::cell::SyncUnsafeCell;
 use core::arch::asm;
 use core::mem::MaybeUninit;
-use crate::os::elf_loader;
+use crate::os::elf_file::{ElfHeader, ProgramHeader, SectionHeader};
 
 unsafe impl Sync for OSHolder {}
 
@@ -22,14 +22,12 @@ const DOM_KERN: u32 = 1;
 const DOM_USER: u32 = 2;
 const TINY_PAGE: usize = 4 * 1024;
 const LARGE_PAGE: usize = 16 * 1024 * 1024;
-pub const VBAR: usize = 0x1900_0000;
 const ONE_MB: usize = 1024 * 1024;
 const NUM_PROGRAMS: usize = 3;
 const MAX_ELF_SIZE: usize = 1024 * 1024 * 12;
 const MAX_STACK_SIZE: usize = 1024 * 1024 * 12;
 const MAX_HEAP_SIZE: usize = 1024 * 1024;
 
-pub const KUSER_ADDR: usize = 0x1600_0000;
 
 #[derive(Copy, Clone)]
 pub struct ELF {
@@ -44,51 +42,6 @@ pub struct Stack {
 #[derive(Copy, Clone)]
 pub struct Heap {
     pub data: [u8; MAX_HEAP_SIZE],
-}
-
-#[derive(Clone, Copy, Default)]
-#[repr(C)]
-pub struct ElfHeader {
-    pub e_ident: [u8; 16],
-    pub e_type: u16,
-    pub e_machine: u16,
-    pub e_version: u32,
-    pub e_entry: usize,
-    pub e_phoff: usize,
-    pub e_shoff: usize,
-    pub e_flags: u32,
-    pub e_ehsize: u16,
-    pub e_phentsize: u16,
-    pub e_phnum: u16,
-    pub e_shentsize: u16,
-    pub e_shnum: u16,
-    pub e_shstrndx: u16
-}
-
-#[repr(C)]
-pub struct ProgramHeader {
-    pub p_type: u32,
-    pub p_offset: u32,
-    pub p_vaddr: u32,
-    pub p_paddr: u32,
-    pub p_filesz: u32,
-    pub p_memsz: u32,
-    pub p_flags: u32,
-    pub p_align: u32
-}
-
-#[repr(C)]
-pub struct SectionHeader {
-    pub sh_name: u32,
-    pub sh_type: u32,
-    pub sh_flags: u32,
-    pub sh_addr: u32,
-    pub sh_offset: u32,
-    pub sh_size: u32,
-    pub sh_link: u32,
-    pub sh_info: u32,
-    pub sh_addralign: u32,
-    pub sh_entsize: u32
 }
 
 #[derive(Copy, Clone, Default)]
@@ -119,10 +72,55 @@ pub struct Program {
     pub sp: usize,
     pub heap_ptr: usize,
     pub tid: u32,
-    pub frame: SoftwareInterruptFrame,
     pub active: bool,
     pub elf_header: ElfHeader,
     pub elf_base: usize,
+
+    // for when the program returns
+    pub return_sp: usize,
+    pub return_lr: usize
+}
+
+#[repr(C)]
+pub struct ProgramContext {
+    pub user_stack: u32,
+    pub entry: u32,
+    pub arg0: u32,
+    pub arg1: u32,
+    pub arg2: u32,
+}
+
+global_asm!(r#"
+.globl elf_loader_tramp
+.type elf_loader_tramp, %function
+elf_loader_tramp:
+    str sp, [r1]
+    str lr, [r2]
+
+    ldr r1, [r0]        @ stack pointer
+    mov sp, r1
+
+    ldr r1, [r0, #4]    @ entry point
+    mov lr, r1
+
+    ldr r2, [r0, #16]   @ third argument
+    ldr r1, [r0, #12]   @ second argument
+    ldr r0, [r0, #8]    @ first argument
+
+    bx lr
+
+.globl elf_loader_return
+.type elf_loader_return, %function
+elf_loader_return:
+    mov sp, r0
+    mov lr, r1
+    bx lr
+"#,
+);
+
+unsafe extern "C" {
+    pub fn elf_loader_tramp(data: *mut ProgramContext, return_sp: *mut usize, return_lr: *mut usize);
+    pub fn elf_loader_return(return_sp: usize, return_lr: usize);
 }
 
 #[repr(C)]
@@ -205,66 +203,22 @@ impl OSHolder {
         &mut *OS_HOLDER.get().cast::<OSHolder>()
     }
 
-    pub fn install_kuser_helpers() {
-        unsafe {
-            dev_barrier();
-            println!("About to copy Kuser helpers");
- 
-            // __kernel_helper_version at VA 0xFFFF0FFC
-            core::ptr::write_volatile(
-                (KUSER_ADDR + 0x00FF0FFC) as *mut u32, elf_loader::kuser_version());
-
-            // __kernel_get_tls at VA 0xFFFF0FA0
-            core::ptr::copy_nonoverlapping(
-                elf_loader::kuser_get_tls as *const u32,
-                (KUSER_ADDR + 0x00FF0FA0) as *mut u32, 4);
-
-            // __kernel_cmpxchg at VA 0xFFFF0FC0
-            core::ptr::copy_nonoverlapping(
-                elf_loader::kuser_cmpxchg as *const u32,
-                (KUSER_ADDR + 0x00FF0FC0) as *mut u32, 8);
-
-            // __kernel_memory_barrier at VA 0xFFFF0FE0
-            core::ptr::copy_nonoverlapping(
-                elf_loader::kuser_memory_barrier as *const u32,
-                (KUSER_ADDR + 0x00FF0FE0) as *mut u32, 2);
-
-            println!("Finished copying KUSER");
-        }
-    }
-
-    pub fn install_interrupts() {
-        unsafe {
-            // copy over the interrupt table
-            interrupts::move_table_vbar(
-                core::ptr::addr_of!(interrupts::INTERRUPT_TABLE_START) as usize,
-                core::ptr::addr_of!(interrupts::INTERRUPT_TABLE_END) as usize,
-                VBAR
-            );
-
-            dev_barrier();
-            asm!("mcr p15, 0, {0}, c12, c0, 0", in(reg) VBAR, options(nostack, preserves_flags));
-            dev_barrier();
-        }
-    }
-
     pub fn init() {
         unsafe {
             core::ptr::write(OS_HOLDER.get().cast::<OSHolder>(), core::mem::zeroed());
-            OSHolder::install_kuser_helpers();
-            OSHolder::install_interrupts();
+            kuser::install_kuser_helpers();
+            interrupts::install_interrupts_vbar();
             let holder = OSHolder::os_holder_mut();
 
             // initialize program pointers
             for i in 0..NUM_PROGRAMS {
-                holder.programs[i] = 0x0000_0000 as *mut Program;
+                holder.programs[i] = (0x0200_0000 * i) as *mut Program; // this is actually the address that they are supposed to be mapped to 
                 core::ptr::write_bytes(
-                    (holder.programs[i] as *mut u8).byte_add(0x0010_0000),
+                    (holder.programs[i] as *mut u8),
                     0,
                     core::mem::size_of::<Program>()
                 );
             }            
-            (*holder.programs[0]).active = true;
 
             for i in 0..NUM_PROGRAMS {
                 println!("Program {} has memory location {:p}, active={}",
@@ -275,11 +229,11 @@ impl OSHolder {
         }
     }
 
-    unsafe fn get_program_mut(&mut self, index: usize) -> &'static mut Program {
+    pub unsafe fn get_program_mut(&mut self, index: usize) -> &'static mut Program {
         &mut *self.programs[index]
     }
 
-    unsafe fn get_program(&self, index: usize) -> &'static Program {
+    pub unsafe fn get_program(&self, index: usize) -> &'static Program {
         &*self.programs[index]
     }
 
@@ -290,26 +244,28 @@ impl OSHolder {
         let dev = virtmem::make_global_pin(DOM_KERN, user, MemAttr::MEM_device, PageSizes::mb16);
         let kern = virtmem::make_global_pin(DOM_KERN, user, MemAttr::MEM_uncached, PageSizes::mb16);
 
+
         // Peripherals
         virtmem::pin_mmu_sec(0, 0x2000_0000, 0x2000_0000, dev);
 
-        // Kernel memory mappings (identity)
-        virtmem::pin_mmu_sec(1, 0x0000, 0x0100_0000, kern);
-        virtmem::pin_mmu_sec(2, 0x0000 + 16 * ONE_MB as u32, 0x0100_0000 + 16 * ONE_MB as u32, kern);
+        let program_addr = self.programs[program_index] as u32;
+
+        // Program index memory mapping
+        virtmem::pin_mmu_sec(1, 0x0000, program_addr, kern);
+        virtmem::pin_mmu_sec(2, 0x0000 + 16 * ONE_MB as u32, program_addr + 16 * ONE_MB as u32, kern);
         
+        // Kernel memory mappings (identity)
         virtmem::pin_mmu_sec(3, 0x1000_0000, 0x1000_0000, kern);
         virtmem::pin_mmu_sec(4, 0x1000_0000 + 16 * ONE_MB as u32, 0x1000_0000 + 16 * ONE_MB as u32, kern);
 
         // VBAR helpers
-        virtmem::pin_mmu_sec(5, VBAR as u32, VBAR as u32, kern);
+        virtmem::pin_mmu_sec(5, interrupts::VBAR as u32, interrupts::VBAR as u32, kern);
 
         // Stack region
         virtmem::pin_mmu_sec(6, 0x1800_0000 - 16 * ONE_MB as u32, 0x1800_0000 - 16 * ONE_MB as u32, kern);
 
         // KUSER helpers
-        virtmem::pin_mmu_sec(7, 0xff000000, KUSER_ADDR as u32, kern);
-
-        
+        virtmem::pin_mmu_sec(7, 0xff000000, kuser::KUSER_ADDR as u32, kern);
         virtmem::pin_mmu_init(!0);
     }
 
@@ -339,7 +295,9 @@ impl OSHolder {
             println!("number of program headers: {}", (*elf_header_ptr).e_phnum);
             println!("Program entry point (physical): {:#x}", (*elf_header_ptr).e_entry);
 
-            let program: &mut Program = &mut *(0x0000_0000 as *mut Program);
+            let program_ptr = 0x0000_0000 as *mut Program;
+            let program: &mut Program = &mut *program_ptr;
+            program.active = true;
             program.elf_header = *elf_header_ptr;
 
             for prog_header_idx in 0..(*elf_header_ptr).e_phnum {
@@ -386,9 +344,6 @@ impl OSHolder {
             let elf_base = lowest_paddr - lowest_offset;
             program.elf_base = elf_base as usize;
             
-            elf_loader::elf_loader_program_start = elf_base as usize;
-            elf_loader::elf_loader_heap_start = kmalloc::HEAP_CURR;
-            
             println!("ELF base address: {:#x} (p_paddr={:#x}, p_offset={:#x})",
                 elf_base, lowest_paddr, lowest_offset);
             
@@ -416,7 +371,6 @@ impl OSHolder {
                     println!("  --> Overlap with headers region {:#x}-{:#x}", elf_base, ehdr_end);
                 }
             }
-            elf_loader::elf_loader_program_end = program_end as usize;
 
             let phys_elf_base = (program.elf.data.as_mut_ptr()).byte_add(elf_base as usize) as u32;
             println!("elf base {:x} -> phys elf base: {:x}", elf_base, phys_elf_base);
@@ -428,11 +382,9 @@ impl OSHolder {
                 ehdr_total,
             );
 
-            let mapped_program = &mut *(0x0000_0000 as *mut Program);
-
-            let program_addr = (mapped_program as *mut Program) as usize;
-            let user_stack_base = (mapped_program.stack.data.as_ptr() as usize) - (program_addr as usize);
-            println!("Program stack end: {:p}", mapped_program.stack.data.as_ptr());
+            let program_addr = program_ptr as usize;
+            let user_stack_base = (program.stack.data.as_ptr() as usize) - (program_addr as usize);
+            println!("Program stack end: {:p}", program.stack.data.as_ptr());
             println!("Program base address: {:x}", program_addr);
             println!("User stack base: {:x}", user_stack_base);
 
@@ -478,9 +430,9 @@ impl OSHolder {
 
             println!("Finished constructing stack");
 
-            let mut context = elf_loader::ProgramContext {
+            let mut context = ProgramContext {
                 user_stack: sp as u32,
-                entry: (mapped_program.elf_header.e_entry) as u32,
+                entry: (program.elf_header.e_entry) as u32,
                 arg0: 1,                                 // r0 = argc
                 arg1: (sp.add(1) as *const u32) as u32, // r1 = &argv[0]
                 arg2: 0,                                 // r2 = envp (NULL)
@@ -500,7 +452,11 @@ impl OSHolder {
 
             dev_barrier();
 
-            elf_loader::elf_loader_tramp(core::ptr::addr_of_mut!(context));
+            let ret_sp_addr = core::ptr::addr_of_mut!((*program_ptr).return_sp);
+            let ret_lr_addr = core::ptr::addr_of_mut!((*program_ptr).return_lr);
+            println!("Location of where to return sp={:p}, return lr={:p}, program_location: {:p}", ret_sp_addr, ret_lr_addr, program_ptr);
+
+            elf_loader_tramp(core::ptr::addr_of_mut!(context), core::ptr::addr_of_mut!(program.return_sp), core::ptr::addr_of_mut!(program.return_lr));
         }
     }
 }

@@ -4,7 +4,7 @@ use crate::circular::{CircularQueue};
 use core::arch::{asm, global_asm};
 use crate::ckalloc::{ckalloc, ckfree};
 use crate::kmalloc;
-use crate::os::interrupts::SoftwareInterruptFrame;
+use crate::os::syscalls::SoftwareInterruptFrame;
 
 const MAX_STACK_SIZE: usize = 64 * 1024;
 const MAX_THREADS: usize = 4096;

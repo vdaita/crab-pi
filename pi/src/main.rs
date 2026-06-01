@@ -45,11 +45,14 @@ mod bit_utils;
 mod os {
     pub mod holder;
     pub mod interrupts;
+    pub mod syscalls;
     pub mod virtmem;
-    // pub mod elf_loader;
     pub mod threads;
     pub mod utils;
     pub mod elf_file;
+    // pub mod elf_loader;
+
+    pub mod kuser;
 }
 
 unsafe fn enable_fpu() {

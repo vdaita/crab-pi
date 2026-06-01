@@ -1,4 +1,5 @@
 
+#[derive(Clone, Copy)]
 #[repr(C)]
 pub struct ElfHeader {
     pub e_ident: [u8; 16],
@@ -17,6 +18,7 @@ pub struct ElfHeader {
     pub e_shstrndx: u16 // index of the section header table entry that contains the section names
 }
 
+#[derive(Clone, Copy)]
 #[repr(C)]
 pub struct ProgramHeader {
     pub p_type: u32, // identifies the type of this segment
@@ -29,6 +31,7 @@ pub struct ProgramHeader {
     pub p_align: u32 // required alignment of this segment
 }
 
+#[derive(Clone, Copy)]
 #[repr(C)]
 pub struct SectionHeader {
     pub sh_name: u32, // offset to section name in the section name string table
