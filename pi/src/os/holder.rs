@@ -163,9 +163,17 @@ impl OSHolder {
                 println!("Program {} has memory location {:p}, active={}",
                     i, holder.programs[i], (*holder.programs[i]).active);
             }
-
-            interrupts::enable_interrupts_asm();
         }
+    }
+
+    pub unsafe fn get_next_active_program_index(&mut self, index: usize) -> usize {
+        for offset in 1..(NUM_PROGRAMS + 1) {
+            let next_index = (index + offset) % NUM_PROGRAMS;
+            if self.get_program(next_index).active {
+                return next_index;
+            }
+        }
+        panic!("Somehow, nothing is active.");
     }
 
     pub unsafe fn get_program_mut(&mut self, index: usize) -> &'static mut Program {
@@ -185,7 +193,7 @@ impl OSHolder {
         panic!("out of program slots!");
     }
 
-    fn map_program_mmu(&mut self, program_index: usize) {
+    pub fn map_program_mmu(&mut self, program_index: usize) {
         virtmem::mmu_reset();
 
         let user = MemPerm::perm_rw_user;
@@ -238,7 +246,6 @@ impl OSHolder {
 
             let program_ptr = 0x0000_0000 as *mut Program;
             let program: &mut Program = &mut *program_ptr;
-            program.active = true;
 
             crate::os::elf_file::load_elf_into_program((*file).data as *const u8, program);
 
@@ -319,8 +326,14 @@ impl OSHolder {
             interrupts::switch_to_user_mode();
             println!("Switched to user mode");
 
+            interrupts::enable_interrupts_asm();
             interrupts::verify_timer_setup();
 
+            let holder = OSHolder::os_holder_mut();
+            holder.current_program = program_index;
+            program.active = true;
+
+            println!("about to trampoline out");
             elf_loader_tramp(core::ptr::addr_of_mut!(context), core::ptr::addr_of_mut!(program.return_sp), core::ptr::addr_of_mut!(program.return_lr));
         }
     }
@@ -331,6 +344,6 @@ pub fn test_elf_holder() {
         OSHolder::init();
         let holder = OSHolder::os_holder_mut();
         println!("About to run user program!");
-        holder.run_elf(0, "BUSYBOX");
+        holder.run_elf(1, "BUSYBOX");
     }
 }

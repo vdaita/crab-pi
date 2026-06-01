@@ -3,19 +3,22 @@ use crate::{bit_utils, print};
 use crate::println;
 use core::arch::{asm, global_asm};
 use crate::mem::{get32, put32};
+use crate::os::virtmem;
 use crate::gpio;
 use crate::profiler;
 use crate::os::syscalls::{self};
-use crate::os::holder::OSHolder;
+use crate::os::holder::{self, OSHolder};
 
-fn update_current_program_frame(frame: *mut InterruptFrame) {
+fn update_current_program_frame(frame: *mut InterruptFrame) { // note: this must only be called from a SWI handler or something that disables the MMU beforehand
     unsafe {
         let holder = OSHolder::os_holder_mut();
         let idx = holder.current_program;
-        // only update if program pointer is non-null and active
-        if !holder.programs[idx].is_null() {
-            let prog = holder.get_program_mut(idx);
+        let prog = holder.get_program_mut(idx);
+        if prog.active {
             prog.frame = *frame;
+            prog.sp = holder::get_user_sp() as usize;   
+
+            println!("Saving program frame for {}, lr={:x}, sp={:x}", idx, prog.frame.lr, prog.sp);
         }
     }
 }
@@ -140,9 +143,11 @@ interrupt_asm:
                             @ saved.
 
   mov   r0, lr              @ Pass old pc as arg 0
+  mov   r1, sp @ pass in the stack pointer as arg 1
   bl    interrupt_vector    @ C function: expects C 
                             @ calling conventions.
 
+  @ this only runs as the default option if there's nothing better to run
   @ pop regs: better match push (what happens if not?)
   pop   {{r0-r12,lr}} 	    @ pop integer registers
                             @ this MUST MATCH the push.
@@ -196,7 +201,7 @@ fork_trampoline_back:
     @ r0 = return_pc
     @ r1 = return_sp
     @ r2 = pointer to frame
-    
+
     @ Set up SPSR for user mode  
     mrs r12, cpsr
     bic r12, r12, #0x1F
@@ -339,17 +344,78 @@ pub extern "C" fn print_asm(val: u32) {
     println!("ASM print val: {}", val);
 }
 
+
 #[unsafe(no_mangle)]
-pub extern "C" fn interrupt_vector(pc: u32) {
-    dev_barrier();
-    let pending: u32 = get32(IRQ_BASIC_PENDING as u32);
-    if((pending & ARM_TIMER_IRQ) == 0) {
-        println!("This aint a timer interrupt: {:0b}", pending);
-        return;
+pub extern "C" fn interrupt_vector(pc: u32, frame: *mut InterruptFrame) {
+    unsafe {
+        let pending: u32 = get32(IRQ_BASIC_PENDING as u32);
+        if((pending & ARM_TIMER_IRQ) == 0) {
+            println!("This aint a timer interrupt: {:0b}", pending);
+            virtmem::mmu_enable();
+            dev_barrier();
+            return;
+        }
+        put32(ARM_TIMER_IRQ_CLEAR as u32, 1);
+        println!("This appears to be a timer interrupt.");
+
+        if virtmem::mmu_is_enabled() { // means we have a program
+            virtmem::mmu_disable();
+
+
+            let holder = OSHolder::os_holder_mut();
+
+            if !holder.get_program(holder.current_program).active {
+                println!("Current program not active");
+                virtmem::mmu_enable();
+                return;
+            }
+            
+            update_current_program_frame(frame);
+            let next_program_index = holder.get_next_active_program_index(holder.current_program);
+            println!("Timer interrupt, moving from program {} -> {}", holder.current_program, next_program_index);
+            holder.current_program = next_program_index;
+            holder.map_program_mmu(holder.current_program);
+
+            virtmem::mmu_enable();
+
+            let mapped_program_ptr = 0x0000_0000 as *mut holder::Program;
+            let mapped_program = unsafe { &mut *mapped_program_ptr };
+            let mapped_next_frame: InterruptFrame = mapped_program.frame;
+
+            let return_pc = mapped_next_frame.lr;
+            let return_sp = mapped_program.sp as u32;
+            let return_frame_ptr = &mapped_program.frame as *const InterruptFrame;
+
+            println!("Returning to program: pc={:x}, sp={:x}", return_pc, return_sp);
+            unsafe {
+                print!("instr bytes:");
+                for i in 0..8 {
+                    let b = *((return_pc as *const u8).add(i));
+                    print!(" {:02x}", b);
+                }
+                println!();
+
+                print!("stack words at sp:");
+                for i in 0..8 {
+                    let w = *((return_sp as *const u32).add(i));
+                    print!(" {:08x}", w);
+                }
+                println!();
+
+                println!("fork: saved regs: r0={:x} r1={:x} r2={:x} r3={:x} r4={:x} r5={:x} r6={:x} r7={:x}",
+                    &mapped_program.frame.r0, &mapped_program.frame.r1, &mapped_program.frame.r2, &mapped_program.frame.r3,
+                    &mapped_program.frame.r4, &mapped_program.frame.r5, &mapped_program.frame.r6,&mapped_program.frame.r7);
+                println!("fork: saved regs cont: r8={:x} r9={:x} r10={:x} r11={:x} r12={:x} lr={:x}",
+                    &mapped_program.frame.r8, &mapped_program.frame.r9, &mapped_program.frame.r10, &mapped_program.frame.r11,
+                    &mapped_program.frame.r12, &mapped_program.frame.lr);
+            }
+
+            fork_trampoline_back(return_pc, return_sp, return_frame_ptr);
+        } else {
+            // println!("MMU disabled, skipping");
+        }
+
     }
-    put32(ARM_TIMER_IRQ_CLEAR as u32, 1);
-    println!("This appears to be a timer interrupt.");
-    dev_barrier();
 }
 
 #[unsafe(no_mangle)]

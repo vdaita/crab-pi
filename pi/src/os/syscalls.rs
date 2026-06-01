@@ -5,8 +5,10 @@ use crate::os::holder::{self, OSHolder};
 use crate::os::virtmem::{mmu_disable, mmu_enable};
 use crate::os::interrupts::{InterruptFrame};
 use crate::println;
+use crate::print;
 use core::arch::asm;
 use core::ptr::copy_nonoverlapping;
+use core::mem::size_of;
 
 const ENOSYS: u32 = (-38i32) as u32;
 const EINVAL: u32 = (-22i32) as u32;
@@ -449,18 +451,51 @@ fn syscall_noop(_frame: &InterruptFrame) -> u32 {
 
 fn syscall_fork(holder: &mut OSHolder) -> u32 {
     // copy the stuff from this into the next active slot
-    unsafe {
-        let next_prog_index = holder.get_next_empty_index();
-        let new_prog = holder.get_program_mut(next_prog_index);
-        core::ptr::copy(
-            holder.programs[holder.current_program],
-            holder.programs[next_prog_index],
-            size_of::<holder::Program>()
-        );
-        new_prog.frame.r0 = 0; // this will return thinking that it is the copy
-        next_prog_index as u32 + 1 // to say which pid needs to be tracked
-    }
+	unsafe {
+		let next_prog_index = holder.get_next_empty_index();
+		let new_prog = holder.get_program_mut(next_prog_index);
+		core::ptr::copy(
+			holder.programs[holder.current_program] as *mut u8,
+			holder.programs[next_prog_index] as *mut u8,
+			size_of::<holder::Program>()
+		);
+		println!("Finished copying program {} -> {}", holder.current_program, next_prog_index);
+
+		// ensure child appears to return 0
+		// new_prog.frame.r0 = 0;
+
+		// diagnostic dump: instructions at lr and stack words at sp
+		let pc = new_prog.frame.lr;
+		let sp = new_prog.sp as u32;
+		println!("fork: new program {} lr={:x} sp={:x}", next_prog_index, pc, sp);
+		// print saved registers from the frame
+		println!("fork: saved regs: r0={:x} r1={:x} r2={:x} r3={:x} r4={:x} r5={:x} r6={:x} r7={:x}",
+			new_prog.frame.r0, new_prog.frame.r1, new_prog.frame.r2, new_prog.frame.r3,
+			new_prog.frame.r4, new_prog.frame.r5, new_prog.frame.r6, new_prog.frame.r7);
+		println!("fork: saved regs cont: r8={:x} r9={:x} r10={:x} r11={:x} r12={:x} lr={:x}",
+			new_prog.frame.r8, new_prog.frame.r9, new_prog.frame.r10, new_prog.frame.r11,
+			new_prog.frame.r12, new_prog.frame.lr);
+		print!("fork instr bytes:");
+		for i in 0..8 {
+			let b = *((pc as *const u8).add(i));
+			print!(" {:02x}", b);
+		}
+		println!();
+		print!("fork stack words at sp:");
+		for i in 0..8 {
+			let w = *((sp as *const u32).add(i));
+			print!(" {:08x}", w);
+		}
+		println!();
+		next_prog_index as u32 + 1 // to say which pid needs to be tracked
+	}
 }
+
+// fn syscall_waitpid(holder: &mut OSHolder) -> u32 {
+// 	unsafe {
+		
+// 	}
+// }
 
 fn dispatch_syscall(holder: &mut OSHolder, frame: &InterruptFrame, nr: u32) -> u32 {
 	match nr {

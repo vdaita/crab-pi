@@ -77,6 +77,18 @@ pub fn read_bytes(buf: &mut [u8]) -> usize {
     nread
 }
 
+pub fn read_bytes_nonblocking(buf: &mut [u8]) -> usize {
+    if buf.is_empty() { return 0; }
+    if !has_data() { return 0; } 
+    buf[0] = get32(AUX_MU_IO_REG) as u8;
+    let mut nread = 1;
+    while nread < buf.len() && has_data() {
+        buf[nread] = get32(AUX_MU_IO_REG) as u8;
+        nread += 1;
+    }
+    nread
+}
+
 fn can_put8() -> bool {
     let stat = get32(AUX_MU_STAT_REG);
     (stat & (1 << 1)) != 0
