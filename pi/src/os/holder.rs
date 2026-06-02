@@ -47,6 +47,14 @@ pub struct Heap {
     pub data: [u8; MAX_HEAP_SIZE],
 }
 
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub enum SpecialFileMarker {
+    NotSpecial = 0, 
+    Stdin = 1,  
+    Stdout = 2,  
+    Stderr = 3,
+}
+
 #[derive(Copy, Clone)]
 #[repr(C)]
 pub struct KernelFile {
@@ -60,7 +68,8 @@ pub struct KernelFile {
     pub is_directory: bool,
     pub dirents: *mut u8, // load the dirents at the same time as the regular listings
 
-    pub parent: fat32::pi_dirent_t
+    pub parent: fat32::pi_dirent_t,
+    pub special_file: SpecialFileMarker
 }
 
 #[derive(Clone, Copy)]
@@ -155,7 +164,6 @@ pub struct OSHolder {
     pub should_cswitch: bool,
 
     pub files: [KernelFile; NUM_FILE_DESCRIPTORS],
-    pub active_files: [bool; NUM_FILE_DESCRIPTORS],
 
     pub fs: fat32::fat32_fs_t,
     pub root: fat32::pi_dirent_t
@@ -306,6 +314,19 @@ impl OSHolder {
             let program_ptr = 0x0000_0000 as *mut Program;
             let program: &mut Program = &mut *program_ptr;
             program.cwd = self.root;
+            unsafe {
+                core::ptr::write_bytes(
+                    program.file_descriptors.as_mut_ptr(), 
+                    0, 
+                    core::mem::size_of_val(&program.file_descriptors)
+                );
+            }
+            program.file_descriptors[0].special_file = SpecialFileMarker::Stdin;
+            program.file_descriptors[1].special_file = SpecialFileMarker::Stdout;
+            program.file_descriptors[2].special_file = SpecialFileMarker::Stderr;
+            for i in 0..3 {
+                program.file_descriptors[i].active = true;
+            }
 
             crate::os::elf_file::load_elf_into_program((*file).data as *const u8, program);
 

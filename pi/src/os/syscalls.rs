@@ -123,7 +123,9 @@ fn syscall_read(holder: &OSHolder, frame: &InterruptFrame) -> u32 {
     if buf_ptr.is_null() { return EINVAL; }
     if len == 0 { return 0; }
 
-    if fd == 0 {
+    let file = unsafe { &mut (*holder.programs[holder.current_program]).file_descriptors[fd] };
+
+    if file.special_file == holder::SpecialFileMarker::Stdin {
         let buf = unsafe { core::slice::from_raw_parts_mut(buf_ptr, len) };
         let mut num_bytes: usize = 0;
         let mut tmp = [0u8; 64];
@@ -144,7 +146,6 @@ fn syscall_read(holder: &OSHolder, frame: &InterruptFrame) -> u32 {
         return num_bytes as u32;
     }
 
-    let file = unsafe { &mut (*holder.programs[holder.current_program]).file_descriptors[fd] };
 
     if !file.active || file.data.is_null() {
         return EINVAL;
@@ -170,16 +171,16 @@ fn syscall_write(holder: &OSHolder, frame: &InterruptFrame) -> u32 {
 
     if buf_ptr.is_null() { return EINVAL; }
 
-    if fd == 1 || fd == 2 {
+    let proc = unsafe { &mut *holder.programs[holder.current_program] };
+    let file = &mut proc.file_descriptors[fd];
+
+    if file.special_file == holder::SpecialFileMarker::Stderr || file.special_file == holder::SpecialFileMarker::Stdout {
         let bytes = unsafe { core::slice::from_raw_parts(buf_ptr, len) };
         crate::uart::write_bytes("[prog]".as_bytes());
 		crate::uart::write_bytes(bytes);
 		crate::uart::write_bytes("[/prog]".as_bytes());
         return len as u32;
     }
-
-    let proc = unsafe { &mut *holder.programs[holder.current_program] };
-    let file = &mut proc.file_descriptors[fd];
 
 	if !file.active {
 		panic!("trying to write to an inactive file");
@@ -451,7 +452,7 @@ fn syscall_close(holder: &mut OSHolder, frame: &InterruptFrame) -> u32 {
         // return 9; // EBADF
 		panic!("trying to close an inactive file descriptor");
     }
-    if !file.is_directory && !file.data.is_null() {
+    if !file.is_directory && !file.data.is_null() && file.special_file == holder::SpecialFileMarker::NotSpecial {
         let fs_ptr = &holder.fs as *const _ as *mut fat32::fat32_fs_t;
         let pi_file = fat32::pi_file_t {
             data: file.data,
@@ -629,6 +630,35 @@ fn syscall_fork(holder: &mut OSHolder) -> u32 {
 	}
 }
 
+fn syscall_dup2(holder: &mut OSHolder, frame: &InterruptFrame) -> u32 {
+    let oldfd = frame.r0 as usize;
+    let newfd = frame.r1 as usize;
+
+    if oldfd >= holder::NUM_FILE_DESCRIPTORS || newfd >= holder::NUM_FILE_DESCRIPTORS {
+        return 22;
+    }
+
+    let proc = unsafe { holder.get_program_mut(holder.current_program) };
+
+    if !proc.file_descriptors[oldfd].active {
+        return 9; // EBADF
+    }
+
+    if oldfd == newfd {
+        return newfd as u32;
+    }
+
+    if proc.file_descriptors[newfd].active {
+        let mut close_frame = *frame;
+        close_frame.r0 = newfd as u32;
+        syscall_close(holder, &close_frame);
+    }
+
+    let proc = unsafe { holder.get_program_mut(holder.current_program) };
+    proc.file_descriptors[newfd] = proc.file_descriptors[oldfd];
+    newfd as u32
+}
+
 fn dispatch_syscall(holder: &mut OSHolder, frame: &mut InterruptFrame, nr: u32) -> u32 {
 	match nr {
 		0x1 => syscall_exit(holder),
@@ -641,6 +671,7 @@ fn dispatch_syscall(holder: &mut OSHolder, frame: &mut InterruptFrame, nr: u32) 
 		0x14 => syscall_getpid(holder, frame),
 		0x2d => syscall_brk(holder, frame),
 		0x36 => syscall_noop(frame),
+		0x3f => syscall_dup2(holder, frame),
 		0x40 => syscall_noop(frame),
 		0x5b => syscall_noop(frame),
 		0x72 => syscall_waitpid(holder, frame),

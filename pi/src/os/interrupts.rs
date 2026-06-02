@@ -17,8 +17,7 @@ pub fn update_current_program_frame(frame: *mut InterruptFrame, sp: usize) { // 
         if holder.active[idx] {
             prog.frame = *frame;
             prog.sp = sp;
-
-            println!("Saving program frame for {}, lr={:x}, sp={:x}", idx, prog.frame.lr, prog.sp);
+            // println!("Saving program frame for {}, lr={:x}, sp={:x}", idx, prog.frame.lr, prog.sp);
         }
     }
 }
