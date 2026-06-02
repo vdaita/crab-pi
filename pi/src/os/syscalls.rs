@@ -13,38 +13,6 @@ use core::mem::size_of;
 const ENOSYS: u32 = (-38i32) as u32;
 const EINVAL: u32 = (-22i32) as u32;
 const ENOENT: u32 = (-2i32) as u32;
-const CURRENT_TID: u32 = 1;
-
-static mut PROGRAM_BREAK: u32 = 0;
-static mut THREAD_POINTER: u32 = 0;
-static mut CLEAR_CHILD_TID: u32 = 0;
-static mut DID_PRINT_RETURN_LOCATION: bool = false;
-static mut DIR_FD: u32 = 3;
-static mut DIR_BUF: *mut u8 = core::ptr::null_mut();
-static mut DIR_BUF_LEN: usize = 0;
-static mut DIR_BUF_OFF: usize = 0;
-static mut DIR_IDX: usize = 0;
-
-const DT_DIR: u8 = 4;
-const DT_REG: u8 = 8;
-const DIRENT64_BASE: usize = 19;
-
-unsafe fn set_tls(tls: u32) {
-	unsafe {
-		THREAD_POINTER = tls;
-		asm!(
-			"mcr p15, 0, {tls}, c13, c0, 3",
-			tls = in(reg) tls,
-		);
-	}
-}
-
-fn set_tid_address(tidptr: u32) -> u32 {
-	unsafe {
-		CLEAR_CHILD_TID = tidptr;
-	}
-	CURRENT_TID
-}
 
 fn decode_syscall_number(frame: &InterruptFrame, instr: u32) -> u32 {
 	let imm = instr & 0x00ff_ffff;
@@ -87,13 +55,13 @@ unsafe fn c_str_to_str(ptr: *const u8) -> &'static str {
 
 fn syscall_exit(holder: &mut OSHolder) -> u32 {
 	unsafe {
-		if CLEAR_CHILD_TID != 0 {
-			let tidptr = user_ptr_mut(holder, CLEAR_CHILD_TID);
+        let current_program = holder.get_program_mut(holder.current_program);
+		if current_program.clear_child_tid != 0 {
+			let tidptr = user_ptr_mut(holder, current_program.clear_child_tid);
 			core::ptr::write_volatile(tidptr as *mut u32, 0);
 		}
 		println!("Program finished, calling exit");
 
-		let current_program = holder.get_program_mut(holder.current_program);
 		holder.active[holder.current_program] = false;
 		println!("Current program id: {}, return sp: {:x}, return lr: {:x}", holder.current_program, current_program.return_sp, current_program.return_lr);
 
@@ -147,7 +115,7 @@ fn syscall_read(holder: &OSHolder, frame: &InterruptFrame) -> u32 {
     }
 
 
-    if !file.active || file.data.is_null() {
+    if !file.active {
         return EINVAL;
     }
 
@@ -156,7 +124,7 @@ fn syscall_read(holder: &OSHolder, frame: &InterruptFrame) -> u32 {
 
     if to_copy > 0 {
         unsafe {
-            copy_nonoverlapping(file.data.add(file.pos), buf_ptr, to_copy);
+            copy_nonoverlapping(file.data.as_ptr().add(file.pos), buf_ptr, to_copy);
         }
         file.pos += to_copy;
     }
@@ -182,40 +150,23 @@ fn syscall_write(holder: &OSHolder, frame: &InterruptFrame) -> u32 {
         return len as u32;
     }
 
-	if !file.active {
-		panic!("trying to write to an inactive file");
-	}
-    if file.is_directory { 
-		panic!("trying to write to a directory");
-	 }
+    if !file.active {
+        panic!("trying to write to an inactive file");
+    }
+    if file.is_directory {
+        panic!("trying to write to a directory");
+    }
 
     unsafe {
-        let mut remaining_space = file.nbytes_alloc.saturating_sub(file.pos);
-        if len > remaining_space {
-            println!("reallocating memory in write");
-            let new_alloc_size = core::cmp::max(file.nbytes_alloc + 1024, file.pos + len);
-            unsafe {
-                let new_data = kmalloc::kmalloc(new_alloc_size) as *mut u8;
-                if new_data.is_null() {
-                    return 28; // ENOSPC (Out of space)
-                }
-                if !file.data.is_null() {
-                    core::ptr::copy_nonoverlapping(file.data, new_data, file.nbytes);
-                }
-                file.data = new_data;
-                file.nbytes_alloc = new_alloc_size;
-                remaining_space = file.nbytes_alloc - file.pos;
-            }
+        let capacity = file.data.len();
+        if len > capacity.saturating_sub(file.pos) {
+            return 28; // ENOSPC
         }
 
-        let to_write = core::cmp::min(len, remaining_space);
-
+        let to_write = core::cmp::min(len, capacity.saturating_sub(file.pos));
         if to_write > 0 {
-            unsafe {
-                core::ptr::copy_nonoverlapping(buf_ptr, file.data.add(file.pos), to_write);
-            }
+            core::ptr::copy_nonoverlapping(buf_ptr, file.data.as_mut_ptr().add(file.pos), to_write);
             file.pos += to_write;
-            
             if file.pos > file.nbytes {
                 file.nbytes = file.pos;
             }
@@ -328,12 +279,24 @@ fn syscall_open(holder: &mut OSHolder, frame: &InterruptFrame) -> u32 {
         let raw_dir = unsafe { fat32::fat32_readdir(&mut *fs_ptr, &entry) };
         
         let friendly = fat32::get_dir_listing_as_file(&raw_dir);
-        file.data = friendly.data;
-        file.nbytes = friendly.n_data;
+        if !friendly.data.is_null() && friendly.n_data > 0 {
+            let copy_len = core::cmp::min(friendly.n_data, file.data.len());
+            unsafe { core::ptr::copy_nonoverlapping(friendly.data, file.data.as_mut_ptr(), copy_len); }
+            file.nbytes = copy_len;
+            file.nbytes_alloc = copy_len;
+        } else {
+            file.nbytes = 0;
+            file.nbytes_alloc = 0;
+        }
 
         let binary = fat32::get_dirents64_as_file(&raw_dir);
-        file.dirents = binary.data;
-        file.nbytes_alloc = binary.n_data; 
+        if !binary.data.is_null() && binary.n_data > 0 {
+            let copy_len = core::cmp::min(binary.n_data, file.dirents.len());
+            unsafe { core::ptr::copy_nonoverlapping(binary.data, file.dirents.as_mut_ptr(), copy_len); }
+            file.nbytes_alloc = copy_len; 
+        } else {
+            file.nbytes_alloc = 0;
+        }
     } else {
         file.is_directory = false;
         
@@ -344,10 +307,12 @@ fn syscall_open(holder: &mut OSHolder, frame: &InterruptFrame) -> u32 {
         }
 
         unsafe {
-            file.data = (*raw_file).data;
-            file.nbytes = (*raw_file).n_data;
-            file.nbytes_alloc = (*raw_file).n_alloc;
-            file.dirents = core::ptr::null_mut();
+            let rf = &*raw_file;
+            let copy_len = core::cmp::min(rf.n_data, file.data.len());
+            core::ptr::copy_nonoverlapping(rf.data, file.data.as_mut_ptr(), copy_len);
+            file.nbytes = copy_len;
+            file.nbytes_alloc = copy_len;
+            // dirents remain empty for regular files
         }
     }
 
@@ -361,7 +326,7 @@ fn syscall_getdents64(holder: &OSHolder, frame: &InterruptFrame) -> u32 {
     let proc = unsafe { &mut *holder.programs[holder.current_program] };
     let file = &mut proc.file_descriptors[fd];
 
-    if !file.active || !file.is_directory || file.dirents.is_null() {
+    if !file.active || !file.is_directory {
         return EINVAL;
     }
 
@@ -370,7 +335,7 @@ fn syscall_getdents64(holder: &OSHolder, frame: &InterruptFrame) -> u32 {
 
     if to_copy > 0 {
         unsafe {
-            copy_nonoverlapping(file.dirents.add(file.pos), dirp, to_copy);
+            copy_nonoverlapping(file.dirents.as_ptr().add(file.pos), dirp, to_copy);
         }
         file.pos += to_copy;
     }
@@ -452,10 +417,10 @@ fn syscall_close(holder: &mut OSHolder, frame: &InterruptFrame) -> u32 {
         // return 9; // EBADF
 		panic!("trying to close an inactive file descriptor");
     }
-    if !file.is_directory && !file.data.is_null() && file.special_file == holder::SpecialFileMarker::NotSpecial {
+    if !file.is_directory && file.special_file == holder::SpecialFileMarker::NotSpecial && file.nbytes > 0 {
         let fs_ptr = &holder.fs as *const _ as *mut fat32::fat32_fs_t;
         let pi_file = fat32::pi_file_t {
-            data: file.data,
+            data: file.data.as_ptr() as *mut u8,
             n_data: file.nbytes,
             n_alloc: file.nbytes_alloc,
         };
@@ -477,13 +442,9 @@ fn syscall_close(holder: &mut OSHolder, frame: &InterruptFrame) -> u32 {
     }
 
     unsafe {
-        if !file.data.is_null() {
-            file.data = core::ptr::null_mut();
-        }
-
-        if !file.dirents.is_null() {
-            file.dirents = core::ptr::null_mut();
-        }
+        // clear logical contents; backing arrays remain in-place
+        file.nbytes = 0;
+        file.nbytes_alloc = 0;
     }
 
     file.active = false;
@@ -495,62 +456,71 @@ fn syscall_close(holder: &mut OSHolder, frame: &InterruptFrame) -> u32 {
     0
 }
 
-fn syscall_execve(holder: &OSHolder, frame: &InterruptFrame) -> u32 {
-    // TODO: load in the files
-
+fn syscall_execve(holder: &mut OSHolder, frame: &InterruptFrame) -> u32 {
 	let pathname = user_ptr_const(holder, frame.r0);
 	let argv = user_ptr_mut(holder, frame.r1) as *mut *const u8;
 
 	if pathname.is_null() {
-		println!("[execve] pathname is null");
+		println!("pathname is null");
 		return EINVAL;
 	}
 
 	unsafe {
+        let prog = holder.get_program(holder.current_program);
+
+        let mut args_list = [""; 16];
+        let mut argc = 0;
+        if !argv.is_null() {
+            while argc < 16 {
+                let arg_user_addr = *argv.add(argc);
+                if arg_user_addr.is_null() { break; }
+                
+                let translated = user_ptr_const(holder, arg_user_addr as u32);
+                args_list[argc] = c_str_to_str(translated); 
+                argc += 1;
+            }
+        }
+
 		let path_str = c_str_to_str(pathname);
-		println!("[execve] pathname: {}", path_str);
+        println!("trying to execve with path {}", path_str);
 
-		let cmd = if let Some(pos) = path_str.rfind('/') {
-			&path_str[pos + 1..]
-		} else {
-			path_str
-		};
-		println!("[execve] command: {}", cmd);
+        // does file exist
+        let stat = fat32::fat32_stat(&holder.fs, &prog.cwd, path_str);
+        if stat.is_null() {
+            println!("pathname {} not found", path_str);
+            return ENOSYS;
+        }
 
-		let mut argc = 0;
-		if !argv.is_null() {
-			loop {
-				let arg_user = *argv.add(argc);
-				if arg_user.is_null() {
-					break;
-				}
-				let translated = user_ptr_const(holder, arg_user as u32);
-				let arg_str = c_str_to_str(translated);
-				println!("[execve] argv[{}]: {}", argc, arg_str);
-				argc += 1;
-			}
-		}
-		println!("[execve] argc: {}", argc);
-		match cmd {
-			"cat" | "ls" | "mkdir" | "cp" | "env" | "crc32" | "printf" => {
-				println!("[execve] recognized busybox applet: {}", cmd);
-				ENOSYS
-			}
-			_ => {
-				println!("[execve] unknown command: {}", cmd);
-				ENOENT
-			}
-		}
+        // otherwise, run it!
+        println!("found path {}!", path_str);
+        let exec_index = holder.get_next_empty_index();
+        let _context = holder.setup_elf(exec_index, path_str, &args_list, argc);
+        (holder).should_cswitch = true;
+
+        0
 	}
 }
 
-fn syscall_set_tls(frame: &InterruptFrame) -> u32 {
-	unsafe { set_tls(frame.r0) };
+fn syscall_set_tls(holder: &mut OSHolder, frame: &InterruptFrame) -> u32 {
+	unsafe { 
+        let tls = frame.r0;
+        let program = holder.get_program_mut(holder.current_program);
+        program.thread_pointer = tls;
+        asm!(
+			"mcr p15, 0, {tls}, c13, c0, 3",
+			tls = in(reg) tls,
+		);
+     };
 	0
 }
 
-fn syscall_set_tid_address(frame: &InterruptFrame) -> u32 {
-	set_tid_address(frame.r0)
+fn syscall_set_tid_address(holder: &mut OSHolder, frame: &InterruptFrame) -> u32 {
+    unsafe {
+        let tidptr = frame.r0;
+        let program = holder.get_program_mut(holder.current_program);
+        program.clear_child_tid = tidptr;
+        program.thread_pointer
+    }
 }
 
 fn syscall_waitpid(holder: &mut OSHolder, frame: &mut InterruptFrame) -> u32 {
@@ -607,6 +577,7 @@ fn syscall_fork(holder: &mut OSHolder) -> u32 {
 
 		// ensure child appears to return 0
 		new_prog.frame.r0 = 0; // this indicates that you are in the forked process
+        new_prog.clear_child_tid = 0;
 
 		// diagnostic dump: instructions at lr and stack words at sp
 		let pc = new_prog.frame.lr;
@@ -683,7 +654,7 @@ fn dispatch_syscall(holder: &mut OSHolder, frame: &mut InterruptFrame, nr: u32) 
 		0x5b => syscall_noop(frame),
 		0x72 => syscall_waitpid(holder, frame),
 		0x92 => syscall_writev(holder, frame),
-		0x100 => syscall_set_tid_address(frame),
+		0x100 => syscall_set_tid_address(holder, frame),
 		0xac => syscall_noop(frame),
 		0xae => syscall_noop(frame),
 		0xaf => syscall_noop(frame),
@@ -693,7 +664,7 @@ fn dispatch_syscall(holder: &mut OSHolder, frame: &mut InterruptFrame, nr: u32) 
 		0xc9 => syscall_exit_group(holder, frame),
 		0xd9 => syscall_getdents64(holder, frame),
 		0xdd => syscall_noop(frame),
-		0xf0005 => syscall_set_tls(frame),
+		0xf0005 => syscall_set_tls(holder, frame),
 		0xf8 => syscall_exit_group(holder, frame),
 		0x18d => syscall_statx(holder, frame),
 		_ => {
@@ -717,16 +688,16 @@ pub fn handle_software_interrupt(frame: *mut InterruptFrame, svc_lr: u32) -> u32
 	let frame = unsafe { &mut *frame };
 	let nr = decode_syscall_number(frame, instr);
 
-	println!(
-		"SWI called: pc={:#x}, instr={:#x}, arg0={:#x}, arg1={:#x}, arg2={:#x}, arg3={:#x}, arg4={:#x}, arg5={:#x}, nr={:#x}",
-		svc_pc, instr, frame.r0, frame.r1, frame.r2, frame.r3, frame.r4, frame.r5, nr
-	);
-
-	dev_barrier();
-
 	unsafe {
+        let holder = OSHolder::os_holder_mut(); 
+
+        println!(
+            "SWI called: pc={:#x}, instr={:#x}, arg0={:#x}, arg1={:#x}, arg2={:#x}, arg3={:#x}, arg4={:#x}, arg5={:#x}, nr={:#x}, program={}",
+            svc_pc, instr, frame.r0, frame.r1, frame.r2, frame.r3, frame.r4, frame.r5, nr, holder.current_program
+        );
+
+        dev_barrier();
 		// there are two options: this is being called from the program, or this is being called in some testing code inside the kernel
-		let holder = OSHolder::os_holder_mut(); 
 		if holder.active[holder.current_program] {
 			mmu_disable(); // disable the MMU
 			// let syscall_ret = dispatch_syscall(holder, frame, nr);
@@ -748,7 +719,13 @@ pub fn handle_software_interrupt(frame: *mut InterruptFrame, svc_lr: u32) -> u32
 			// move the program
 			holder.current_program = match holder.should_cswitch {
 				true => {
-					holder.get_next_active_program_index(holder.current_program)
+					let next_program = holder.get_next_active_program_index(holder.current_program);
+                    println!("switching from {} to {}", holder.current_program, next_program);
+                    // if holder.current_program == 2 && next_program == 0 {
+                    //     profiler::breakpoint_mismatch_start();
+                    // }
+
+                    next_program
 				}
 				false => {
 					holder.current_program

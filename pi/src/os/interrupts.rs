@@ -376,6 +376,9 @@ pub extern "C" fn os_undefined_instruction_vector(frame: *mut InterruptFrame, pc
     unsafe {
         let frame = unsafe { &mut *frame };
         println!("Undefined instruction at pc={:#x}, inst={:#x}", pc, *(pc as *const u32));
+
+        // let holder = OSHolder::os_holder_mut();
+        // println!("Undefined instruction at pc={:#x}, inst={:#x}, program={}", pc, *(pc as *const u32), holder.current_program);
     }
 }
 

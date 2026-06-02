@@ -59,11 +59,11 @@ pub struct KernelFile {
     pub pos: usize,
 
     pub dirent: fat32::pi_dirent_t,
-    pub data: *mut u8,
+    pub data: [u8; 8192],
     pub nbytes: usize,
     pub nbytes_alloc: usize,
     pub is_directory: bool,
-    pub dirents: *mut u8, // load the dirents at the same time as the regular listings
+    pub dirents: [u8; 8192], // load the dirents at the same time as the regular listings
 
     pub parent: fat32::pi_dirent_t,
     pub special_file: SpecialFileMarker
@@ -87,7 +87,10 @@ pub struct Program {
     pub return_lr: usize,
 
     pub file_descriptors: [KernelFile; NUM_FILE_DESCRIPTORS],
-    pub cwd: fat32::pi_dirent_t
+    pub cwd: fat32::pi_dirent_t,
+
+    pub thread_pointer: u32,
+    pub clear_child_tid: u32
 }
 
 impl Program {

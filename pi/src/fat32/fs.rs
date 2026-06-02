@@ -310,17 +310,20 @@ pub fn fat32_readdir(fs: &fat32_fs_t, dirent: &pi_dirent_t) -> pi_directory_t {
 }
 
 fn find_dirent_with_name(dirents: *const fat32_dirent_t, n: u32, filename: &str) -> isize {
-    let target = filename.as_bytes();
     for i in 0..n as usize {
         let d = unsafe { &*dirents.add(i) };
         if fat32_dirent_free(d) || fat32_dirent_is_lfn(d) || (d.attr & FAT32_VOLUME_LABEL) != 0 {
             continue;
         }
+        
         let mut name = [0u8; 13];
         let len = fat32_dirent_name(d, &mut name);
         let name_slice = &name[..len.saturating_sub(1)];
-        if name_slice == target {
-            return i as isize;
+
+        if let Ok(entry_name_str) = core::str::from_utf8(name_slice) {
+            if entry_name_str.eq_ignore_ascii_case(filename) {
+                return i as isize;
+            }
         }
     }
     -1
