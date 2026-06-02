@@ -75,8 +75,8 @@ unsafe fn enable_fpu() {
 pub fn main() {    
     unsafe { 
         enable_fpu(); 
-        os::utils::enable_l1_instruction_cache();
-        os::utils::enable_branch_prediction();
+        // os::utils::enable_l1_instruction_cache();
+        // os::utils::enable_branch_prediction();
     }
     uart::init();
     println!("Hello from Rust on the Pi!");

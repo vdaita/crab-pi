@@ -25,8 +25,8 @@ const TINY_PAGE: usize = 4 * 1024;
 const LARGE_PAGE: usize = 16 * 1024 * 1024;
 const ONE_MB: usize = 1024 * 1024;
 const NUM_PROGRAMS: usize = 3;
-const MAX_ELF_SIZE: usize = 1024 * 1024 * 5;
-const MAX_STACK_SIZE: usize = 1024 * 1024 * 5;
+const MAX_ELF_SIZE: usize = 1024 * 1024 * 4;
+const MAX_STACK_SIZE: usize = 1024 * 1024 * 4;
 const MAX_HEAP_SIZE: usize = 1024 * 1024 * 2;
 pub const NUM_FILE_DESCRIPTORS: usize = 8;
 // at least 12MB in reserved memory should be enough out of a 16MB page
@@ -210,6 +210,7 @@ impl OSHolder {
             let partition = fat32::first_fat32_partition_from_mbr().expect("valid first FAT32 partition");
             holder.fs = fat32::fat32_mk(&partition);
             holder.root = fat32::fat32_get_root(&holder.fs);
+            println!("Root is directory = {}", holder.root.is_dir_p);
 
             // initialize program pointers
             for i in 0..NUM_PROGRAMS {
@@ -314,13 +315,14 @@ impl OSHolder {
             let program_ptr = 0x0000_0000 as *mut Program;
             let program: &mut Program = &mut *program_ptr;
             program.cwd = self.root;
+            println!("Program CWD is dir = {}, at address: {:p}", program.cwd.is_dir_p, core::ptr::addr_of!(program.cwd.is_dir_p));
+
             unsafe {
-                core::ptr::write_bytes(
-                    program.file_descriptors.as_mut_ptr(), 
-                    0, 
-                    core::mem::size_of_val(&program.file_descriptors)
-                );
+                for file in program.file_descriptors.iter_mut() {
+                    *file = unsafe { core::mem::zeroed() }; 
+                }
             }
+
             program.file_descriptors[0].special_file = SpecialFileMarker::Stdin;
             program.file_descriptors[1].special_file = SpecialFileMarker::Stdout;
             program.file_descriptors[2].special_file = SpecialFileMarker::Stderr;
@@ -380,7 +382,6 @@ impl OSHolder {
             }
 
             println!("Finished constructing stack");
-
             let mut context = ProgramContext {
                 user_stack: sp as u32,
                 entry: (program.elf_header.e_entry) as u32,

@@ -299,6 +299,11 @@ fn syscall_mmap2(holder: &mut OSHolder, frame: &InterruptFrame) -> u32 {
 	heap_alloc(holder, alloc_len)
 }
 
+// fn check_cwd_dir(holder: &mut OSHolder) {
+//     let proc = unsafe { holder.get_program_mut(holder.current_program) };    
+//     println!("Proc CWD is dir: {}, at address: {:p}", proc.cwd.is_dir_p, core::ptr::addr_of!(proc.cwd.is_dir_p));
+// }
+
 fn syscall_open(holder: &mut OSHolder, frame: &InterruptFrame) -> u32 {
     let pathname = user_ptr_const(holder, frame.r0);
     if pathname.is_null() { return EINVAL; }
@@ -461,6 +466,9 @@ fn syscall_close(holder: &mut OSHolder, frame: &InterruptFrame) -> u32 {
         };
 
         let name_str = unsafe { c_str_to_str(file.dirent.name.as_ptr()) };
+		let parent_name = unsafe { c_str_to_str(file.parent.name.as_ptr()) };
+		// println!("Trying to save to file {}, fd={}, parent={}", name_str, fd, parent_name);
+
         unsafe {
             fat32::fat32_write(
                 &*fs_ptr,
@@ -728,10 +736,15 @@ pub fn handle_software_interrupt(frame: *mut InterruptFrame, svc_lr: u32) -> u32
 			// interrupts::update_current_program_frame(frame, user_sp as usize); // update the current program frame
 
 			let user_sp = holder::get_user_sp();
+
+            // check_cwd_dir(holder);
+
 			interrupts::update_current_program_frame(frame, user_sp as usize);
 			let syscall_ret = dispatch_syscall(holder, frame, nr);
 			frame.r0 = syscall_ret; 
 			interrupts::update_current_program_frame(frame, user_sp as usize);
+
+            // check_cwd_dir(holder);
 
 			// move the program
 			holder.current_program = match holder.should_cswitch {
