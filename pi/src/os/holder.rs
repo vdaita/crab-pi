@@ -148,7 +148,7 @@ elf_loader_return:
 );
 
 unsafe extern "C" {
-    pub fn elf_loader_tramp(data: *mut ProgramContext, return_sp: *mut usize, return_lr: *mut usize);
+    pub fn elf_loader_tramp(data: *const ProgramContext, return_sp: *mut usize, return_lr: *mut usize);
     pub fn elf_loader_return(return_sp: usize, return_lr: usize);
 }
 
@@ -200,7 +200,8 @@ impl OSHolder {
             kuser::install_kuser_helpers();
             interrupts::install_interrupts_vbar();
             interrupts::enable_timer_interrupts();         // -> this shit is causing me hell 
-
+            kmalloc::ensure_init();
+            
             let holder = OSHolder::os_holder_mut();
 
             fat32::pi_sd_init();
@@ -288,35 +289,17 @@ impl OSHolder {
         virtmem::pin_mmu_init(!0);
     }
 
-    pub fn run_elf(&mut self, program_index: usize, prog_name: &str, args: &[&str], argc: usize) {
+    pub fn setup_elf(&mut self, program_index: usize, prog_name: &str, args: &[&str], argc: usize) -> ProgramContext { // need this to work with out mmu mapping beforehand2
         unsafe {
-            interrupts::disable_interrupts_asm();
-
-            kmalloc::ensure_init();
-
-            println!("Setting up MMU for program {}", program_index);
-            self.map_program_mmu(program_index);
-            
-            dev_barrier();
-            println!("About to enable MMU");
-            virtmem::mmu_enable();
-            println!("MMU enabled");
-            
-            dev_barrier();
-            
-            let file = fat32::fat32_read(&self.fs, &self.root, prog_name);
-
-            println!("File size from FAT32: {}", (*file).n_data);
-            hexdump((*file).data, 8);
-
-            let program_ptr = 0x0000_0000 as *mut Program;
+            let program_ptr = self.programs[program_index];
             let program: &mut Program = &mut *program_ptr;
             program.cwd = self.root;
             println!("Program CWD is dir = {}, at address: {:p}", program.cwd.is_dir_p, core::ptr::addr_of!(program.cwd.is_dir_p));
+            let file = fat32::fat32_read(&self.fs, &self.root, prog_name);
 
             unsafe {
-                for file in program.file_descriptors.iter_mut() {
-                    *file = unsafe { core::mem::zeroed() }; 
+                for kernel_file in program.file_descriptors.iter_mut() {
+                    *kernel_file = unsafe { core::mem::zeroed() }; 
                 }
             }
 
@@ -331,10 +314,7 @@ impl OSHolder {
 
             println!("number of program headers: {}", program.elf_header.e_phnum);
             println!("Program entry point (physical): {:#x}", program.elf_header.e_entry);
-
-            let program_ptr = 0x0000_0000 as *mut Program;
-            let program: &mut Program = &mut *program_ptr;
-            let user_stack_base = (program.stack.data.as_ptr() as usize) - (program_ptr as usize);
+            
             
             let mut arg_ptrs = [0u32; 16]; 
 
@@ -356,7 +336,7 @@ impl OSHolder {
                 arg_ptrs[i] = heap_ptr as u32;
             }
 
-            let mut sp_words = user_stack_base as *mut u32;
+            let mut sp_words = program.stack.data.as_ptr().byte_add(program.stack.data.len()) as *mut u32; 
 
             unsafe {
                 let phdr_addr = (program.elf_base as u32).wrapping_add(program.elf_header.e_phoff as u32);
@@ -385,34 +365,44 @@ impl OSHolder {
                 *sp_words = argc as u32;
             }
 
-            let mut context = ProgramContext {
-                user_stack: sp_words as u32,
-                entry: (program.elf_header.e_entry) as u32,
-                arg0: argc as u32,                       // r0 = argc
-                arg1: (sp_words.add(1) as *const u32) as u32, // r1 = argv
-                arg2: 0,                                 // r2 = envp
-            };
+            program.sp = sp_words as usize - (program_ptr as usize); // normalize the stack and make sure that it is relative to the base
+            program.frame.lr = (program.elf_header.e_entry);
+            program.frame.r0 = argc as u32;
+            program.frame.r1 = (program.sp as *const u32).add(1) as u32;
+            program.frame.r2 = 0;
+
+            self.active[program_index] = true;
+
+            ProgramContext {
+                user_stack: program.sp as u32,
+                entry: program.frame.lr as u32,
+                arg0: program.frame.r0 as u32,                       // r0 = argc
+                arg1: program.frame.r1 as u32, // r1 = argv
+                arg2: program.frame.r2 as u32,                                 // r2 = envp
+            }
+        }
+    }
+
+    pub fn run_elf(&mut self, program_index: usize, context: ProgramContext) {
+        unsafe {
+            interrupts::disable_interrupts_asm();
+            println!("Setting up MMU for program {}", program_index);
+            self.map_program_mmu(program_index);
+
+            dev_barrier();
+            println!("About to enable MMU");
+            virtmem::mmu_enable();
+            println!("MMU enabled");
+            dev_barrier();
 
             println!("want to run the following instructions: ");
             hexdump(context.entry as *const u8, 8);
 
-            println!("Jumping to entry point: {:#x}", context.entry);
-
-            dev_barrier();
-
-            let ret_sp_addr = core::ptr::addr_of_mut!((*program_ptr).return_sp);
-            let ret_lr_addr = core::ptr::addr_of_mut!((*program_ptr).return_lr);
-            println!("Location of where to return sp={:p}, return lr={:p}, program_location: {:p}", ret_sp_addr, ret_lr_addr, program_ptr);
-
-            println!("About to switch to user mode from PC: {:p}, SP: {:p}", 
-                interrupts::switch_to_user_mode as *const (),
-                &sp_words as *const _
-            );
-            // interrupts::verify_timer_setup();
-
             let holder = OSHolder::os_holder_mut();
             holder.current_program = program_index;
-            holder.active[program_index] = true;
+
+            let program_ptr = 0x0000_0000 as *mut Program;
+            let program: &mut Program = &mut *program_ptr;
 
             println!("Set variables in holder.");
 
@@ -423,7 +413,7 @@ impl OSHolder {
             
             // interrupts::run_test_interrupt(); // expect the text to be off because buffer mismatch
             // interrupts::switch_to_user_mode();
-            elf_loader_tramp(core::ptr::addr_of_mut!(context), core::ptr::addr_of_mut!(program.return_sp), core::ptr::addr_of_mut!(program.return_lr));
+            elf_loader_tramp(core::ptr::addr_of!(context), core::ptr::addr_of_mut!(program.return_sp), core::ptr::addr_of_mut!(program.return_lr));
         }
     }
 }
@@ -433,6 +423,10 @@ pub fn run_busybox() {
         OSHolder::init();
         let holder = OSHolder::os_holder_mut();
         println!("About to run user program!");
-        holder.run_elf(1, "BUSYBOX", &["sh"], 1);
+
+        let busybox_prog_index = 1; 
+        let context = holder.setup_elf(busybox_prog_index, "BUSYBOX", &["sh"], 1);
+        println!("Launching into program context: user_stack={:x}, entry={:x}, arg0={}, arg1={:x}, arg2={}", context.user_stack, context.entry, context.arg0, context.arg1, context.arg2);
+        holder.run_elf(busybox_prog_index, context);
     }
 }
