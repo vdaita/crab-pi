@@ -198,6 +198,9 @@ fn syscall_exit(holder: &mut OSHolder) -> u32 {
 		if !any_other {
 			println!("No other active programs — exiting to loader");
 			holder::elf_loader_return(current_program.return_sp, current_program.return_lr);
+		} else {
+			holder.should_cswitch = true;
+			println!("Done with active program");
 		}
 	}
 	0
@@ -447,35 +450,33 @@ fn syscall_set_tid_address(frame: &InterruptFrame) -> u32 {
 	set_tid_address(frame.r0)
 }
 
-fn syscall_waitpid(holder: &OSHolder, _frame: &InterruptFrame) -> u32 {
-    let pid = _frame.r0 as i32; // Treat as signed integer
+fn syscall_waitpid(holder: &mut OSHolder, frame: &mut InterruptFrame) -> u32 {
+    let pid = frame.r0 as i32; 
     
     println!("Waiting for process with PID: {}", pid);
     
-    if pid == -1 {
-        println!("Waiting for any child process...");        
-        let any_active: bool = holder.active.iter()
+    let should_block = if pid == -1 {
+        holder.active.iter()
             .enumerate()
-            .any(|(idx, &active)| idx != holder.current_program && active);
-        if any_active {
-            println!("Child processes still active, waiting");
-            (-10i32) as u32
-        } else {
-            println!("No active child processes, done");
-            0 
-        }
+            .any(|(idx, &active)| idx != holder.current_program && active)
     } else if pid > 0 && (pid as usize) <= holder.active.len() {
-        let pid_idx = (pid as usize) - 1;
-        if holder.active[pid_idx] {
-            println!("Process {} is still active, waiting", pid);
-            (-10i32) as u32
-        } else {
-            println!("Process {} has terminated, continuing", pid);
-            0
-        }
+        holder.active[(pid as usize) - 1]
     } else {
-        println!("Invalid PID: {}", pid);
-        (-1i32) as u32
+        false
+    };
+
+    if should_block {
+        println!("Child processes still active, yielding and retrying...");        
+        frame.lr = frame.lr.wrapping_sub(4);
+        holder.should_cswitch = true;
+        frame.r0 
+    } else {
+        println!("No active target children, done waiting.");
+        if pid > 0 {
+            pid as u32 
+        } else {
+            (-10i32) as u32 
+        }
     }
 }
 
@@ -533,7 +534,7 @@ fn syscall_fork(holder: &mut OSHolder) -> u32 {
 	}
 }
 
-fn dispatch_syscall(holder: &mut OSHolder, frame: &InterruptFrame, nr: u32) -> u32 {
+fn dispatch_syscall(holder: &mut OSHolder, frame: &mut InterruptFrame, nr: u32) -> u32 {
 	match nr {
 		0x1 => syscall_exit(holder),
         0x2 => syscall_fork(holder),
