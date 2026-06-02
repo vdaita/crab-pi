@@ -313,6 +313,9 @@ impl OSHolder {
                 program.file_descriptors[i].active = true;
             }
 
+            program.heap_ptr = (program.heap.data.as_ptr() as usize) - (program_ptr as usize); // need to make sure that you showing the relative heap.data
+            // should write a helper for this
+
             crate::os::elf_file::load_elf_into_program((*file).data as *const u8, program);
 
             println!("number of program headers: {}", program.elf_header.e_phnum);

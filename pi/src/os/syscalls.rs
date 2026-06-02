@@ -14,12 +14,29 @@ const ENOSYS: u32 = (-38i32) as u32;
 const EINVAL: u32 = (-22i32) as u32;
 const ENOENT: u32 = (-2i32) as u32;
 
+unsafe fn set_tls(tls: u32) {
+    asm!(
+        "mcr p15, 0, {tls}, c13, c0, 3",
+        tls = in(reg) tls,
+    );
+}
+
+unsafe fn get_tls() -> u32 {
+    let tls: u32;
+    asm!(
+        "mrc p15, 0, {tls}, c13, c0, 3",
+        tls = out(reg) tls
+    );
+    tls
+}
+
+
 fn decode_syscall_number(frame: &InterruptFrame, instr: u32) -> u32 {
 	let imm = instr & 0x00ff_ffff;
 	if imm == 0 {
 		frame.r7
 	} else if (imm & 0x00ff_0000) == 0x0090_0000 {
-		imm - 0x0090_0000
+		imm - 0x0090_000f0
 	} else {
 		imm
 	}
@@ -80,7 +97,7 @@ fn syscall_exit(holder: &mut OSHolder) -> u32 {
 
 fn syscall_exit_group(holder: &mut OSHolder, frame: &InterruptFrame) -> u32 { // apparently implementing exit_group to do nothing works
 	println!("exit_group called with code {}", frame.r0);
-    0
+    syscall_exit(holder)
 }
 
 fn syscall_read(holder: &OSHolder, frame: &InterruptFrame) -> u32 {
@@ -213,11 +230,7 @@ fn syscall_writev(holder: &OSHolder, frame: &InterruptFrame) -> u32 {
 fn heap_alloc(holder: &mut OSHolder, alloc_len: usize) -> u32 {
     unsafe {
         let program = holder.get_program_mut(holder.current_program);
-        let heap_size = core::mem::size_of_val(&program.heap.data);
-
-        if program.heap_ptr == 0 {
-            program.heap_ptr = 0;
-        }
+        let heap_end = program.heap.data.as_ptr().add(program.heap.data.len()) as usize;
 
         let align = 4096usize;
         let mut heap_curr = program.heap_ptr;
@@ -225,23 +238,34 @@ fn heap_alloc(holder: &mut OSHolder, alloc_len: usize) -> u32 {
             heap_curr = (heap_curr + align - 1) & !(align - 1);
         }
 
-        if heap_curr + alloc_len > heap_size {
-            println!("syscall_brk: out of heap: heap_ptr={:#x}, alloc_len={}", heap_curr, alloc_len);
+        if heap_curr + alloc_len > heap_end {
+            println!("heap_alloc: out of heap: heap_ptr={:#x}, alloc_len={}", heap_curr, alloc_len);
             return EINVAL;
         }
 
-		let program_base = holder.programs[holder.current_program] as usize;
-		let user_ptr = ((program.heap.data.as_mut_ptr() as usize - program_base) + heap_curr) as u32;
         program.heap_ptr = heap_curr + alloc_len;
-        println!("syscall_brk: allocated {} bytes at {:#x}, new heap_ptr={:#x}", alloc_len, user_ptr, program.heap_ptr);
-        user_ptr
+        println!("heap_alloc: allocated {} bytes at {:#x}, new heap_ptr={:#x}", alloc_len, heap_curr, program.heap_ptr); // sp and everything else is in the user range (with 0x0 as base), so this should be too
+        heap_curr as u32 // give this back to the user for them to use
     }
 }
 
 fn syscall_brk(holder: &mut OSHolder, frame: &InterruptFrame) -> u32 {
-	let len = frame.r0 as usize;
-	let alloc_len = if len == 0 { 1 } else { len };
-	heap_alloc(holder, alloc_len)
+    unsafe {
+        let brk = frame.r0 as usize;
+        let prog = holder.get_program_mut(holder.current_program);
+        let max_heap = prog.heap.data.as_ptr().add(prog.heap.data.len()) as usize;
+
+        if brk == 0 {
+            return prog.heap_ptr as u32;
+        }
+
+        if (brk < max_heap) {
+            prog.heap_ptr = brk;
+            brk as u32
+        } else {
+            prog.heap_ptr as u32
+        }
+    }
 }
 
 fn syscall_mmap2(holder: &mut OSHolder, frame: &InterruptFrame) -> u32 {
@@ -506,10 +530,7 @@ fn syscall_set_tls(holder: &mut OSHolder, frame: &InterruptFrame) -> u32 {
         let tls = frame.r0;
         let program = holder.get_program_mut(holder.current_program);
         program.thread_pointer = tls;
-        asm!(
-			"mcr p15, 0, {tls}, c13, c0, 3",
-			tls = in(reg) tls,
-		);
+        set_tls(program.thread_pointer);
      };
 	0
 }
@@ -519,7 +540,7 @@ fn syscall_set_tid_address(holder: &mut OSHolder, frame: &InterruptFrame) -> u32
         let tidptr = frame.r0;
         let program = holder.get_program_mut(holder.current_program);
         program.clear_child_tid = tidptr;
-        program.thread_pointer
+        holder.current_program as u32
     }
 }
 
@@ -661,7 +682,7 @@ fn dispatch_syscall(holder: &mut OSHolder, frame: &mut InterruptFrame, nr: u32) 
 		0x7d => syscall_noop(frame),
 		0xb7 => syscall_getcwd(holder, frame),
 		0xc0 => syscall_mmap2(holder, frame),
-		0xc9 => syscall_exit_group(holder, frame),
+		0xc9 => syscall_noop(frame), // geteuid
 		0xd9 => syscall_getdents64(holder, frame),
 		0xdd => syscall_noop(frame),
 		0xf0005 => syscall_set_tls(holder, frame),
@@ -721,10 +742,6 @@ pub fn handle_software_interrupt(frame: *mut InterruptFrame, svc_lr: u32) -> u32
 				true => {
 					let next_program = holder.get_next_active_program_index(holder.current_program);
                     println!("switching from {} to {}", holder.current_program, next_program);
-                    // if holder.current_program == 2 && next_program == 0 {
-                    //     profiler::breakpoint_mismatch_start();
-                    // }
-
                     next_program
 				}
 				false => {
@@ -743,7 +760,8 @@ pub fn handle_software_interrupt(frame: *mut InterruptFrame, svc_lr: u32) -> u32
             let mapped_program = unsafe { &mut *mapped_program_ptr };
             let mapped_next_frame: InterruptFrame = mapped_program.frame;
 			let mapped_next_frame_ptr = &mapped_next_frame as *const InterruptFrame;
-			interrupts::fork_trampoline_back(mapped_next_frame.lr, mapped_program.sp as u32, mapped_next_frame_ptr);
+			set_tls(mapped_program.thread_pointer);
+            interrupts::fork_trampoline_back(mapped_next_frame.lr, mapped_program.sp as u32, mapped_next_frame_ptr);
 
 			// interrupts::fork_trampoline_back(frame.lr, user_sp, frame as *const InterruptFrame); // -> valid because you are not referencing the pointer memory address
 
