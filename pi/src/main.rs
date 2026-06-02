@@ -105,7 +105,7 @@ pub fn main() {
 
     // os::interrupts::test_interrupts_vbar_vmem();
 
-    os::holder::test_elf_holder();
+    os::holder::run_busybox();
 
     // programs::oled_display::test_oled_display();
     // programs::stepper_motor::run_stepper_motor();

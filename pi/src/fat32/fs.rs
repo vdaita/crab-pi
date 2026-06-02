@@ -247,7 +247,7 @@ fn dirent_convert(d: &fat32_dirent_t) -> pi_dirent_t {
     e
 }
 
-fn get_dirents(fs: &fat32_fs_t, cluster_start: u32, dir_n: &mut u32) -> *mut fat32_dirent_t {
+pub fn get_dirents(fs: &fat32_fs_t, cluster_start: u32, dir_n: &mut u32) -> *mut fat32_dirent_t {
     let n_clusters = get_cluster_chain_length(fs, cluster_start);
     let bytes_per_cluster = fs.sectors_per_cluster * NBYTES_PER_SECTOR;
     let total_bytes = n_clusters * bytes_per_cluster;
@@ -376,7 +376,12 @@ pub fn fat32_read(fs: &fat32_fs_t, directory: &pi_dirent_t, filename: &str) -> *
         return ptr::null_mut();
     }
     let d_ref = unsafe { &*d };
-    if d_ref.nbytes == 0 {
+    
+    fat32_read_dirent(fs, d_ref)
+}
+
+pub fn fat32_read_dirent(fs: &fat32_fs_t, entry: &pi_dirent_t) -> *mut pi_file_t {
+    if entry.nbytes == 0 {
         let file = unsafe { kmalloc::kmalloc_t::<pi_file_t>(1) };
         unsafe {
             *file = pi_file_t {
@@ -388,19 +393,19 @@ pub fn fat32_read(fs: &fat32_fs_t, directory: &pi_dirent_t, filename: &str) -> *
         return file;
     }
 
-    let n_clusters = get_cluster_chain_length(fs, d_ref.cluster_id);
+    let n_clusters = get_cluster_chain_length(fs, entry.cluster_id);
     let bytes_per_cluster = fs.sectors_per_cluster * NBYTES_PER_SECTOR;
     let total_bytes = (n_clusters * bytes_per_cluster) as usize;
     let buf = unsafe { kmalloc::kmalloc(total_bytes) };
     assert!((buf as usize) % 4 == 0, "fat32_read buffer is not 4-byte aligned");
-    read_cluster_chain(fs, d_ref.cluster_id, buf);
+    read_cluster_chain(fs, entry.cluster_id, buf);
 
     let file = unsafe { kmalloc::kmalloc_t::<pi_file_t>(1) };
     unsafe {
         *file = pi_file_t {
             data: buf,
             n_alloc: total_bytes,
-            n_data: d_ref.nbytes as usize,
+            n_data: entry.nbytes as usize,
         };
     }
     file
@@ -652,11 +657,34 @@ pub fn fat32_create(
     dirent
 }
 
+pub fn fat32_delete_dirent(
+    fs: &fat32_fs_t, 
+    parent_cluster: u32, 
+    dirents: *mut fat32_dirent_t, 
+    n_dirents: u32, 
+    idx: usize
+) {
+    let d = unsafe { &mut *dirents.add(idx) };
+    let start_cluster = fat32_cluster_id(d);
+
+    d.filename[0] = 0xE5;
+
+    write_cluster_chain(
+        fs,
+        parent_cluster,
+        dirents as *const u8,
+        n_dirents * size_of::<fat32_dirent_t>() as u32,
+    );
+
+    if start_cluster >= 2 {
+        free_cluster_chain(fs, start_cluster);
+        write_fat_to_disk(fs);
+    }
+}
+
 pub fn fat32_delete(fs: &fat32_fs_t, directory: &pi_dirent_t, filename: &str) -> i32 {
     demand(unsafe { INIT_P }, "fat32 not initialized!");
-    if trace_enabled() {
-        crate::println!("deleting {}", filename);
-    }
+    
     if !fat32_is_valid_name(filename) {
         return 0;
     }
@@ -664,31 +692,12 @@ pub fn fat32_delete(fs: &fat32_fs_t, directory: &pi_dirent_t, filename: &str) ->
     let mut n_dirents = 0u32;
     let dirents = get_dirents(fs, directory.cluster_id, &mut n_dirents);
     let idx = find_dirent_with_name(dirents, n_dirents, filename);
+    
     if idx < 0 {
         return 0;
     }
 
-    let d = unsafe { &mut *dirents.add(idx as usize) };
-    let start_cluster = fat32_cluster_id(d);
-    d.filename[0] = 0xE5;
-
-    if start_cluster >= 2 {
-        write_cluster_chain(
-            fs,
-            directory.cluster_id,
-            dirents as *const u8,
-            n_dirents * size_of::<fat32_dirent_t>() as u32,
-        );
-        free_cluster_chain(fs, start_cluster);
-        write_fat_to_disk(fs);
-    } else {
-        write_cluster_chain(
-            fs,
-            directory.cluster_id,
-            dirents as *const u8,
-            n_dirents * size_of::<fat32_dirent_t>() as u32,
-        );
-    }
+    fat32_delete_dirent(fs, directory.cluster_id, dirents, n_dirents, idx as usize);
     1
 }
 

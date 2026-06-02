@@ -1,5 +1,5 @@
 use crate::arch::dev_barrier;
-use crate::fat32::{self, fs_manager};
+use crate::fat32::{self};
 use crate::kmalloc;
 use crate::os::holder::{self, OSHolder};
 use crate::os::virtmem::{mmu_disable, mmu_enable, mmu_is_enabled};
@@ -57,6 +57,17 @@ fn decode_syscall_number(frame: &InterruptFrame, instr: u32) -> u32 {
 	}
 }
 
+fn normalize_path(path: &str) -> &str {
+	let mut out = path;
+	while out.starts_with("./") {
+		out = &out[2..];
+	}
+	if out.ends_with('/') && out.len() > 1 {
+		out = out.trim_end_matches('/');
+	}
+	if out.is_empty() { "." } else { out }
+}
+
 fn user_ptr_const(holder: &OSHolder, user_va: u32) -> *const u8 {
 	unsafe { (holder.programs[holder.current_program] as *const u8).byte_add(user_va as usize) }
 }
@@ -72,113 +83,6 @@ unsafe fn c_str_to_str(ptr: *const u8) -> &'static str {
 	}
 	let bytes = unsafe { core::slice::from_raw_parts(ptr, len) };
 	unsafe { core::str::from_utf8_unchecked(bytes) }
-}
-
-fn normalize_path(path: &str) -> &str {
-	let mut out = path;
-	while out.starts_with("./") {
-		out = &out[2..];
-	}
-	if out.ends_with('/') && out.len() > 1 {
-		out = out.trim_end_matches('/');
-	}
-	if out.is_empty() { "." } else { out }
-}
-
-unsafe fn build_root_dir_listing() {
-	let fs_mgr = unsafe { fs_manager::get_fat32_manager() };
-	let dir = unsafe { fat32::fat32_readdir(&(*fs_mgr).fs, &(*fs_mgr).root) };
-
-	let mut total = 0usize;
-	for i in 0..dir.ndirents {
-		let e = unsafe { &*dir.dirents.add(i) };
-		let mut len = 0usize;
-		while len < e.name.len() && e.name[len] != 0 {
-			len += 1;
-		}
-		total += len + 1;
-	}
-
-	let buf = if total == 0 {
-		core::ptr::null_mut()
-	} else {
-		unsafe { kmalloc::kmalloc(total) as *mut u8 }
-	};
-
-	let mut off = 0usize;
-	for i in 0..dir.ndirents {
-		let e = unsafe { &*dir.dirents.add(i) };
-		let mut len = 0usize;
-		while len < e.name.len() && e.name[len] != 0 {
-			len += 1;
-		}
-		if len > 0 {
-			unsafe { copy_nonoverlapping(e.name.as_ptr(), buf.add(off), len) };
-			off += len;
-		}
-		if !buf.is_null() {
-			unsafe { *buf.add(off) = b'\n' };
-			off += 1;
-		}
-	}
-
-	unsafe {
-		DIR_BUF = buf;
-		DIR_BUF_LEN = total;
-		DIR_BUF_OFF = 0;
-	}
-}
-
-unsafe fn get_root_dirents64(buf_ptr: *mut u8, buf_len: usize) -> u32 {
-	if buf_ptr.is_null() || buf_len == 0 {
-		return EINVAL;
-	}
-
-	let fs_mgr = unsafe { fs_manager::get_fat32_manager() };
-	let dir = unsafe { fat32::fat32_readdir(&(*fs_mgr).fs, &(*fs_mgr).root) };
-	let mut off = 0usize;
-
-	while unsafe { DIR_IDX } < dir.ndirents {
-		let e = unsafe { &*dir.dirents.add(DIR_IDX) };
-		let mut name_len = 0usize;
-		while name_len < e.name.len() && e.name[name_len] != 0 {
-			name_len += 1;
-		}
-
-		let base = DIRENT64_BASE;
-		let mut reclen = base + name_len + 1;
-		reclen = (reclen + 7) & !7;
-
-		if off + reclen > buf_len {
-			break;
-		}
-
-		unsafe {
-			let ino = (e.cluster_id as u64).to_le_bytes();
-			let off_bytes = ((DIR_IDX + 1) as i64).to_le_bytes();
-			let reclen_bytes = (reclen as u16).to_le_bytes();
-			copy_nonoverlapping(ino.as_ptr(), buf_ptr.add(off), ino.len());
-			copy_nonoverlapping(off_bytes.as_ptr(), buf_ptr.add(off + 8), off_bytes.len());
-			copy_nonoverlapping(reclen_bytes.as_ptr(), buf_ptr.add(off + 16), reclen_bytes.len());
-			*buf_ptr.add(off + 18) = if e.is_dir_p != 0 { DT_DIR } else { DT_REG };
-			if name_len > 0 {
-				copy_nonoverlapping(e.name.as_ptr(), buf_ptr.add(off + base), name_len);
-			}
-			*buf_ptr.add(off + base + name_len) = 0;
-			let pad_start = off + base + name_len + 1;
-			let pad_len = reclen - (base + name_len + 1);
-			if pad_len > 0 {
-				core::ptr::write_bytes(buf_ptr.add(pad_start), 0, pad_len);
-			}
-		}
-
-		off += reclen;
-		unsafe {
-			DIR_IDX += 1;
-		}
-	}
-
-	off as u32
 }
 
 fn syscall_exit(holder: &mut OSHolder) -> u32 {
@@ -212,122 +116,146 @@ fn syscall_exit_group(holder: &mut OSHolder, frame: &InterruptFrame) -> u32 { //
 }
 
 fn syscall_read(holder: &OSHolder, frame: &InterruptFrame) -> u32 {
-	let fd = frame.r0;
-	let buf_ptr = user_ptr_mut(holder, frame.r1);
-	let len = frame.r2 as usize;
+    let fd = frame.r0 as usize;
+    let buf_ptr = user_ptr_mut(holder, frame.r1);
+    let len = frame.r2 as usize;
 
-	if fd != 0 {
-		unsafe {
-			if fd == DIR_FD {
-				if buf_ptr.is_null() {
-					EINVAL
-				} else if DIR_BUF.is_null() || DIR_BUF_OFF >= DIR_BUF_LEN {
-					0
-				} else {
-					let remaining = DIR_BUF_LEN - DIR_BUF_OFF;
-					let to_copy = if len < remaining { len } else { remaining };
-					copy_nonoverlapping(DIR_BUF.add(DIR_BUF_OFF), buf_ptr, to_copy);
-					DIR_BUF_OFF += to_copy;
-					to_copy as u32
-				}
-			} else {
-				EINVAL
-			}
-		}
-	} else if len == 0 {
-		0
-	} else if buf_ptr.is_null() {
-		EINVAL
-	} else {
-		let buf = unsafe { core::slice::from_raw_parts_mut(buf_ptr, len as usize) };
+    if buf_ptr.is_null() { return EINVAL; }
+    if len == 0 { return 0; }
 
-		let mut num_bytes: usize = 0;
-		let mut tmp = [0u8; 64];
+    if fd == 0 {
+        let buf = unsafe { core::slice::from_raw_parts_mut(buf_ptr, len) };
+        let mut num_bytes: usize = 0;
+        let mut tmp = [0u8; 64];
 
-		while num_bytes < len as usize {
-			let n = crate::uart::read_bytes(&mut tmp);
+        while num_bytes < len {
+            let n = crate::uart::read_bytes(&mut tmp);
+            if n == 0 { continue; }
 
-			if n == 0 {
-				continue; // no data available, spin
-			}
+            for i in 0..n {
+                if num_bytes < len {
+                    let b = tmp[i];
+                    buf[num_bytes] = b;
+                    num_bytes += 1;
+                    if b == b'\n' { return num_bytes as u32; }
+                }
+            }
+        }
+        return num_bytes as u32;
+    }
 
-			let mut i = 0;
-			while i < n && num_bytes < len as usize {
-				let b = tmp[i];
-				buf[num_bytes] = b;
-				num_bytes += 1;
-				i += 1;
+    let file = unsafe { &mut (*holder.programs[holder.current_program]).file_descriptors[fd] };
 
-				if b == b'\n' {
-					break;
-				}
-			}
+    if !file.active || file.data.is_null() {
+        return EINVAL;
+    }
 
-			if num_bytes > 0 && buf[num_bytes - 1] == b'\n' {
-				break;
-			}
-		}
+    let remaining = file.nbytes.saturating_sub(file.pos);
+    let to_copy = if len < remaining { len } else { remaining };
 
-		let num_bytes = num_bytes as u32;
+    if to_copy > 0 {
+        unsafe {
+            copy_nonoverlapping(file.data.add(file.pos), buf_ptr, to_copy);
+        }
+        file.pos += to_copy;
+    }
 
-		let slice = &buf[..num_bytes as usize];
-		match core::str::from_utf8(slice) {
-			Ok(s) => println!(
-				"buffer: {}, num_bytes: {}, requested len: {}",
-				s, num_bytes, len
-			),
-			Err(_) => println!(
-				"buffer (raw bytes): {:?}, num_bytes: {}, requested len: {}",
-				slice, num_bytes, len
-			),
-		}
-
-		num_bytes
-	}
+    to_copy as u32
 }
 
 fn syscall_write(holder: &OSHolder, frame: &InterruptFrame) -> u32 {
-	let fd = frame.r0;
-	let buf_ptr = user_ptr_const(holder, frame.r1);
-	let len = frame.r2 as usize;
+    let fd = frame.r0 as usize;
+    let buf_ptr = user_ptr_const(holder, frame.r1);
+    let len = frame.r2 as usize;
 
-	if (fd == 1 || fd == 2) && !buf_ptr.is_null() {
-		println!("writing out with fd={}, buf_ptr={:p}, len={}", fd, buf_ptr, len);
-		let bytes = unsafe { core::slice::from_raw_parts(buf_ptr, len) };
-		crate::uart::write_bytes("[prog]".as_bytes());
+    if buf_ptr.is_null() { return EINVAL; }
+
+    if fd == 1 || fd == 2 {
+        let bytes = unsafe { core::slice::from_raw_parts(buf_ptr, len) };
+        crate::uart::write_bytes("[prog]".as_bytes());
 		crate::uart::write_bytes(bytes);
 		crate::uart::write_bytes("[/prog]".as_bytes());
-		crate::uart::flush();
-		len as u32
-	} else {
-		EINVAL
+        return len as u32;
+    }
+
+    let proc = unsafe { &mut *holder.programs[holder.current_program] };
+    let file = &mut proc.file_descriptors[fd];
+
+	if !file.active {
+		panic!("trying to write to an inactive file");
 	}
+    if file.is_directory { 
+		panic!("trying to write to a directory");
+	 }
+
+    unsafe {
+        let mut remaining_space = file.nbytes_alloc.saturating_sub(file.pos);
+        if len > remaining_space {
+            println!("reallocating memory in write");
+            let new_alloc_size = core::cmp::max(file.nbytes_alloc + 1024, file.pos + len);
+            unsafe {
+                let new_data = kmalloc::kmalloc(new_alloc_size) as *mut u8;
+                if new_data.is_null() {
+                    return 28; // ENOSPC (Out of space)
+                }
+                if !file.data.is_null() {
+                    core::ptr::copy_nonoverlapping(file.data, new_data, file.nbytes);
+                }
+                file.data = new_data;
+                file.nbytes_alloc = new_alloc_size;
+                remaining_space = file.nbytes_alloc - file.pos;
+            }
+        }
+
+        let to_write = core::cmp::min(len, remaining_space);
+
+        if to_write > 0 {
+            unsafe {
+                core::ptr::copy_nonoverlapping(buf_ptr, file.data.add(file.pos), to_write);
+            }
+            file.pos += to_write;
+            
+            if file.pos > file.nbytes {
+                file.nbytes = file.pos;
+            }
+            return to_write as u32;
+        }
+    }
+
+    0
 }
 
+
 fn syscall_writev(holder: &OSHolder, frame: &InterruptFrame) -> u32 {
-	let fd = frame.r0;
-	let iov = user_ptr_const(holder, frame.r1) as *const u32;
-	let iovcnt = frame.r2 as usize;
+    let fd = frame.r0 as usize;
+    let iov_ptr = user_ptr_const(holder, frame.r1) as *const u32;
+    let iovcnt = frame.r2 as usize;
 
-	if fd != 1 && fd != 2 {
-		return EINVAL;
-	}
+    if iov_ptr.is_null() { return EINVAL; }
 
-	let mut total: u32 = 0;
-	for i in 0..iovcnt {
-		let base_user_va = unsafe { core::ptr::read_volatile(iov.add(i * 2)) };
-		let len = unsafe { core::ptr::read_volatile(iov.add(i * 2 + 1)) } as usize;
-		let base = user_ptr_const(holder, base_user_va);
-		if !base.is_null() && len > 0 {
-			let bytes = unsafe { core::slice::from_raw_parts(base, len) };
-			crate::uart::write_bytes("[prog]".as_bytes());
-			crate::uart::write_bytes(bytes);
-			crate::uart::write_bytes("[/prog]".as_bytes());
-			total = total.wrapping_add(len as u32);
-		}
-	}
-	crate::uart::flush();
-	total
+    let mut total_written: u32 = 0;
+
+    for i in 0..iovcnt {
+        unsafe {
+            let base_va = core::ptr::read_volatile(iov_ptr.add(i * 2));
+            let len = core::ptr::read_volatile(iov_ptr.add(i * 2 + 1)) as usize;
+
+            if len == 0 { continue; }
+            let mut temp_frame = *frame;
+            temp_frame.r0 = fd as u32;
+            temp_frame.r1 = base_va;
+            temp_frame.r2 = len as u32;
+
+            let result = syscall_write(holder, &temp_frame);
+            if (result as i32) < 0 {
+                return if total_written > 0 { total_written } else { result };
+            }
+            
+            total_written += result;
+        }
+    }
+
+    total_written
 }
 
 fn heap_alloc(holder: &mut OSHolder, alloc_len: usize) -> u32 {
@@ -370,70 +298,195 @@ fn syscall_mmap2(holder: &mut OSHolder, frame: &InterruptFrame) -> u32 {
 	heap_alloc(holder, alloc_len)
 }
 
-fn syscall_open(holder: &OSHolder, frame: &InterruptFrame) -> u32 {
-	let pathname = user_ptr_const(holder, frame.r0);
-	if pathname.is_null() {
-		return EINVAL;
-	}
+fn syscall_open(holder: &mut OSHolder, frame: &InterruptFrame) -> u32 {
+    let pathname = user_ptr_const(holder, frame.r0);
+    if pathname.is_null() { return EINVAL; }
 
-	let path = unsafe { normalize_path(c_str_to_str(pathname)) };
-	if path == "." || path == "/" {
-		unsafe {
-			build_root_dir_listing();
-			DIR_IDX = 0;
-			DIR_FD
-		}
-	} else {
-		ENOENT
-	}
+    let path = unsafe { normalize_path(c_str_to_str(pathname)) };
+    
+    let fs_ptr = &mut holder.fs as *mut fat32::fat32_fs_t;
+    let root_ptr = &holder.root as *const fat32::pi_dirent_t;
+    
+    let entry_ptr = unsafe { fat32::fat32_stat(&mut *fs_ptr, &*root_ptr, path) };
+    if entry_ptr.is_null() { return ENOENT; }
+    let entry = unsafe { *entry_ptr };
+
+    let proc = unsafe { holder.get_program_mut(holder.current_program) };    
+    let cwd_copy = proc.cwd; 
+    let fd = proc.allocate_file_descriptor();
+    let file = proc.get_file(fd);
+
+    file.dirent = entry;
+    file.parent = cwd_copy;
+    file.pos = 0;
+    file.active = true;
+
+    if entry.is_dir_p != 0 {
+        file.is_directory = true;
+        
+        let raw_dir = unsafe { fat32::fat32_readdir(&mut *fs_ptr, &entry) };
+        
+        let friendly = fat32::get_dir_listing_as_file(&raw_dir);
+        file.data = friendly.data;
+        file.nbytes = friendly.n_data;
+
+        let binary = fat32::get_dirents64_as_file(&raw_dir);
+        file.dirents = binary.data;
+        file.nbytes_alloc = binary.n_data; 
+    } else {
+        file.is_directory = false;
+        
+        let raw_file = unsafe { fat32::fat32_read(&mut *fs_ptr, &*root_ptr, path) };
+        if raw_file.is_null() {
+            file.active = false;
+            return ENOENT;
+        }
+
+        unsafe {
+            file.data = (*raw_file).data;
+            file.nbytes = (*raw_file).n_data;
+            file.nbytes_alloc = (*raw_file).n_alloc;
+            file.dirents = core::ptr::null_mut();
+        }
+    }
+
+    fd as u32
 }
-
 fn syscall_getdents64(holder: &OSHolder, frame: &InterruptFrame) -> u32 {
-	let fd = frame.r0;
-	let dirp = user_ptr_mut(holder, frame.r1);
-	let count = frame.r2 as usize;
-	unsafe {
-		if fd != DIR_FD {
-			EINVAL
-		} else {
-			get_root_dirents64(dirp, count)
-		}
-	}
+    let fd = frame.r0 as usize;
+    let dirp = user_ptr_mut(holder, frame.r1);
+    let count = frame.r2 as usize;
+    
+    let proc = unsafe { &mut *holder.programs[holder.current_program] };
+    let file = &mut proc.file_descriptors[fd];
+
+    if !file.active || !file.is_directory || file.dirents.is_null() {
+        return EINVAL;
+    }
+
+    let remaining = file.nbytes_alloc.saturating_sub(file.pos);
+    let to_copy = core::cmp::min(count, remaining);
+
+    if to_copy > 0 {
+        unsafe {
+            copy_nonoverlapping(file.dirents.add(file.pos), dirp, to_copy);
+        }
+        file.pos += to_copy;
+    }
+
+    to_copy as u32
 }
 
 fn syscall_getcwd(holder: &OSHolder, frame: &InterruptFrame) -> u32 {
-	let buf = user_ptr_mut(holder, frame.r0);
-	if buf.is_null() {
-		return EINVAL;
-	}
-	unsafe {
-		*buf = b'/';
-		*buf.add(1) = 0;
-	}
-	frame.r0
+    let buf_ptr = user_ptr_mut(holder, frame.r0);
+    let size = frame.r1 as usize;
+
+    if buf_ptr.is_null() {
+        return EINVAL;
+    }
+
+    let proc = unsafe { holder.get_program(holder.current_program) };
+    let mut temp_buf = [0u8; 256];
+    let mut total_len: usize = 0;
+    if proc.cwd.cluster_id == holder.root.cluster_id {
+        temp_buf[0] = b'/';
+        temp_buf[1] = 0;
+        total_len = 2;
+    } else {
+        let name = &proc.cwd.name;
+        let name_len = name.iter().position(|&b| b == 0).unwrap_or(name.len());
+        temp_buf[0] = b'/';
+        unsafe {
+            core::ptr::copy_nonoverlapping(name.as_ptr(), temp_buf.as_mut_ptr().add(1), name_len);
+        }
+        temp_buf[1 + name_len] = 0;
+        total_len = name_len + 2;
+    }
+
+    if size < total_len {
+        return 34;
+    }
+
+    unsafe {
+        core::ptr::copy_nonoverlapping(temp_buf.as_ptr(), buf_ptr, total_len);
+    }
+
+    frame.r0
 }
 
 fn syscall_statx(holder: &OSHolder, frame: &InterruptFrame) -> u32 {
-	let pathname_bytes = user_ptr_mut(holder, frame.r1);
-	let statx_out = user_ptr_mut(holder, frame.r4) as *mut fs_manager::Statx;
-	unsafe {
-		let mut filename_len = 0;
-		while *pathname_bytes.add(filename_len) != 0 && filename_len < 256 {
-			filename_len += 1;
-		}
-		let filename_slice = core::slice::from_raw_parts(pathname_bytes, filename_len);
-		let filename = core::str::from_utf8(filename_slice).unwrap_or("");
-		let filename = normalize_path(filename);
+    let pathname_ptr = user_ptr_const(holder, frame.r1);
+    let statx_out = user_ptr_mut(holder, frame.r4) as *mut fat32::Statx;
 
-		let fs_mgr = fs_manager::get_fat32_manager();
-		let stat_ptr = fat32::fat32_stat(&(*fs_mgr).fs, &(*fs_mgr).root, filename);
-		if stat_ptr.is_null() {
-			ENOENT
-		} else {
-			*statx_out = (*fs_mgr).get_file_stat(filename);
-			0
-		}
-	}
+    if pathname_ptr.is_null() || statx_out.is_null() {
+        return EINVAL;
+    }
+
+    unsafe {
+        let path_str = c_str_to_str(pathname_ptr);
+        let path = normalize_path(path_str);
+
+        let entry_ptr = fat32::fat32_stat(&holder.fs, &holder.root, path);
+        if entry_ptr.is_null() {
+            return ENOENT;
+        }
+
+        let stats = fat32::get_file_stat(&*entry_ptr);
+        core::ptr::write_volatile(statx_out, stats);
+        0
+    }
+}
+
+fn syscall_close(holder: &mut OSHolder, frame: &InterruptFrame) -> u32 {
+    let fd = frame.r0 as usize;
+    if fd >= holder::NUM_FILE_DESCRIPTORS {
+        // return 22; // EINVAL
+		panic!("trying to close a file descriptor out of range");
+    }
+
+    let proc = unsafe { holder.get_program_mut(holder.current_program) };
+    let file = &mut proc.file_descriptors[fd];
+    
+    if !file.active {
+        // return 9; // EBADF
+		panic!("trying to close an inactive file descriptor");
+    }
+    if !file.is_directory && !file.data.is_null() {
+        let fs_ptr = &holder.fs as *const _ as *mut fat32::fat32_fs_t;
+        let pi_file = fat32::pi_file_t {
+            data: file.data,
+            n_data: file.nbytes,
+            n_alloc: file.nbytes_alloc,
+        };
+
+        let name_str = unsafe { c_str_to_str(file.dirent.name.as_ptr()) };
+        unsafe {
+            fat32::fat32_write(
+                &*fs_ptr,
+                &file.parent,
+                name_str,
+                &pi_file
+            );
+        }
+    }
+
+    unsafe {
+        if !file.data.is_null() {
+            file.data = core::ptr::null_mut();
+        }
+
+        if !file.dirents.is_null() {
+            file.dirents = core::ptr::null_mut();
+        }
+    }
+
+    file.active = false;
+    file.pos = 0;
+    file.nbytes = 0;
+    file.nbytes_alloc = 0;
+    file.is_directory = false;
+
+    0
 }
 
 fn syscall_execve(holder: &OSHolder, frame: &InterruptFrame) -> u32 {
@@ -583,6 +636,7 @@ fn dispatch_syscall(holder: &mut OSHolder, frame: &mut InterruptFrame, nr: u32) 
 		0x3 => syscall_read(holder, frame),
 		0x4 => syscall_write(holder, frame),
 		0x5 => syscall_open(holder, frame),
+		0x6 => syscall_close(holder, frame),
 		0xb => syscall_execve(holder, frame),
 		0x14 => syscall_getpid(holder, frame),
 		0x2d => syscall_brk(holder, frame),

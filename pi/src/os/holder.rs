@@ -6,7 +6,7 @@ use crate::os::virtmem::{self, MemPerm, MemAttr, PageSizes, mmu_disable, mmu_ena
 use crate::{println, print};
 use crate::circular::CircularQueue;
 use crate::profiler;
-use crate::fat32::{self, Fat32Manager, fs_manager, get_fat32_manager, pi_file_t};
+use crate::fat32::{self, pi_file_t};
 use crate::kmalloc;
 use core::cell::SyncUnsafeCell;
 use core::arch::asm;
@@ -25,9 +25,11 @@ const TINY_PAGE: usize = 4 * 1024;
 const LARGE_PAGE: usize = 16 * 1024 * 1024;
 const ONE_MB: usize = 1024 * 1024;
 const NUM_PROGRAMS: usize = 3;
-const MAX_ELF_SIZE: usize = 1024 * 1024 * 4;
-const MAX_STACK_SIZE: usize = 1024 * 1024 * 4;
-const MAX_HEAP_SIZE: usize = 1024 * 1024;
+const MAX_ELF_SIZE: usize = 1024 * 1024 * 5;
+const MAX_STACK_SIZE: usize = 1024 * 1024 * 5;
+const MAX_HEAP_SIZE: usize = 1024 * 1024 * 2;
+pub const NUM_FILE_DESCRIPTORS: usize = 8;
+// at least 12MB in reserved memory should be enough out of a 16MB page
 
 
 #[derive(Copy, Clone)]
@@ -45,6 +47,22 @@ pub struct Heap {
     pub data: [u8; MAX_HEAP_SIZE],
 }
 
+#[derive(Copy, Clone)]
+#[repr(C)]
+pub struct KernelFile {
+    pub active: bool,
+    pub pos: usize,
+
+    pub dirent: fat32::pi_dirent_t,
+    pub data: *mut u8,
+    pub nbytes: usize,
+    pub nbytes_alloc: usize,
+    pub is_directory: bool,
+    pub dirents: *mut u8, // load the dirents at the same time as the regular listings
+
+    pub parent: fat32::pi_dirent_t
+}
+
 #[derive(Clone, Copy)]
 #[repr(C)]
 pub struct Program {
@@ -58,9 +76,32 @@ pub struct Program {
     pub elf_header: ElfHeader,
     pub elf_base: usize,
 
-    // for when the program returns
+    // elf loader return - should i rename this to not be confused with frame.lr, sp?
     pub return_sp: usize,
-    pub return_lr: usize
+    pub return_lr: usize,
+
+    pub file_descriptors: [KernelFile; NUM_FILE_DESCRIPTORS],
+    pub cwd: fat32::pi_dirent_t
+}
+
+impl Program {
+    pub fn allocate_file_descriptor(&mut self) -> usize {
+        for i in 3..NUM_FILE_DESCRIPTORS {
+            if !self.file_descriptors[i].active {
+                self.file_descriptors[i] = unsafe { core::mem::zeroed() };
+                self.file_descriptors[i].active = true;
+                return i;
+            }
+        }
+        panic!("no file descriptors available!"); // very dumb but will help with error hcecking
+    }
+
+    pub fn get_file(&mut self, fd: usize) -> &mut KernelFile {
+        if fd >= NUM_FILE_DESCRIPTORS { 
+            panic!("FD out of bounds");
+        }
+        &mut self.file_descriptors[fd]
+    }
 }
 
 #[repr(C)]
@@ -111,8 +152,13 @@ pub struct OSHolder {
     pub current_program: usize,
     pub active: [bool; NUM_PROGRAMS],
     
-    pub should_cswitch: bool
+    pub should_cswitch: bool,
 
+    pub files: [KernelFile; NUM_FILE_DESCRIPTORS],
+    pub active_files: [bool; NUM_FILE_DESCRIPTORS],
+
+    pub fs: fat32::fat32_fs_t,
+    pub root: fat32::pi_dirent_t
 }
 
 unsafe fn hexdump(ptr: *const u8, lines: u32) {
@@ -148,9 +194,14 @@ impl OSHolder {
             core::ptr::write(OS_HOLDER.get().cast::<OSHolder>(), core::mem::zeroed());
             kuser::install_kuser_helpers();
             interrupts::install_interrupts_vbar();
-            interrupts::enable_timer_interrupts();         // -> this shit is causing me hell    
+            interrupts::enable_timer_interrupts();         // -> this shit is causing me hell 
 
             let holder = OSHolder::os_holder_mut();
+
+            fat32::pi_sd_init();
+            let partition = fat32::first_fat32_partition_from_mbr().expect("valid first FAT32 partition");
+            holder.fs = fat32::fat32_mk(&partition);
+            holder.root = fat32::fat32_get_root(&holder.fs);
 
             // initialize program pointers
             for i in 0..NUM_PROGRAMS {
@@ -247,14 +298,14 @@ impl OSHolder {
             
             dev_barrier();
             
-            let manager = get_fat32_manager();
-            let file = (*manager).read_file(prog_name);
+            let file = fat32::fat32_read(&self.fs, &self.root, prog_name);
 
             println!("File size from FAT32: {}", (*file).n_data);
             hexdump((*file).data, 8);
 
             let program_ptr = 0x0000_0000 as *mut Program;
             let program: &mut Program = &mut *program_ptr;
+            program.cwd = self.root;
 
             crate::os::elf_file::load_elf_into_program((*file).data as *const u8, program);
 
@@ -354,7 +405,7 @@ impl OSHolder {
     }
 }
 
-pub fn test_elf_holder() {
+pub fn run_busybox() {
     unsafe {
         OSHolder::init();
         let holder = OSHolder::os_holder_mut();
