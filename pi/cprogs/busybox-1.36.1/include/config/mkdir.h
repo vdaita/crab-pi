@@ -1,1 +1,1 @@
-#define CONFIG_MKDIR 1
+#undef CONFIG_MKDIR

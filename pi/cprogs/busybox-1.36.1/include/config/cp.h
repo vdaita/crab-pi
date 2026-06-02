@@ -1,1 +1,1 @@
-#define CONFIG_CP 1
+#undef CONFIG_CP

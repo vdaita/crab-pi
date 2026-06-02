@@ -6,7 +6,7 @@
 # All other options which chose general bbox config, applet features, etc,
 # are not modified for the builds.
 
-makeopts="-j9"
+makeopts="-j4"
 
 # The list of all applet config symbols
 test -f include/applets.h || { echo "No include/applets.h file"; exit 1; }

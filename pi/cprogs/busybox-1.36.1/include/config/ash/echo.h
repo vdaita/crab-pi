@@ -1,1 +1,1 @@
-#define CONFIG_ASH_ECHO 1
+#undef CONFIG_ASH_ECHO

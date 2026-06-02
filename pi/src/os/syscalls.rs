@@ -239,8 +239,50 @@ fn syscall_read(holder: &OSHolder, frame: &InterruptFrame) -> u32 {
 	} else if buf_ptr.is_null() {
 		EINVAL
 	} else {
-		let buf = unsafe { core::slice::from_raw_parts_mut(buf_ptr, len) };
-		crate::uart::read_bytes(buf) as u32
+		let buf = unsafe { core::slice::from_raw_parts_mut(buf_ptr, len as usize) };
+
+		let mut num_bytes: usize = 0;
+		let mut tmp = [0u8; 64];
+
+		while num_bytes < len as usize {
+			let n = crate::uart::read_bytes(&mut tmp);
+
+			if n == 0 {
+				continue; // no data available, spin
+			}
+
+			let mut i = 0;
+			while i < n && num_bytes < len as usize {
+				let b = tmp[i];
+				buf[num_bytes] = b;
+				num_bytes += 1;
+				i += 1;
+
+				if b == b'\n' {
+					break;
+				}
+			}
+
+			if num_bytes > 0 && buf[num_bytes - 1] == b'\n' {
+				break;
+			}
+		}
+
+		let num_bytes = num_bytes as u32;
+
+		let slice = &buf[..num_bytes as usize];
+		match core::str::from_utf8(slice) {
+			Ok(s) => println!(
+				"buffer: {}, num_bytes: {}, requested len: {}",
+				s, num_bytes, len
+			),
+			Err(_) => println!(
+				"buffer (raw bytes): {:?}, num_bytes: {}, requested len: {}",
+				slice, num_bytes, len
+			),
+		}
+
+		num_bytes
 	}
 }
 

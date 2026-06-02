@@ -1,1 +1,1 @@
-#define CONFIG_CAT 1
+#undef CONFIG_CAT

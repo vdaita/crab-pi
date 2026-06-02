@@ -1,4 +1,4 @@
-cmd_libbb/appletlib.o := gcc -Wp,-MD,libbb/.appletlib.o.d  -std=gnu99 -Iinclude -Ilibbb  -include include/autoconf.h -D_GNU_SOURCE -DNDEBUG -D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -DBB_VER='"1.36.1"' -Wall -Wshadow -Wwrite-strings -Wundef -Wstrict-prototypes -Wunused -Wunused-parameter -Wunused-function -Wunused-value -Wmissing-prototypes -Wmissing-declarations -Wno-format-security -Wdeclaration-after-statement -Wold-style-definition -finline-limit=0 -fno-builtin-strlen -fomit-frame-pointer -ffunction-sections -fdata-sections -fno-guess-branch-probability -funsigned-char -falign-functions=1 -falign-jumps=1 -falign-labels=1 -falign-loops=1 -fno-unwind-tables -fno-asynchronous-unwind-tables -fno-builtin-printf -g -Oz    -DKBUILD_BASENAME='"appletlib"'  -DKBUILD_MODNAME='"appletlib"' -c -o libbb/appletlib.o libbb/appletlib.c
+cmd_libbb/appletlib.o := gcc -Wp,-MD,libbb/.appletlib.o.d  -std=gnu99 -Iinclude -Ilibbb  -include include/autoconf.h -D_GNU_SOURCE -DNDEBUG -D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -DBB_VER='"1.36.1"' -Wall -Wshadow -Wwrite-strings -Wundef -Wstrict-prototypes -Wunused -Wunused-parameter -Wunused-function -Wunused-value -Wmissing-prototypes -Wmissing-declarations -Wno-format-security -Wdeclaration-after-statement -Wold-style-definition -finline-limit=0 -fno-builtin-strlen -fomit-frame-pointer -ffunction-sections -fdata-sections -fno-guess-branch-probability -funsigned-char -static-libgcc -falign-functions=1 -falign-jumps=1 -falign-labels=1 -falign-loops=1 -fno-unwind-tables -fno-asynchronous-unwind-tables -fno-builtin-printf -Oz    -DKBUILD_BASENAME='"appletlib"'  -DKBUILD_MODNAME='"appletlib"' -c -o libbb/appletlib.o libbb/appletlib.c
 
 deps_libbb/appletlib.o := \
   libbb/appletlib.c \
@@ -181,7 +181,12 @@ deps_libbb/appletlib.o := \
   /usr/include/sys/statfs.h \
   /usr/include/sys/statvfs.h \
   /usr/include/bits/statfs.h \
+  /usr/include/utmp.h \
+  /usr/include/utmpx.h \
   /usr/include/arpa/inet.h \
+  include/pwd_.h \
+  include/grp_.h \
+  include/shadow_.h \
   include/xatonum.h \
   include/applet_metadata.h \
   /usr/include/malloc.h \
@@ -600,6 +605,7 @@ deps_libbb/appletlib.o := \
     $(wildcard include/config/dumpleases.h) \
   include/applet_tables.h \
   include/usage_compressed.h \
+  include/embedded_scripts.h \
 
 libbb/appletlib.o: $(deps_libbb/appletlib.o)
 
