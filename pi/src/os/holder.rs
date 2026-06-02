@@ -20,9 +20,6 @@ pub static OS_HOLDER: SyncUnsafeCell<MaybeUninit<OSHolder>> =
     SyncUnsafeCell::new(MaybeUninit::zeroed());
 
 pub const DOM_KERN: u32 = 1;
-const DOM_USER: u32 = 2;
-const TINY_PAGE: usize = 4 * 1024;
-const LARGE_PAGE: usize = 16 * 1024 * 1024;
 const ONE_MB: usize = 1024 * 1024;
 const NUM_PROGRAMS: usize = 3;
 const MAX_ELF_SIZE: usize = 1024 * 1024 * 4;
@@ -291,7 +288,7 @@ impl OSHolder {
         virtmem::pin_mmu_init(!0);
     }
 
-    pub fn run_elf(&mut self, program_index: usize, prog_name: &str) {
+    pub fn run_elf(&mut self, program_index: usize, prog_name: &str, args: &[&str], argc: usize) {
         unsafe {
             interrupts::disable_interrupts_asm();
 
@@ -335,59 +332,65 @@ impl OSHolder {
             println!("number of program headers: {}", program.elf_header.e_phnum);
             println!("Program entry point (physical): {:#x}", program.elf_header.e_entry);
 
-            let program_addr = program_ptr as usize;
-            let user_stack_base = (program.stack.data.as_ptr() as usize) - (program_addr as usize);
-            println!("Program stack end: {:p}", program.stack.data.as_ptr());
-            println!("Program base address: {:x}", program_addr);
-            println!("User stack base: {:x}", user_stack_base);
-
-            let argv0_bytes = b"sh\0";
-            let argv0_heap = kmalloc::kmalloc(argv0_bytes.len()) as *mut u8;
-
-            println!("Allocated heap for argv0_bytes: {:p}", argv0_heap);
-            core::ptr::copy_nonoverlapping(argv0_bytes.as_ptr(), argv0_heap, argv0_bytes.len());
-
-            let argv0_ptr = argv0_heap as u32;
-
-            let stack_top = user_stack_base;
-            println!("About to write to address: {:#x}", stack_top);
-            core::ptr::write_bytes((stack_top - 1024) as *mut u8, 0, 1024);
-            println!("User stack base just written to: {:#x}", stack_top);
-
-            let mut sp = stack_top as *mut u32;
-            let phdr_addr = (program.elf_base as u32).wrapping_add(program.elf_header.e_phoff as u32);
+            let program_ptr = 0x0000_0000 as *mut Program;
+            let program: &mut Program = &mut *program_ptr;
+            let user_stack_base = (program.stack.data.as_ptr() as usize) - (program_ptr as usize);
             
-            sp = sp.sub(1); *sp = 0;                             // AT_NULL val
-            sp = sp.sub(1); *sp = 0;                             // AT_NULL type
-            sp = sp.sub(1); *sp = 4096;                          // AT_PAGESZ val
-            sp = sp.sub(1); *sp = 6;                             // AT_PAGESZ type
-            sp = sp.sub(1); *sp = program.elf_header.e_phnum as u32; // AT_PHNUM val
-            sp = sp.sub(1); *sp = 5;                             // AT_PHNUM type
-            sp = sp.sub(1); *sp = program.elf_header.e_phentsize as u32; // AT_PHENT val
-            sp = sp.sub(1); *sp = 4;                             // AT_PHENT type
-            sp = sp.sub(1); *sp = phdr_addr;                     // AT_PHDR val
-            sp = sp.sub(1); *sp = 3;                             // AT_PHDR type
-            sp = sp.sub(1); *sp = 0;
+            let mut arg_ptrs = [0u32; 16]; 
 
-            // argv pointers: argv[0], NULL
-            sp = sp.sub(1); *sp = 0;          // argv[1] == NULL
-            sp = sp.sub(1); *sp = argv0_ptr;  // argv[0]
+            for (i, arg_str) in args.iter().take(argc).enumerate() {
+                let bytes = arg_str.as_bytes();
+                let len = bytes.len() + 1;
 
-            // argc = 1
-            sp = sp.sub(1); *sp = 1;
+                let heap_ptr = unsafe { crate::kmalloc::kmalloc(len) as *mut u8 };
+                
+                if heap_ptr.is_null() {
+                    panic!("Out of memory while allocating argv[{}]", i);
+                }
 
-            if (sp as usize) & 7 != 0 {
-                sp = sp.sub(1);
-                *sp = 0;
+                unsafe {
+                    core::ptr::copy_nonoverlapping(bytes.as_ptr(), heap_ptr, bytes.len());
+                    *heap_ptr.add(bytes.len()) = 0;
+                }
+
+                arg_ptrs[i] = heap_ptr as u32;
             }
 
-            println!("Finished constructing stack");
+            let mut sp_words = user_stack_base as *mut u32;
+
+            unsafe {
+                let phdr_addr = (program.elf_base as u32).wrapping_add(program.elf_header.e_phoff as u32);
+                let auxv = [
+                    3, phdr_addr,
+                    4, program.elf_header.e_phentsize as u32,
+                    5, program.elf_header.e_phnum as u32,
+                    6, 4096,
+                    0, 0, // AT_NULL
+                ];
+                sp_words = sp_words.sub(auxv.len());
+                core::ptr::copy_nonoverlapping(auxv.as_ptr(), sp_words, auxv.len());
+
+                sp_words = sp_words.sub(1);
+                *sp_words = 0; // envp[0] = NULL
+
+                sp_words = sp_words.sub(1);
+                *sp_words = 0; // argv[argc] = NULL
+
+                for i in (0..argc).rev() {
+                    sp_words = sp_words.sub(1);
+                    *sp_words = arg_ptrs[i];
+                }
+
+                sp_words = sp_words.sub(1);
+                *sp_words = argc as u32;
+            }
+
             let mut context = ProgramContext {
-                user_stack: sp as u32,
+                user_stack: sp_words as u32,
                 entry: (program.elf_header.e_entry) as u32,
-                arg0: 1,                                 // r0 = argc
-                arg1: (sp.add(1) as *const u32) as u32, // r1 = &argv[0]
-                arg2: 0,                                 // r2 = envp (NULL)
+                arg0: argc as u32,                       // r0 = argc
+                arg1: (sp_words.add(1) as *const u32) as u32, // r1 = argv
+                arg2: 0,                                 // r2 = envp
             };
 
             println!("want to run the following instructions: ");
@@ -403,10 +406,8 @@ impl OSHolder {
 
             println!("About to switch to user mode from PC: {:p}, SP: {:p}", 
                 interrupts::switch_to_user_mode as *const (),
-                &stack_top as *const _
+                &sp_words as *const _
             );
-
-
             // interrupts::verify_timer_setup();
 
             let holder = OSHolder::os_holder_mut();
@@ -432,6 +433,6 @@ pub fn run_busybox() {
         OSHolder::init();
         let holder = OSHolder::os_holder_mut();
         println!("About to run user program!");
-        holder.run_elf(1, "BUSYBOX");
+        holder.run_elf(1, "BUSYBOX", &["sh"], 1);
     }
 }

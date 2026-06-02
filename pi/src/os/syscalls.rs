@@ -299,11 +299,6 @@ fn syscall_mmap2(holder: &mut OSHolder, frame: &InterruptFrame) -> u32 {
 	heap_alloc(holder, alloc_len)
 }
 
-// fn check_cwd_dir(holder: &mut OSHolder) {
-//     let proc = unsafe { holder.get_program_mut(holder.current_program) };    
-//     println!("Proc CWD is dir: {}, at address: {:p}", proc.cwd.is_dir_p, core::ptr::addr_of!(proc.cwd.is_dir_p));
-// }
-
 fn syscall_open(holder: &mut OSHolder, frame: &InterruptFrame) -> u32 {
     let pathname = user_ptr_const(holder, frame.r0);
     if pathname.is_null() { return EINVAL; }
@@ -469,6 +464,8 @@ fn syscall_close(holder: &mut OSHolder, frame: &InterruptFrame) -> u32 {
 		let parent_name = unsafe { c_str_to_str(file.parent.name.as_ptr()) };
 		// println!("Trying to save to file {}, fd={}, parent={}", name_str, fd, parent_name);
 
+        // TODO: check if file doesn't exist, if file doesnt' exist create
+
         unsafe {
             fat32::fat32_write(
                 &*fs_ptr,
@@ -499,6 +496,8 @@ fn syscall_close(holder: &mut OSHolder, frame: &InterruptFrame) -> u32 {
 }
 
 fn syscall_execve(holder: &OSHolder, frame: &InterruptFrame) -> u32 {
+    // TODO: load in the files
+
 	let pathname = user_ptr_const(holder, frame.r0);
 	let argv = user_ptr_mut(holder, frame.r1) as *mut *const u8;
 

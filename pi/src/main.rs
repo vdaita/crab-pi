@@ -27,10 +27,10 @@ mod ckalloc;
 mod profiler;
 mod pmu_profiler;
 mod bit_utils;
-// mod programs {
+mod programs {
 //     pub mod gpu_test;
 //     pub mod mandelbrot;
-//     pub mod fat32_test;
+    pub mod fat32_test;
 //     pub mod matrix_load_test;
 //     pub mod derive_jit;
 //     pub mod ir;
@@ -41,7 +41,7 @@ mod bit_utils;
 //     pub mod memtrace;
 //     pub mod stepper_motor;
 //     pub mod oled_display;
-// }
+}
 mod os {
     pub mod holder;
     pub mod interrupts;
@@ -75,8 +75,8 @@ unsafe fn enable_fpu() {
 pub fn main() {    
     unsafe { 
         enable_fpu(); 
-        // os::utils::enable_l1_instruction_cache();
-        // os::utils::enable_branch_prediction();
+        os::utils::enable_l1_instruction_cache();
+        os::utils::enable_branch_prediction();
     }
     uart::init();
     println!("Hello from Rust on the Pi!");
