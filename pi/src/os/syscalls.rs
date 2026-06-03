@@ -102,11 +102,13 @@ fn syscall_exit(holder: &mut OSHolder) -> u32 {
 		let any_other = holder.active.iter().enumerate().any(|(idx, &a)| idx != holder.current_program && a);
 		if !any_other {
 			println!("No other active programs — exiting to loader");
+            println!("\x02 all ELF finished, exiting \x03");
 			holder::elf_loader_return(current_program.return_sp, current_program.return_lr);
 		} else {
 			holder.should_cswitch = true;
 			println!("Done with active program");
 		}
+
 	}
 	0
 }
