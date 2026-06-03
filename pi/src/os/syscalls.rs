@@ -177,7 +177,9 @@ fn syscall_write(holder: &OSHolder, frame: &InterruptFrame) -> u32 {
     let proc = unsafe { &mut *holder.programs[holder.current_program] };
     let file = &mut proc.file_descriptors[fd];
 
-    if file.special_file == holder::SpecialFileMarker::Stderr || file.special_file == holder::SpecialFileMarker::Stdout {
+    println!("writing to file descriptor fd={}, special_file={}", fd, file.special_file as u32);
+
+    if file.special_file == holder::SpecialFileMarker::Stdin || file.special_file == holder::SpecialFileMarker::Stderr || file.special_file == holder::SpecialFileMarker::Stdout {
         let bytes = unsafe { core::slice::from_raw_parts(buf_ptr, len) };
         crate::uart::write_bytes("\x02".as_bytes());
 		crate::uart::write_bytes(bytes);
@@ -205,7 +207,29 @@ fn syscall_write(holder: &OSHolder, frame: &InterruptFrame) -> u32 {
             if file.pos > file.nbytes {
                 file.nbytes = file.pos;
             }
+
+            if !file.is_directory && file.special_file == holder::SpecialFileMarker::NotSpecial && file.nbytes > 0 {
+                let pi_file = fat32::pi_file_t {
+                    data: file.data.as_ptr() as *mut u8,
+                    n_data: file.nbytes,
+                    n_alloc: file.nbytes_alloc,
+                };
+
+                let name_str = unsafe { c_str_to_str(file.dirent.name.as_ptr()) };
+                unsafe {
+                    fat32::fat32_write(
+                        &holder.fs,
+                        &file.parent,
+                        name_str,
+                        &pi_file
+                    );
+                    println!("[write] just wrote this data to disk, name={}", name_str);
+                }
+            }
+
             return to_write as u32;
+        } else {
+            println!("[syscall_write] problem: ran out of length in this string");
         }
     }
 
@@ -311,6 +335,15 @@ fn syscall_open(holder: &mut OSHolder, frame: &InterruptFrame) -> u32 {
     let entry = unsafe { *entry_ptr };
 
     let proc = unsafe { holder.get_program_mut(holder.current_program) };    
+
+    // for existing_fd in 0..holder::NUM_FILE_DESCRIPTORS {
+    //     let file = proc.get_file(existing_fd);
+    //     if file.dirent.name == entry.name {
+    //         println!("found existing file descriptor for this file that's the same: name={}, fd={}", path, existing_fd);
+    //         return existing_fd as u32;
+    //     }
+    // }
+
     let cwd_copy = proc.cwd; 
     let fd = proc.allocate_file_descriptor();
     let file = proc.get_file(fd);
@@ -478,7 +511,7 @@ fn close(fd: usize, holder: &mut OSHolder) -> u32 {
 		let parent_name = unsafe { c_str_to_str(file.parent.name.as_ptr()) };
 		// println!("Trying to save to file {}, fd={}, parent={}", name_str, fd, parent_name);
 
-        // TODO: check if file doesn't exist, if file doesnt' exist create
+        // TODO: check if file doesn't exist, if file doesnt' exist create (depending ont he situation)
 
         unsafe {
             fat32::fat32_write(
@@ -487,7 +520,20 @@ fn close(fd: usize, holder: &mut OSHolder) -> u32 {
                 name_str,
                 &pi_file
             );
+            println!("[close] just wrote this data to disk")
         }
+
+        unsafe {
+            // clear logical contents; backing arrays remain in-place
+            file.nbytes = 0;
+            file.nbytes_alloc = 0;
+        }
+
+        file.active = false;
+        file.pos = 0;
+        file.nbytes = 0;
+        file.nbytes_alloc = 0;
+        file.is_directory = false;
     }
     0
 }
@@ -501,17 +547,7 @@ fn syscall_close(holder: &mut OSHolder, frame: &InterruptFrame) -> u32 {
 
     close(fd, holder);
 
-    // unsafe {
-    //     // clear logical contents; backing arrays remain in-place
-    //     file.nbytes = 0;
-    //     file.nbytes_alloc = 0;
-    // }
 
-    // file.active = false;
-    // file.pos = 0;
-    // file.nbytes = 0;
-    // file.nbytes_alloc = 0;
-    // file.is_directory = false;
 
     0
 }
@@ -685,6 +721,7 @@ fn syscall_dup2(holder: &mut OSHolder, frame: &InterruptFrame) -> u32 {
 
     let proc = unsafe { holder.get_program_mut(holder.current_program) };
     proc.file_descriptors[newfd] = proc.file_descriptors[oldfd];
+    println!("sharing file descriptor: oldfd={}, newfd={}", oldfd, newfd);
     newfd as u32
 }
 
@@ -725,27 +762,28 @@ fn syscall_vfork(holder: &mut OSHolder, frame: &InterruptFrame) -> u32 {
     0
 }
 
-// pub fn syscall_fcntl64(holder: &mut OSHolder, frame: &InterruptFrame) -> u32 {
-//     const F_DUPFD: u32 = 0;
-//     const F_DUPFD_CLOEXEC: u32 = 1030;
+pub fn syscall_fcntl64(holder: &mut OSHolder, frame: &InterruptFrame) -> u32 {
+    const F_DUPFD: u32 = 0;
+    const F_DUPFD_CLOEXEC: u32 = 1030;
 
-//     unsafe {
-//         let oldfd = frame.r0 as usize;
-//         let cmd = frame.r1;  
-//         let program = holder.get_program_mut(holder.current_program);
-//         match cmd {
-//             F_DUPFD | F_DUPFD_CLOEXEC => {
-//                 let new_fd = dup2(oldfd, program.allocate_file_descriptor_gt(oldfd), holder) as usize;
-//                 program.file_descriptors[new_fd].should_close_on_exec = true;
-//                 new_fd as u32
-//             }
-//             _ => {
-//                 println!("fcntl64: cmd={} on fd={} not supported yet", cmd, oldfd);
-//                 0
-//             }
-//         }
-//     }
-// }
+    unsafe {
+        let oldfd = frame.r0 as usize;
+        (holder::NUM_FILE_DESCRIPTORS - 1) as u32
+        // let cmd = frame.r1;  
+        // let program = holder.get_program_mut(holder.current_program);
+        // match cmd {
+        //     F_DUPFD | F_DUPFD_CLOEXEC => {
+        //         let new_fd = dup2(oldfd, program.allocate_file_descriptor_gt(oldfd), holder) as usize;
+        //         program.file_descriptors[new_fd].should_close_on_exec = true;
+        //         new_fd as u32
+        //     }
+        //     _ => {
+        //         println!("fcntl64: cmd={} on fd={} not supported yet", cmd, oldfd);
+        //         0
+        //     }
+        // }
+    }
+}
 
 
 fn dispatch_syscall(holder: &mut OSHolder, frame: &mut InterruptFrame, nr: u32) -> u32 {
@@ -755,9 +793,8 @@ fn dispatch_syscall(holder: &mut OSHolder, frame: &mut InterruptFrame, nr: u32) 
 		0x3 => syscall_read(holder, frame),
 		0x4 => syscall_write(holder, frame),
 		0x5 => syscall_open(holder, frame),
-		// 0x6 => syscall_close(holder, frame),
-        0x6 => syscall_noop(frame),
-        0x6 => syscall_noop(frame),
+		0x6 => syscall_close(holder, frame),
+        // 0x6 => syscall_noop(frame),
 		0xb => syscall_execve(holder, frame),
 		0x14 => syscall_getpid(holder, frame),
         0x25 => syscall_kill(holder, frame),
@@ -783,7 +820,8 @@ fn dispatch_syscall(holder: &mut OSHolder, frame: &mut InterruptFrame, nr: u32) 
 		0xc9 => syscall_noop(frame), // geteuid,
         0xd6 => syscall_noop(frame), // setgid
 		0xd9 => syscall_getdents64(holder, frame),
-		0xdd => syscall_noop(frame),
+		// 0xdd => syscall_noop(frame),
+        0xdd => syscall_noop(frame),
 		0xf0005 => syscall_set_tls(holder, frame),
 		0xf8 => syscall_exit_group(holder, frame),
 		0x18d => syscall_statx(holder, frame),

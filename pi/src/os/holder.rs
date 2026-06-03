@@ -52,7 +52,7 @@ pub enum SpecialFileMarker {
     Stderr = 3,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq)]
 #[repr(C)]
 pub struct KernelFile {
     pub active: bool,

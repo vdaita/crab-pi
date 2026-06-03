@@ -15,7 +15,7 @@ pub struct pi_file_t {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct pi_dirent_t {
     pub name: [u8; 16],
     pub raw_name: [u8; 16],
