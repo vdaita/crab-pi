@@ -49,6 +49,39 @@ pub struct Statx {
     pub __spare3: [u64; 12],
 }
 
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Default)]
+pub struct Stat64 {
+    pub st_dev: u64,
+    pub __pad1: u32,
+
+    pub __st_ino: u32,
+
+    pub st_mode: u32,
+    pub st_nlink: u32,
+
+    pub st_uid: u32,
+    pub st_gid: u32,
+
+    pub st_rdev: u64,
+    pub __pad2: u32,
+
+    pub st_size: i64,
+    pub st_blksize: u32,
+    pub st_blocks: u64,
+
+    pub st_atime: u32,
+    pub st_atime_nsec: u32,
+
+    pub st_mtime: u32,
+    pub st_mtime_nsec: u32,
+
+    pub st_ctime: u32,
+    pub st_ctime_nsec: u32,
+
+    pub st_ino: u64,
+}
+
 pub fn get_file_stat(dirent: &fat32::pi_dirent_t) -> Statx {
         let mut statx = Statx::default();
         
@@ -88,4 +121,43 @@ pub fn get_file_stat(dirent: &fat32::pi_dirent_t) -> Statx {
         statx.stx_dio_offset_align = 1;
         
         statx
-    }
+}
+
+pub fn stat64_from_statx(stx: &Statx) -> Stat64 {
+    let mut stat = Stat64::default();
+
+    stat.st_dev =
+        ((stx.stx_dev_major as u64) << 32) |
+        (stx.stx_dev_minor as u64);
+
+    stat.st_mode = stx.stx_mode as u32;
+    stat.st_nlink = stx.stx_nlink;
+    stat.st_uid = stx.stx_uid;
+    stat.st_gid = stx.stx_gid;
+
+    stat.st_rdev =
+        ((stx.stx_rdev_major as u64) << 32) |
+        (stx.stx_rdev_minor as u64);
+
+    stat.st_size = stx.stx_size as i64;
+    stat.st_blksize = stx.stx_blksize;
+    stat.st_blocks = stx.stx_blocks;
+
+    stat.st_atime = stx.stx_atime.tv_sec as u32;
+    stat.st_atime_nsec = stx.stx_atime.tv_nsec;
+
+    stat.st_mtime = stx.stx_mtime.tv_sec as u32;
+    stat.st_mtime_nsec = stx.stx_mtime.tv_nsec;
+
+    stat.st_ctime = stx.stx_ctime.tv_sec as u32;
+    stat.st_ctime_nsec = stx.stx_ctime.tv_nsec;
+
+    stat.st_ino = stx.stx_ino;
+    stat.__st_ino = stx.stx_ino as u32;
+
+    stat
+}
+
+pub fn get_file_stat64(dirent: &fat32::pi_dirent_t) -> Stat64 {
+    stat64_from_statx(&get_file_stat(dirent))
+}

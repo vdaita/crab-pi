@@ -1,1 +1,1 @@
-#define CONFIG_SH_IS_NONE 1
+#undef CONFIG_SH_IS_NONE

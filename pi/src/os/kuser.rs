@@ -1,44 +1,57 @@
 use crate::println;
 use crate::arch::dev_barrier;
+use core::arch::global_asm;
 
 pub const KUSER_ADDR: usize = 0x1600_0000;
 
-unsafe fn kuser_memory_barrier() {
-    core::arch::asm!(
-        "mcr p15, 0, {r0}, c7, c10, 5",
-        r0 = in(reg) 0u32,
-        options(nostack)
+global_asm!(r#"
+    .align 4
+
+    .global __kuser_get_tls_start
+    .global __kuser_get_tls_end
+__kuser_get_tls_start:
+    mrc p15, 0, r0, c13, c0, 3
+    bx lr
+__kuser_get_tls_end:
+
+    .global __kuser_memory_barrier_start
+    .global __kuser_memory_barrier_end
+__kuser_memory_barrier_start:
+    mcr p15, 0, r0, c7, c10, 5
+    bx lr
+__kuser_memory_barrier_end:
+
+    .global __kuser_cmpxchg_start
+    .global __kuser_cmpxchg_end
+__kuser_cmpxchg_start:
+    ldr r0, [r1]
+    str r2, [r1]
+    bx lr
+__kuser_cmpxchg_end:
+"#);
+
+unsafe extern "C" {
+    static __kuser_get_tls_start: u8;
+    static __kuser_get_tls_end: u8;
+
+    static __kuser_memory_barrier_start: u8;
+    static __kuser_memory_barrier_end: u8;
+
+    static __kuser_cmpxchg_start: u8;
+    static __kuser_cmpxchg_end: u8;
+}
+
+unsafe fn copy_blob(start: *const u8, end: *const u8, dst: *mut u8) {
+    let size = end.offset_from(start) as usize;
+
+    core::ptr::copy_nonoverlapping(
+        start,
+        dst,
+        size,
     );
-}
 
-unsafe fn kuser_version() -> u32 {
-    return 5;
+    println!("Copied {} bytes from {:x}->{:x} to {:x}->{:x}", size, start as usize, start as usize + size, dst as usize, dst as usize + size);
 }
-
-unsafe fn kuser_get_tls() -> u32 {
-    let tls: u32;
-    core::arch::asm!(
-        "mrc p15, 0, {tls}, c13, c0, 3",
-        tls = out(reg) tls,
-        options(nostack)
-    );
-    tls
-}
-
-unsafe fn kuser_cmpxchg(newval: u32, ptr: *mut u32) -> u32 {
-    // Simple swap: load old value, store new value, return old value
-    let old: u32;
-    core::arch::asm!(
-        "ldr {old}, [{ptr}]",
-        "str {newval}, [{ptr}]",
-        ptr = in(reg) ptr,
-        newval = in(reg) newval,
-        old = out(reg) old,
-        options(nostack)
-    );
-    old
-}
-
 
 pub fn install_kuser_helpers() {
     unsafe {
@@ -46,23 +59,29 @@ pub fn install_kuser_helpers() {
         println!("About to copy Kuser helpers");
 
         // __kernel_helper_version at VA 0xFFFF0FFC
-        core::ptr::write_volatile(
-            (KUSER_ADDR + 0x00FF0FFC) as *mut u32, kuser_version());
+        let helper_version = (KUSER_ADDR + 0x00FF0FFC) as *mut u32;
+        *helper_version = 5;
 
-        // __kernel_get_tls at VA 0xFFFF0FA0
-        core::ptr::copy_nonoverlapping(
-            kuser_get_tls as *const u32,
-            (KUSER_ADDR + 0x00FF0FA0) as *mut u32, 4);
+        // __kernel_get_tls
+        copy_blob(
+            &__kuser_get_tls_start,
+            &__kuser_get_tls_end,
+            (KUSER_ADDR + 0x00FF0FA0) as *mut u8,
+        );
 
-        // __kernel_cmpxchg at VA 0xFFFF0FC0
-        core::ptr::copy_nonoverlapping(
-            kuser_cmpxchg as *const u32,
-            (KUSER_ADDR + 0x00FF0FC0) as *mut u32, 8);
+        // __kernel_cmpxchg
+        copy_blob(
+            &__kuser_cmpxchg_start,
+            &__kuser_cmpxchg_end,
+            (KUSER_ADDR + 0x00FF0FC00) as *mut u8,
+        );
 
-        // __kernel_memory_barrier at VA 0xFFFF0FE0
-        core::ptr::copy_nonoverlapping(
-            kuser_memory_barrier as *const u32,
-            (KUSER_ADDR + 0x00FF0FE0) as *mut u32, 2);
+        // __kernel_memory_barrier
+        copy_blob(
+            &__kuser_memory_barrier_start,
+            &__kuser_memory_barrier_end,
+            (KUSER_ADDR + 0x00FF0FE0) as *mut u8,
+        );
 
         println!("Finished copying KUSER");
     }

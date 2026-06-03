@@ -81,17 +81,39 @@ been enabled, more detailed usage information will also be available.
 
 Currently available applets include:
 
-	hush
+	ash, cat, echo, false, ls, mkdir, pwd, sh, true
 
 =head1 COMMAND DESCRIPTIONS
 
 =over 4
 
-=item B<hush>
+=item B<ash>
 
-hush [-enxl] [-c 'SCRIPT' [ARG0 ARGS] | FILE ARGS | -s ARGS]
+ash [-il] [-|+Cabefmnuvx] [-|+o OPT]... [-c 'SCRIPT' [ARG0 ARGS] | FILE ARGS | -s ARGS]
 
-Unix shell interpreter
+=item B<cat>
+
+cat [FILE]...
+
+=item B<echo>
+
+echo [ARG]...
+
+=item B<ls>
+
+ls [-1AaCxdlins] [FILE]...
+
+=item B<mkdir>
+
+mkdir [-m MODE] [-p] DIRECTORY...
+
+=item B<pwd>
+
+pwd
+
+=item B<sh>
+
+sh [-il] [-|+Cabefmnuvx] [-|+o OPT]... [-c 'SCRIPT' [ARG0 ARGS] | FILE ARGS | -s ARGS]
 
 =back
 

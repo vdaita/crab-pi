@@ -1,1 +1,1 @@
-cmd_coreutils/lib.a := rm -f coreutils/lib.a; ar  rcs coreutils/lib.a coreutils/echo.o coreutils/printf.o coreutils/test.o coreutils/test_ptr_hack.o
+cmd_coreutils/lib.a := rm -f coreutils/lib.a; ar  rcs coreutils/lib.a coreutils/cat.o coreutils/echo.o coreutils/false.o coreutils/ls.o coreutils/mkdir.o coreutils/pwd.o coreutils/true.o

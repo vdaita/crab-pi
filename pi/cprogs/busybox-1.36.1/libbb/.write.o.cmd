@@ -1,4 +1,4 @@
-cmd_libbb/write.o := gcc -Wp,-MD,libbb/.write.o.d  -std=gnu99 -Iinclude -Ilibbb  -include include/autoconf.h -D_GNU_SOURCE -DNDEBUG -D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -DBB_VER='"1.36.1"' -Wall -Wshadow -Wwrite-strings -Wundef -Wstrict-prototypes -Wunused -Wunused-parameter -Wunused-function -Wunused-value -Wmissing-prototypes -Wmissing-declarations -Wno-format-security -Wdeclaration-after-statement -Wold-style-definition -finline-limit=0 -fno-builtin-strlen -fomit-frame-pointer -ffunction-sections -fdata-sections -fno-guess-branch-probability -funsigned-char -static-libgcc -falign-functions=1 -falign-jumps=1 -falign-labels=1 -falign-loops=1 -fno-unwind-tables -fno-asynchronous-unwind-tables -fno-builtin-printf -Oz    -DKBUILD_BASENAME='"write"'  -DKBUILD_MODNAME='"write"' -c -o libbb/write.o libbb/write.c
+cmd_libbb/write.o := gcc -Wp,-MD,libbb/.write.o.d  -std=gnu99 -Iinclude -Ilibbb  -include include/autoconf.h -D_GNU_SOURCE -DNDEBUG -D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -DBB_VER='"1.36.1"' -Wall -Wshadow -Wwrite-strings -Wundef -Wstrict-prototypes -Wunused -Wunused-parameter -Wunused-function -Wunused-value -Wmissing-prototypes -Wmissing-declarations -Wno-format-security -Wdeclaration-after-statement -Wold-style-definition -finline-limit=0 -fno-builtin-strlen -fomit-frame-pointer -ffunction-sections -fdata-sections -fno-guess-branch-probability -funsigned-char -falign-functions=1 -falign-jumps=1 -falign-labels=1 -falign-loops=1 -fno-unwind-tables -fno-asynchronous-unwind-tables -fno-builtin-printf -Oz    -DKBUILD_BASENAME='"write"'  -DKBUILD_MODNAME='"write"' -c -o libbb/write.o libbb/write.c
 
 deps_libbb/write.o := \
   libbb/write.c \
@@ -157,12 +157,7 @@ deps_libbb/write.o := \
   /usr/include/sys/statfs.h \
   /usr/include/sys/statvfs.h \
   /usr/include/bits/statfs.h \
-  /usr/include/utmp.h \
-  /usr/include/utmpx.h \
   /usr/include/arpa/inet.h \
-  include/pwd_.h \
-  include/grp_.h \
-  include/shadow_.h \
   include/xatonum.h \
 
 libbb/write.o: $(deps_libbb/write.o)

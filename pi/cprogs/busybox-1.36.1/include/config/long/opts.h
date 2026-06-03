@@ -1,1 +1,1 @@
-#define CONFIG_LONG_OPTS 1
+#undef CONFIG_LONG_OPTS

@@ -21,7 +21,7 @@ pub static OS_HOLDER: SyncUnsafeCell<MaybeUninit<OSHolder>> =
 
 pub const DOM_KERN: u32 = 1;
 const ONE_MB: usize = 1024 * 1024;
-const NUM_PROGRAMS: usize = 3;
+pub const NUM_PROGRAMS: usize = 3;
 const MAX_ELF_SIZE: usize = 1024 * 1024 * 4;
 const MAX_STACK_SIZE: usize = 1024 * 1024 * 4;
 const MAX_HEAP_SIZE: usize = 1024 * 1024 * 2;

@@ -7,6 +7,7 @@ use crate::os::interrupts::{self, InterruptFrame};
 use crate::println;
 use crate::print;
 use core::arch::asm;
+use core::ffi::c_str;
 use core::ptr::copy_nonoverlapping;
 use core::mem::size_of;
 
@@ -53,12 +54,23 @@ fn normalize_path(path: &str) -> &str {
 	if out.is_empty() { "." } else { out }
 }
 
+
+// note i might have just been returning something from kernel memory directly...
 fn user_ptr_const(holder: &OSHolder, user_va: u32) -> *const u8 {
-	unsafe { (holder.programs[holder.current_program] as *const u8).byte_add(user_va as usize) }
+    // check if this is in the kernel region or not
+    if user_va > 0x1000_0000 {
+        user_va as *const u8
+    } else {
+	    unsafe { (holder.programs[holder.current_program] as *const u8).byte_add(user_va as usize) }
+    }
 }
 
 fn user_ptr_mut(holder: &OSHolder, user_va: u32) -> *mut u8 {
-	unsafe { (holder.programs[holder.current_program] as *mut u8).byte_add(user_va as usize) }
+    if user_va > 0x1000_0000 {
+        user_va as *mut u8 
+    } else {
+	    unsafe { (holder.programs[holder.current_program] as *mut u8).byte_add(user_va as usize) }
+    }
 }
 
 unsafe fn c_str_to_str(ptr: *const u8) -> &'static str {
@@ -276,6 +288,8 @@ fn syscall_mmap2(holder: &mut OSHolder, frame: &InterruptFrame) -> u32 {
 
 fn syscall_open(holder: &mut OSHolder, frame: &InterruptFrame) -> u32 {
     let pathname = user_ptr_const(holder, frame.r0);
+    unsafe { println!("Trying to open path: {}", c_str_to_str(pathname)); }
+
     if pathname.is_null() { return EINVAL; }
 
     let path = unsafe { normalize_path(c_str_to_str(pathname)) };
@@ -284,7 +298,10 @@ fn syscall_open(holder: &mut OSHolder, frame: &InterruptFrame) -> u32 {
     let root_ptr = &holder.root as *const fat32::pi_dirent_t;
     
     let entry_ptr = unsafe { fat32::fat32_stat(&mut *fs_ptr, &*root_ptr, path) };
-    if entry_ptr.is_null() { return ENOENT; }
+    if entry_ptr.is_null() { 
+        println!("open: entry {} not found, returning ENOENT", path);
+        return ENOENT;
+    }
     let entry = unsafe { *entry_ptr };
 
     let proc = unsafe { holder.get_program_mut(holder.current_program) };    
@@ -297,7 +314,8 @@ fn syscall_open(holder: &mut OSHolder, frame: &InterruptFrame) -> u32 {
     file.pos = 0;
     file.active = true;
 
-    if entry.is_dir_p != 0 {
+
+    if entry.is_dir_p == 1 {
         file.is_directory = true;
         
         let raw_dir = unsafe { fat32::fat32_readdir(&mut *fs_ptr, &entry) };
@@ -325,10 +343,14 @@ fn syscall_open(holder: &mut OSHolder, frame: &InterruptFrame) -> u32 {
         file.is_directory = false;
         
         let raw_file = unsafe { fat32::fat32_read(&mut *fs_ptr, &*root_ptr, path) };
+        
         if raw_file.is_null() {
             file.active = false;
+            println!("File {} was not found, returning ENOENT from open", path);
             return ENOENT;
         }
+
+        println!("File {} was found, going to file descriptor {}", path, fd);
 
         unsafe {
             let rf = &*raw_file;
@@ -342,6 +364,7 @@ fn syscall_open(holder: &mut OSHolder, frame: &InterruptFrame) -> u32 {
 
     fd as u32
 }
+
 fn syscall_getdents64(holder: &OSHolder, frame: &InterruptFrame) -> u32 {
     let fd = frame.r0 as usize;
     let dirp = user_ptr_mut(holder, frame.r1);
@@ -415,6 +438,8 @@ fn syscall_statx(holder: &OSHolder, frame: &InterruptFrame) -> u32 {
     unsafe {
         let path_str = c_str_to_str(pathname_ptr);
         let path = normalize_path(path_str);
+
+        println!("statx searching for {}", path);
 
         let entry_ptr = fat32::fat32_stat(&holder.fs, &holder.root, path);
         if entry_ptr.is_null() {
@@ -517,11 +542,11 @@ fn syscall_execve(holder: &mut OSHolder, frame: &InterruptFrame) -> u32 {
 
         // otherwise, run it!
         println!("found path {}!", path_str);
-        let exec_index = holder.get_next_empty_index();
-        let _context = holder.setup_elf(exec_index, path_str, &args_list, argc);
-        (holder).should_cswitch = true;
-
-        0
+        let context = holder.setup_elf(holder.current_program, path_str, &args_list, argc);
+        // actually, maybe you should run from this point
+        holder.run_elf(holder.current_program, context);
+        
+        panic!("shouldn't reach this part of the code");
 	}
 }
 
@@ -613,13 +638,13 @@ fn syscall_fork(holder: &mut OSHolder) -> u32 {
 			new_prog.frame.r12, new_prog.frame.lr);
 		print!("fork instr bytes:");
 		for i in 0..8 {
-			let b = *((pc as *const u8).add(i));
+			let b = *((pc as *const u8).add(i).add(holder.programs[next_prog_index] as usize));
 			print!(" {:02x}", b);
 		}
 		println!();
 		print!("fork stack words at sp:");
 		for i in 0..8 {
-			let w = *((sp as *const u32).add(i));
+			let w = *((sp as *const u32).add(i).add(holder.programs[next_prog_index] as usize));
 			print!(" {:08x}", w);
 		}
 		println!();
@@ -658,6 +683,43 @@ fn syscall_dup2(holder: &mut OSHolder, frame: &InterruptFrame) -> u32 {
     newfd as u32
 }
 
+fn syscall_stat64(holder: &mut OSHolder, frame: &InterruptFrame) -> u32 {
+    let pathname_ptr = user_ptr_const(holder, frame.r1);
+    let statx_out = user_ptr_mut(holder, frame.r4) as *mut fat32::Stat64;
+
+    if pathname_ptr.is_null() || statx_out.is_null() {
+        return EINVAL;
+    }
+
+    unsafe {
+        let path_str = c_str_to_str(pathname_ptr);
+        let path = normalize_path(path_str);
+
+        let entry_ptr = fat32::fat32_stat(&holder.fs, &holder.root, path);
+        if entry_ptr.is_null() {
+            return ENOENT;
+        }
+
+        let stats = fat32::get_file_stat64(&*entry_ptr);
+        core::ptr::write_volatile(statx_out, stats);
+        0
+    }
+}
+
+fn syscall_kill(holder: &mut OSHolder, frame: &InterruptFrame) -> u32 {
+    let pid = frame.r0 as i32;
+    if pid < 0 || pid >= (holder::NUM_PROGRAMS as i32) {
+        (-1i32) as u32
+    } else {
+        holder.active[pid as usize] = false;
+        0
+    }
+}
+
+fn syscall_vfork(holder: &mut OSHolder, frame: &InterruptFrame) -> u32 {
+    0
+}
+
 fn dispatch_syscall(holder: &mut OSHolder, frame: &mut InterruptFrame, nr: u32) -> u32 {
 	match nr {
 		0x1 => syscall_exit(holder),
@@ -668,10 +730,12 @@ fn dispatch_syscall(holder: &mut OSHolder, frame: &mut InterruptFrame, nr: u32) 
 		0x6 => syscall_close(holder, frame),
 		0xb => syscall_execve(holder, frame),
 		0x14 => syscall_getpid(holder, frame),
+        0x25 => syscall_kill(holder, frame),
 		0x2d => syscall_brk(holder, frame),
 		0x36 => syscall_noop(frame),
 		0x3f => syscall_dup2(holder, frame),
 		0x40 => syscall_noop(frame),
+        0x41 => syscall_noop(frame), // getpgrp
 		0x5b => syscall_noop(frame),
 		0x72 => syscall_waitpid(holder, frame),
 		0x92 => syscall_writev(holder, frame),
@@ -680,9 +744,14 @@ fn dispatch_syscall(holder: &mut OSHolder, frame: &mut InterruptFrame, nr: u32) 
 		0xae => syscall_noop(frame),
 		0xaf => syscall_noop(frame),
 		0x7d => syscall_noop(frame),
+        0xbe => syscall_vfork(holder, frame),
 		0xb7 => syscall_getcwd(holder, frame),
 		0xc0 => syscall_mmap2(holder, frame),
-		0xc9 => syscall_noop(frame), // geteuid
+        0xc3 => syscall_stat64(holder, frame),
+        0xc7 => syscall_noop(frame), // getuid
+        0xc8 => syscall_noop(frame), // getgid
+		0xc9 => syscall_noop(frame), // geteuid,
+        0xd6 => syscall_noop(frame), // setgid
 		0xd9 => syscall_getdents64(holder, frame),
 		0xdd => syscall_noop(frame),
 		0xf0005 => syscall_set_tls(holder, frame),
@@ -698,23 +767,16 @@ fn dispatch_syscall(holder: &mut OSHolder, frame: &mut InterruptFrame, nr: u32) 
 #[inline(never)]
 pub fn handle_software_interrupt(frame: *mut InterruptFrame, svc_lr: u32) -> u32 {
 	dev_barrier();
-	let should_toggle_mmu = mmu_is_enabled();
-
-	if should_toggle_mmu {
-		mmu_disable();
-	}
-
 	let svc_pc = svc_lr.wrapping_sub(4);
 	let instr = unsafe { core::ptr::read_volatile(svc_pc as *const u32) };
 	let frame = unsafe { &mut *frame };
 	let nr = decode_syscall_number(frame, instr);
-
 	unsafe {
         let holder = OSHolder::os_holder_mut(); 
 
         println!(
-            "SWI called: pc={:#x}, instr={:#x}, arg0={:#x}, arg1={:#x}, arg2={:#x}, arg3={:#x}, arg4={:#x}, arg5={:#x}, nr={:#x}, program={}",
-            svc_pc, instr, frame.r0, frame.r1, frame.r2, frame.r3, frame.r4, frame.r5, nr, holder.current_program
+            "SWI called: pc={:#x}, instr={:#x}, arg0={:#x}, arg1={:#x}, arg2={:#x}, arg3={:#x}, arg4={:#x}, arg5={:#x}, nr={:#x}, program={}, active?={}",
+            svc_pc, instr, frame.r0, frame.r1, frame.r2, frame.r3, frame.r4, frame.r5, nr, holder.current_program, holder.active[holder.current_program]
         );
 
         dev_barrier();
@@ -733,7 +795,7 @@ pub fn handle_software_interrupt(frame: *mut InterruptFrame, svc_lr: u32) -> u32
 			interrupts::update_current_program_frame(frame, user_sp as usize);
 			let syscall_ret = dispatch_syscall(holder, frame, nr);
 			frame.r0 = syscall_ret; 
-			interrupts::update_current_program_frame(frame, user_sp as usize);
+			interrupts::update_current_program_frame(frame, user_sp as usize); // NOTE: this is what is probably messing stuff up
 
             // check_cwd_dir(holder);
 
@@ -770,6 +832,7 @@ pub fn handle_software_interrupt(frame: *mut InterruptFrame, svc_lr: u32) -> u32
 			// check context switching
 			// trampoline back instead of standard return back
 		} else {
+            println!("Dispatching syscall without MMU, program management");
 			dispatch_syscall(holder, frame, nr)
 		}
 	}

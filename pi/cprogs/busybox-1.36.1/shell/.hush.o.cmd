@@ -1,4 +1,4 @@
-cmd_shell/hush.o := gcc -Wp,-MD,shell/.hush.o.d  -std=gnu99 -Iinclude -Ilibbb  -include include/autoconf.h -D_GNU_SOURCE -DNDEBUG -D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -DBB_VER='"1.36.1"' -Wall -Wshadow -Wwrite-strings -Wundef -Wstrict-prototypes -Wunused -Wunused-parameter -Wunused-function -Wunused-value -Wmissing-prototypes -Wmissing-declarations -Wno-format-security -Wdeclaration-after-statement -Wold-style-definition -finline-limit=0 -fno-builtin-strlen -fomit-frame-pointer -ffunction-sections -fdata-sections -fno-guess-branch-probability -funsigned-char -static-libgcc -falign-functions=1 -falign-jumps=1 -falign-labels=1 -falign-loops=1 -fno-unwind-tables -fno-asynchronous-unwind-tables -fno-builtin-printf -Oz    -DKBUILD_BASENAME='"hush"'  -DKBUILD_MODNAME='"hush"' -c -o shell/hush.o shell/hush.c
+cmd_shell/hush.o := gcc -Wp,-MD,shell/.hush.o.d  -std=gnu99 -Iinclude -Ilibbb  -include include/autoconf.h -D_GNU_SOURCE -DNDEBUG -D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -DBB_VER='"1.36.1"' -Wall -Wshadow -Wwrite-strings -Wundef -Wstrict-prototypes -Wunused -Wunused-parameter -Wunused-function -Wunused-value -Wmissing-prototypes -Wmissing-declarations -Wno-format-security -Wdeclaration-after-statement -Wold-style-definition -finline-limit=0 -fno-builtin-strlen -fomit-frame-pointer -ffunction-sections -fdata-sections -fno-guess-branch-probability -funsigned-char -falign-functions=1 -falign-jumps=1 -falign-labels=1 -falign-loops=1 -fno-unwind-tables -fno-asynchronous-unwind-tables -fno-builtin-printf -Oz    -DKBUILD_BASENAME='"hush"'  -DKBUILD_MODNAME='"hush"' -c -o shell/hush.o shell/hush.c
 
 deps_shell/hush.o := \
   shell/hush.c \
@@ -65,7 +65,6 @@ deps_shell/hush.o := \
   /usr/include/bits/alltypes.h \
   /usr/include/glob.h \
   /usr/include/features.h \
-  /usr/include/fnmatch.h \
   /usr/include/sys/times.h \
   /usr/include/sys/utsname.h \
   include/busybox.h \
@@ -218,12 +217,7 @@ deps_shell/hush.o := \
   /usr/include/sys/statfs.h \
   /usr/include/sys/statvfs.h \
   /usr/include/bits/statfs.h \
-  /usr/include/utmp.h \
-  /usr/include/utmpx.h \
   /usr/include/arpa/inet.h \
-  include/pwd_.h \
-  include/grp_.h \
-  include/shadow_.h \
   include/xatonum.h \
   include/applet_metadata.h \
     $(wildcard include/config/install/no/usr.h) \
@@ -238,8 +232,6 @@ deps_shell/hush.o := \
   shell/math.h \
     $(wildcard include/config/feature/sh/math/64.h) \
   shell/match.h \
-  shell/random.h \
-  include/embedded_scripts.h \
   include/NUM_APPLETS.h \
 
 shell/hush.o: $(deps_shell/hush.o)
