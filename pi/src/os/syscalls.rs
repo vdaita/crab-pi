@@ -173,9 +173,9 @@ fn syscall_write(holder: &OSHolder, frame: &InterruptFrame) -> u32 {
 
     if file.special_file == holder::SpecialFileMarker::Stderr || file.special_file == holder::SpecialFileMarker::Stdout {
         let bytes = unsafe { core::slice::from_raw_parts(buf_ptr, len) };
-        crate::uart::write_bytes("[prog]".as_bytes());
+        crate::uart::write_bytes("\x02".as_bytes());
 		crate::uart::write_bytes(bytes);
-		crate::uart::write_bytes("[/prog]".as_bytes());
+		crate::uart::write_bytes("\x03".as_bytes());
         return len as u32;
     }
 
