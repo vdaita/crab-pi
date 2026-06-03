@@ -720,6 +720,29 @@ fn syscall_vfork(holder: &mut OSHolder, frame: &InterruptFrame) -> u32 {
     0
 }
 
+// pub fn syscall_fcntl64(holder: &mut OSHolder, frame: &InterruptFrame) -> u32 {
+//     const F_DUPFD: u32 = 0;
+//     const F_DUPFD_CLOEXEC: u32 = 1030;
+
+//     unsafe {
+//         let oldfd = frame.r0 as usize;
+//         let cmd = frame.r1;  
+//         let program = holder.get_program_mut(holder.current_program);
+//         match cmd {
+//             F_DUPFD | F_DUPFD_CLOEXEC => {
+//                 let new_fd = dup2(oldfd, program.allocate_file_descriptor_gt(oldfd), holder) as usize;
+//                 program.file_descriptors[new_fd].should_close_on_exec = true;
+//                 new_fd as u32
+//             }
+//             _ => {
+//                 println!("fcntl64: cmd={} on fd={} not supported yet", cmd, oldfd);
+//                 0
+//             }
+//         }
+//     }
+// }
+
+
 fn dispatch_syscall(holder: &mut OSHolder, frame: &mut InterruptFrame, nr: u32) -> u32 {
 	match nr {
 		0x1 => syscall_exit(holder),

@@ -31,6 +31,7 @@ mod programs {
 //     pub mod gpu_test;
 //     pub mod mandelbrot;
     pub mod fat32_test;
+    pub mod eraser;
 //     pub mod matrix_load_test;
 //     pub mod derive_jit;
 //     pub mod ir;
