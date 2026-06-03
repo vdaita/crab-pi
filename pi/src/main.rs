@@ -103,10 +103,11 @@ pub fn main() {
     //     // let _ = hello_program_index;
     // }
 
+    programs::memtrace::run_all_eraser_tests();
+    // programs::memtrace::test_memtrace();
+
     // os::interrupts::test_interrupts_vbar_vmem();
-
-    os::holder::run_busybox();
-
+    // os::holder::run_busybox();
     // programs::oled_display::test_oled_display();
     // programs::stepper_motor::run_stepper_motor();
     // memtrace::test_memtrace_with_ckalloc();

@@ -163,8 +163,6 @@ pub struct OSHolder {
     
     pub should_cswitch: bool,
 
-    pub files: [KernelFile; NUM_FILE_DESCRIPTORS],
-
     pub fs: fat32::fat32_fs_t,
     pub root: fat32::pi_dirent_t
 }
