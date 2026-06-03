@@ -672,12 +672,6 @@ fn syscall_dup2(holder: &mut OSHolder, frame: &InterruptFrame) -> u32 {
         return newfd as u32;
     }
 
-    if proc.file_descriptors[newfd].active {
-        let mut close_frame = *frame;
-        close_frame.r0 = newfd as u32;
-        syscall_close(holder, &close_frame);
-    }
-
     let proc = unsafe { holder.get_program_mut(holder.current_program) };
     proc.file_descriptors[newfd] = proc.file_descriptors[oldfd];
     newfd as u32
@@ -750,7 +744,8 @@ fn dispatch_syscall(holder: &mut OSHolder, frame: &mut InterruptFrame, nr: u32) 
 		0x3 => syscall_read(holder, frame),
 		0x4 => syscall_write(holder, frame),
 		0x5 => syscall_open(holder, frame),
-		0x6 => syscall_close(holder, frame),
+		// 0x6 => syscall_close(holder, frame),
+        0x6 => syscall_noop(frame),
 		0xb => syscall_execve(holder, frame),
 		0x14 => syscall_getpid(holder, frame),
         0x25 => syscall_kill(holder, frame),

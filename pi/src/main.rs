@@ -31,7 +31,6 @@ mod programs {
 //     pub mod gpu_test;
 //     pub mod mandelbrot;
     pub mod fat32_test;
-    pub mod eraser;
 //     pub mod matrix_load_test;
 //     pub mod derive_jit;
 //     pub mod ir;
@@ -39,7 +38,7 @@ mod programs {
 //     pub mod vm_test;
 //     pub mod imu;
 //     pub mod lightstrip;
-//     pub mod memtrace;
+    pub mod memtrace;
 //     pub mod stepper_motor;
 //     pub mod oled_display;
 }

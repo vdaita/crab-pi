@@ -3,6 +3,7 @@ use crate::kmalloc;
 use crate::mem::{get32, put32};
 use crate::println;
 use crate::os::interrupts::{move_table, INTERRUPT_TABLE_START, INTERRUPT_TABLE_END};
+use crate::programs::memtrace::AddrState::Invalid;
 use core::arch::asm;
 use crate::gpio;
 use crate::ckalloc;
@@ -63,7 +64,37 @@ unsafe extern "C" {
     #[link_name = "_memtrace_interrupt_table_end"]
     static MEMTRACE_TABLE_END: u8;
 }
+
+#[derive(Copy, Clone)]
+enum AddrState {
+    Invalid = 0,
+    Virgin = 1,
+    Freed = 2,
+    Shared = 3,
+    Exclusive = 4,
+    ModShared = 5
+}
+
+#[derive(Copy, Clone)]
+struct Location {
+    state: AddrState,
+    tid: u32,
+    has_store: bool
+}
+
 static mut TRACE_HANDLER_FN: Option<fn(u32, u32)> = None;
+
+static mut ERASER_CURR_THREAD: usize = 0;
+static mut ERASER_ADDR_STATES: [Location; 1024] = [Location {
+    state: Invalid,
+    tid: -1i32 as u32,
+    has_store: false
+}; 1024];
+
+pub fn trace_handler_eraser(lr: u32, address: u32) {
+
+}
+
 pub fn trace_handler_ckalloc(lr: u32, address: u32) {
     println!("Trace handler ckalloc: lr={:#x}, address={:#x}", lr, address);
     let header: *const ckalloc::CheckHeader = ckalloc::ck_ptr_is_alloced(address as *const u32);
