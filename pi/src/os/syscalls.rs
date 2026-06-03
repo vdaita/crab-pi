@@ -1,7 +1,7 @@
 use crate::arch::dev_barrier;
 use crate::fat32::{self};
 use crate::kmalloc;
-use crate::os::holder::{self, OSHolder};
+use crate::os::holder::{self, NUM_FILE_DESCRIPTORS, OSHolder};
 use crate::os::virtmem::{mmu_disable, mmu_enable, mmu_is_enabled};
 use crate::os::interrupts::{self, InterruptFrame};
 use crate::println;
@@ -90,6 +90,10 @@ fn syscall_exit(holder: &mut OSHolder) -> u32 {
 			core::ptr::write_volatile(tidptr as *mut u32, 0);
 		}
 		println!("Program finished, calling exit");
+
+        for fd in 0..NUM_FILE_DESCRIPTORS {
+            close(fd, holder);
+        }
 
 		holder.active[holder.current_program] = false;
 		println!("Current program id: {}, return sp: {:x}, return lr: {:x}", holder.current_program, current_program.return_sp, current_program.return_lr);
@@ -452,19 +456,13 @@ fn syscall_statx(holder: &OSHolder, frame: &InterruptFrame) -> u32 {
     }
 }
 
-fn syscall_close(holder: &mut OSHolder, frame: &InterruptFrame) -> u32 {
-    let fd = frame.r0 as usize;
-    if fd >= holder::NUM_FILE_DESCRIPTORS {
-        // return 22; // EINVAL
-		panic!("trying to close a file descriptor out of range");
-    }
-
+fn close(fd: usize, holder: &mut OSHolder) -> u32 {
     let proc = unsafe { holder.get_program_mut(holder.current_program) };
     let file = &mut proc.file_descriptors[fd];
     
     if !file.active {
-        // return 9; // EBADF
-		panic!("trying to close an inactive file descriptor");
+        return -9i32 as u32; // EBADF
+		// panic!("trying to close an inactive file descriptor");
     }
     if !file.is_directory && file.special_file == holder::SpecialFileMarker::NotSpecial && file.nbytes > 0 {
         let fs_ptr = &holder.fs as *const _ as *mut fat32::fat32_fs_t;
@@ -489,18 +487,29 @@ fn syscall_close(holder: &mut OSHolder, frame: &InterruptFrame) -> u32 {
             );
         }
     }
+    0
+}
 
-    unsafe {
-        // clear logical contents; backing arrays remain in-place
-        file.nbytes = 0;
-        file.nbytes_alloc = 0;
+fn syscall_close(holder: &mut OSHolder, frame: &InterruptFrame) -> u32 {
+    let fd = frame.r0 as usize;
+    if fd >= holder::NUM_FILE_DESCRIPTORS {
+        // return 22; // EINVAL
+		panic!("trying to close a file descriptor out of range");
     }
 
-    file.active = false;
-    file.pos = 0;
-    file.nbytes = 0;
-    file.nbytes_alloc = 0;
-    file.is_directory = false;
+    close(fd, holder);
+
+    // unsafe {
+    //     // clear logical contents; backing arrays remain in-place
+    //     file.nbytes = 0;
+    //     file.nbytes_alloc = 0;
+    // }
+
+    // file.active = false;
+    // file.pos = 0;
+    // file.nbytes = 0;
+    // file.nbytes_alloc = 0;
+    // file.is_directory = false;
 
     0
 }
@@ -745,6 +754,7 @@ fn dispatch_syscall(holder: &mut OSHolder, frame: &mut InterruptFrame, nr: u32) 
 		0x4 => syscall_write(holder, frame),
 		0x5 => syscall_open(holder, frame),
 		// 0x6 => syscall_close(holder, frame),
+        0x6 => syscall_noop(frame),
         0x6 => syscall_noop(frame),
 		0xb => syscall_execve(holder, frame),
 		0x14 => syscall_getpid(holder, frame),
