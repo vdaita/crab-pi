@@ -1,10 +1,10 @@
 use crate::mem::{get32, put32};
 
-const GPIO_MAX_PIN: u32 = 53;
-const GPIO_BASE: u32 = 0x20200000;
-const GPIO_SET0: u32 = GPIO_BASE + 0x1C;
-const GPIO_CLR0: u32 = GPIO_BASE + 0x28;
-const GPIO_LEV0: u32 = GPIO_BASE + 0x34;
+pub const GPIO_MAX_PIN: u32 = 53;
+pub const GPIO_BASE: u32 = 0x20200000;
+pub const GPIO_SET0: u32 = GPIO_BASE + 0x1C;
+pub const GPIO_CLR0: u32 = GPIO_BASE + 0x28;
+pub const GPIO_LEV0: u32 = GPIO_BASE + 0x34;
 
 #[macro_export]
 macro_rules! hardcode_gpio_pin {

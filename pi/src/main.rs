@@ -24,13 +24,14 @@ mod crc;
 // mod matmul;
 // mod softmax;
 mod ckalloc;
-mod profiler;
-mod pmu_profiler;
+// mod profiler;
+// mod pmu_profiler;
 mod bit_utils;
 mod programs {
+    pub mod dma;
 //     pub mod gpu_test;
 //     pub mod mandelbrot;
-    pub mod fat32_test;
+    // pub mod fat32_test;
 //     pub mod matrix_load_test;
 //     pub mod derive_jit;
 //     pub mod ir;
@@ -38,20 +39,20 @@ mod programs {
 //     pub mod vm_test;
 //     pub mod imu;
 //     pub mod lightstrip;
-    pub mod memtrace;
+    // pub mod memtrace;
 //     pub mod stepper_motor;
 //     pub mod oled_display;
 }
-mod os {
-    pub mod holder;
-    pub mod interrupts;
-    pub mod syscalls;
-    pub mod virtmem;
-    pub mod threads;
-    pub mod utils;
-    pub mod elf_file;
-    pub mod kuser;
-}
+// mod os {
+//     pub mod holder;
+//     pub mod interrupts;
+//     pub mod syscalls;
+//     pub mod virtmem;
+//     pub mod threads;
+//     pub mod utils;
+//     pub mod elf_file;
+//     pub mod kuser;
+// }
 
 unsafe fn enable_fpu() {
     unsafe {
@@ -75,11 +76,13 @@ unsafe fn enable_fpu() {
 pub fn main() {    
     unsafe { 
         enable_fpu(); 
-        os::utils::enable_l1_instruction_cache();
-        os::utils::enable_branch_prediction();
+        // os::utils::enable_l1_instruction_cache();
+        // os::utils::enable_branch_prediction();
     }
     uart::init();
     println!("Hello from Rust on the Pi!");
+
+    programs::dma::dma_test();
 
     // os::interrupts::test_interrupts();
     // os::interrupts::test_interrupts_vbar();
@@ -103,7 +106,7 @@ pub fn main() {
     //     // let _ = hello_program_index;
     // }
 
-    programs::memtrace::run_all_eraser_tests();
+    // programs::memtrace::run_all_eraser_tests();
     // programs::memtrace::test_memtrace();
 
     // os::interrupts::test_interrupts_vbar_vmem();
