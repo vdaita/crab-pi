@@ -41,7 +41,6 @@ static mut ADD32_OUT_CARRY:   u32 = 0;
 
 static mut DISPATCH_BLOCKS: [ControlBlock; 8] = [ControlBlock::ZERO; 8];
 static mut PATCH_A_BLOCKS:  [ControlBlock; 8] = [ControlBlock::ZERO; 8];
-static mut PATCH_B_BLOCKS:  [ControlBlock; 8] = [ControlBlock::ZERO; 8];
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
 #[repr(transparent)]
@@ -174,7 +173,7 @@ fn dma_test_blink() {
         let scratch_src = kmalloc::kmalloc(scratch_len);
         let bus_scratch_src = BusAddr::from_arm(scratch_src as u32);
 
-        const BLINKS:    usize = 3;
+        const BLINKS:    usize = 7;
         const DELAY_LEN: usize = 5_000;
         const BLOCKS_NEEDED: usize = BLINKS * (1 + DELAY_LEN + 1 + DELAY_LEN) + 1;
 
@@ -346,11 +345,14 @@ fn dma_test_add32() {
         });
         let bus_out_carry = BusAddr::from_arm(addr_of!(ADD32_OUT_CARRY) as u32);
 
+        let patch_b_memory: *mut ControlBlock = 0x1500_0000 as *mut ControlBlock; // safe and away from my massive heap
+
         let jump_base_bus = BusAddr::from_arm(jump_base as u32).0;
         for byte in 0usize..4 {
             for carry in 0usize..2 {
                 let next_dispatch_idx = ((byte + 1) * 2) + carry; 
-                let next_dispatch_addr = addr_of!(PATCH_B_BLOCKS) as u32 + (next_dispatch_idx * size_of::<ControlBlock>()) as u32;
+                let next_dispatch_addr = patch_b_memory.add(byte + 1) as u32;
+                // let next_dispatch_addr = addr_of!(PATCH_B_BLOCKS) as u32 + (next_dispatch_idx * size_of::<ControlBlock>()) as u32;
                 let idx_offset = (byte * 2 + carry) * 256 * 256;
                 // println!("jump table offset: byte={}, carry={} jt_offset={:x}, next_dispatch_addr={:x}", byte, carry, (byte * 2 + carry) * 256 * 256, next_dispatch_addr);
                 for a in 0usize..256 {
@@ -366,34 +368,34 @@ fn dma_test_add32() {
                         let bus_carry = BusAddr::from_arm(addr_of!(CARRY8S[table_idx]) as u32);
 
                         let cb0 = &mut *jump_table.add(cb_base);
+                        let cb1 = &mut *jump_table.add(cb_base + 1);
+                        let cb2 = &mut *jump_table.add(cb_base + 2);
+
                         // if a == 0 && b == 0 && byte == 0 && carry == 0 { println!("cb0 at a=0,b=0,byte=0,carry=0, {}", jump_table.add(cb_base) as u32); }
 
                         *cb0 = ControlBlock::new(bus_sum, bus_outs[byte], 1);
                         cb0.next_cb = BusAddr::from_arm(jump_table.add(cb_base + 1) as u32);
                         // if byte == 1 { cb0.next_cb = BusAddr(0); }
 
-                        let cb1 = &mut *jump_table.add(cb_base + 1);
-                        *cb1 = ControlBlock::new(bus_carry, bus_out_carry, 1);
+                        // *cb1 = ControlBlock::new(bus_scratch, bus_scratch, 1);
+                        *cb1 = ControlBlock::new(bus_carry, BusAddr(addr_of!(cb2.next_cb) as u32 + 2), 1);
+                        cb1.next_cb = BusAddr::from_arm(jump_table.add(cb_base + 2) as u32);
+
+                        *cb2 = ControlBlock::new(bus_carry, bus_out_carry, 2);
                         // cb1.next_cb = BusAddr(0);
 
                         if byte < 3 {
-                            cb1.next_cb = BusAddr::from_arm(
+                            cb2.next_cb = BusAddr::from_arm(
                                 next_dispatch_addr
                             );
                         } else {
-                            cb1.next_cb = BusAddr(0);
+                            cb2.next_cb = BusAddr(0);
                         }
                     }
                 }
                 // println!("finished putting together table for carry={}, byte={}", carry, byte);
             }
         }
-
-        println!("PATCH_B[0]={:08x}", addr_of!(PATCH_B_BLOCKS[0]) as u32);
-        println!("PATCH_B[1]={:08x}", addr_of!(PATCH_B_BLOCKS[1]) as u32);
-        println!("computed={:08x}",
-            addr_of!(PATCH_B_BLOCKS) as u32
-            + size_of::<ControlBlock>() as u32);
 
         // x byte1 byte2 carry | a1 a2 a3 a4 | b1 b2 b3 b4 | x x x x
 
@@ -402,7 +404,9 @@ fn dma_test_add32() {
                 let idx = (byte * 2) + carry; 
 
                 let dispatch = &mut DISPATCH_BLOCKS[idx];
-                let patch_b  = &mut PATCH_B_BLOCKS[idx];
+                // let patch_b  = &mut PATCH_B_BLOCKS[idx];
+                let patch_b_addr = (patch_b_memory.add(byte) as usize) | (carry << 16);
+                let patch_b = &mut *(patch_b_addr as *mut ControlBlock);
                 let patch_a  = &mut PATCH_A_BLOCKS[idx];
 
                 *dispatch = ControlBlock::new(bus_scratch, bus_scratch, 4);
@@ -440,13 +444,27 @@ fn dma_test_add32() {
         }
 
         let dma = DMA::new(5);
-        let test_cases: [(u32, u32); 6] = [
+        let test_cases: [(u32, u32); 20] = [
             (0,        0),
             (1,        2),
+            (2,        4),
+            (3,        6),
+            (10,       20),
+            (100,      200),
             (1_000,    2_000),
+            (2_048,    4_096),
             (10_220,   20_035),
+            (12_345,   24_690),
             (25_355,   1),
+            (42_000,   84_000),
+            (65_535,   131_070),
             (255,      255),
+            (256,      512),
+            (1_024,    2_048),
+            (100_000,  200_000),
+            (255_235,  234_556),
+            (999_999,  1_999_998),
+            (123_456,  246_912),
         ];
 
         for (a, b) in test_cases {
@@ -455,7 +473,8 @@ fn dma_test_add32() {
             core::ptr::write_volatile(addr_of!(ADD32_A)         as *mut u32, a);
             core::ptr::write_volatile(addr_of!(ADD32_B)         as *mut u32, b);
 
-            dma.start(&PATCH_B_BLOCKS[0]);
+            let patch_b: &ControlBlock = &*(patch_b_memory as *const ControlBlock);
+            dma.start(patch_b);
             dma.wait();
 
             let sum   = core::ptr::read_volatile(addr_of!(ADD32_OUT)       as *const u32);
@@ -466,13 +485,16 @@ fn dma_test_add32() {
                 "add32({}, {}) = {} carry={} (expected {})",
                 a, b, sum, carry, expected
             );
+            if sum != expected {
+                println!("OH MY GOD THERE IS A MISMATCH");
+            }
         }
     }
 }
 
 pub fn dma_test() {
     println!("Hello from DMA test");
-    // dma_test_blink();
+    dma_test_blink();
     dma_test_add8();
     dma_test_add32();
 }
