@@ -1,1 +1,0 @@
-make LD_FLAGS='-Tlink.ld' -j4
