@@ -1,5 +1,5 @@
-use crate::println;
-use crate::arch::{cpsr_int_enable, cpsr_int_disable, prefetch_flush};
+#![allow(dead_code)] // unused pins/encodings kept for the page-table redesign
+use crate::arch::{cpsr_int_disable, cpsr_int_reset, prefetch_flush};
 use core::arch::asm;
 
 #[allow(non_camel_case_types)]
@@ -23,9 +23,6 @@ pub enum MemPerm {
     // kernel only, user no access
     perm_ro_priv = 0b101,
 
-    // perm_rw_priv = perm_na_user,
-    // perm_rw_priv = 0b001,
-    // both of these are going to be written by MemPerm
 
     perm_na_priv = 0b000,
 }
@@ -101,10 +98,10 @@ pub fn make_user_pin(dom: u32, asid: u32, ap_perm: MemPerm, mem_attr: MemAttr, p
 pub fn mmu_reset() {
     unsafe {
         asm!(
-            // disable interrupts
-            "mrs {saved_cpsr_disable}, cpsr",
-            "orr {masked_cpsr_disable}, {saved_cpsr_disable}, #(1 << 7)",
-            "msr cpsr_c, {masked_cpsr_disable}",
+            // disable interrupts (saving the old I bit)
+            "mrs {saved_cpsr}, cpsr",
+            "orr {masked_cpsr}, {saved_cpsr}, #(1 << 7)",
+            "msr cpsr_c, {masked_cpsr}",
             // DSB a zero register
             "mcr p15, 0, {zero}, c7, c10, 4",
             // invalidate TLB
@@ -124,14 +121,10 @@ pub fn mmu_reset() {
             "mcr p15, 0, {zero}, c7, c10, 4",
             // prefetch flush
             "mcr p15, 0, {zero}, c7, c5, 4",
-            // re-enable interrupts
-            "mrs {saved_cpsr_enable}, cpsr",
-            "bic {masked_cpsr_enable}, {saved_cpsr_enable}, #(1<<7)",
-            "msr cpsr_c, {masked_cpsr_enable}",
-            saved_cpsr_disable = lateout(reg) _,
-            masked_cpsr_disable = lateout(reg) _,
-            saved_cpsr_enable = lateout(reg) _,
-            masked_cpsr_enable = lateout(reg) _,
+            // restore the caller's I bit (don't unmask IRQs inside a handler)
+            "msr cpsr_c, {saved_cpsr}",
+            saved_cpsr = out(reg) _,
+            masked_cpsr = out(reg) _,
             zero = in(reg) 0u32,
             options(nomem, nostack)
         );
@@ -179,7 +172,6 @@ pub fn mmu_enable() {
             // set bit 0 to enable the mmu
             "mrc p15, 0, {ctrl_reg1_enable_mmu}, c1, c0, 0",
             "orr {masked_ctrl_reg1_enable_mmu}, {ctrl_reg1_enable_mmu}, #1",
-            // "orr {masked_ctrl_reg1_enable_mmu}, {masked_ctrl_reg1_enable_mmu}, #(1 << 2)",            
             "mcr p15, 0, {masked_ctrl_reg1_enable_mmu}, c1, c0, 0",
 
             // flush btb
@@ -244,30 +236,15 @@ pub fn mmu_disable() {
 
 #[inline(never)]
 pub fn pin_mmu_sec(idx: u32, va: u32, pa: u32, e: Pin) {
-    let page_bytes = match e.pagesize {
-        PageSizes::kb4 => 4 * 1024,
-        PageSizes::kb64 => 64 * 1024,
-        PageSizes::mb1 => 1024 * 1024,
-        PageSizes::mb16 => 16 * 1024 * 1024,
-    };
-    // println!(
-    //     "MMU mapping {} 0x{:x}-0x{:x} --> 0x{:x}-0x{:x} ({:?})",
-    //     idx,
-    //     va,
-    //     va.wrapping_add(page_bytes - 1),
-    //     pa,
-    //     pa.wrapping_add(page_bytes - 1),
-    //     e.pagesize,
-    // );
-    cpsr_int_disable();
+    let saved_cpsr = cpsr_int_disable();
 
     let mut va_ent: u32 = (va & 0xFFFFF000) | ((e.G & 1) << 9);
-    if (e.G == 0) {
+    if e.G == 0 {
         va_ent |= e.asid & 0xFF;
     }
 
-    let mut pa_ent: u32 = pa | ((e.AP_perm as u32) << 1) | ((e.pagesize as u32) << 6) | 1;
-    let mut attr: u32 = (e.dom << 7) | ((e.mem_attr as u32) << 1);
+    let pa_ent: u32 = pa | ((e.AP_perm as u32) << 1) | ((e.pagesize as u32) << 6) | 1;
+    let attr: u32 = (e.dom << 7) | ((e.mem_attr as u32) << 1);
 
     unsafe {
         asm!(
@@ -292,7 +269,7 @@ pub fn pin_mmu_sec(idx: u32, va: u32, pa: u32, e: Pin) {
 
         prefetch_flush();
     }
-    cpsr_int_enable();
+    cpsr_int_reset(saved_cpsr);
 }
 
 #[inline(never)]
@@ -348,30 +325,3 @@ pub fn pin_mmu_switch(pid: u32, asid: u32) {
             zero = in(reg) 0u32);} 
  }
 
- // originally from holder.rs
-//  pub fn mmu_identity_map_test() {
-//     virtmem::mmu_reset();
-//     let user = MemPerm::perm_rw_user;
-//     let dev = virtmem::make_global_pin(DOM_KERN, user, virtmem::MemAttr::MEM_device, virtmem::PageSizes::mb16);
-//     let kern = virtmem::make_global_pin(DOM_KERN, user, virtmem::MemAttr::MEM_uncached, virtmem::PageSizes::mb16);
-//     let kern_1mb = virtmem::make_global_pin(DOM_KERN, user, virtmem::MemAttr::MEM_uncached, virtmem::PageSizes::mb1);
-
-//     virtmem::pin_mmu_sec(0, 0x2000_0000, 0x2000_0000, dev);
-//     virtmem::pin_mmu_sec(2, 0x1000_0000, 0x1000_0000, kern);
-//     virtmem::pin_mmu_sec(3, (0x1000_0000 + 16 * ONE_MB) as u32, (0x1000_0000 + 16 * ONE_MB) as u32, kern);
-//     virtmem::pin_mmu_sec(4, (0x1800_0000 - 16 * ONE_MB) as u32, (0x1800_0000 - 16 * ONE_MB) as u32, kern);
-
-//     unsafe { *(0x0650_0000 as *mut u8) = 10; }
-
-//     virtmem::pin_mmu_sec(5, 0x0500_0000, 0x0600_0000, kern);
-
-//     virtmem::pin_mmu_init(!0);
-//     println!("About to pin the identity test!");
-//     virtmem::mmu_enable();
-//     println!("MMU successfully enabled");
-
-//     unsafe { println!("testing out a memory access to: {}", *(0x0550_0000 as *mut u8)); }
-
-//     virtmem::mmu_disable();
-//     println!("Ok done");
-// }

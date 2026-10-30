@@ -1,18 +1,19 @@
 use core::arch::global_asm;
 use crate::arch::dev_barrier;
-use crate::mem::{get32, put32};
 use crate::os::{interrupts, kuser};
-use crate::os::virtmem::{self, MemPerm, MemAttr, PageSizes, mmu_disable, mmu_enable};
+use crate::os::virtmem::{self, MemPerm, MemAttr, PageSizes};
 use crate::{println, print};
-use crate::circular::CircularQueue;
-use crate::profiler;
-use crate::fat32::{self, pi_file_t};
+use crate::fat32;
 use crate::kmalloc;
 use core::cell::SyncUnsafeCell;
 use core::arch::asm;
-use core::mem::MaybeUninit;
-use crate::os::elf_file::{ElfHeader, ProgramHeader, SectionHeader};
+use core::mem::{offset_of, MaybeUninit};
+use crate::os::elf_file::ElfHeader;
 use crate::os::interrupts::{InterruptFrame};
+use crate::os::errno::*;
+use crate::os::file::FdTable;
+use crate::os::utils;
+use crate::os::vfs::Path;
 
 unsafe impl Sync for OSHolder {}
 
@@ -25,8 +26,12 @@ pub const NUM_PROGRAMS: usize = 3;
 const MAX_ELF_SIZE: usize = 1024 * 1024 * 4;
 const MAX_STACK_SIZE: usize = 1024 * 1024 * 4;
 const MAX_HEAP_SIZE: usize = 1024 * 1024 * 2;
-pub const NUM_FILE_DESCRIPTORS: usize = 8;
+pub const PAGE_SIZE: usize = 4096;
+pub const HEAP_PAGES: usize = MAX_HEAP_SIZE / PAGE_SIZE;
 // at least 12MB in reserved memory should be enough out of a 16MB page
+
+const MAX_ARGS: usize = 64;
+const DEFAULT_ENV: &[&str] = &["PATH=/", "HOME=/", "PWD=/", "TERM=dumb", "USER=root"];
 
 
 #[derive(Copy, Clone)]
@@ -42,31 +47,6 @@ pub struct Stack {
 #[derive(Copy, Clone)]
 pub struct Heap {
     pub data: [u8; MAX_HEAP_SIZE],
-}
-
-#[derive(Copy, Clone, PartialEq, Debug)]
-pub enum SpecialFileMarker {
-    NotSpecial = 0, 
-    Stdin = 1,  
-    Stdout = 2,  
-    Stderr = 3,
-}
-
-#[derive(Copy, Clone, PartialEq)]
-#[repr(C)]
-pub struct KernelFile {
-    pub active: bool,
-    pub pos: usize,
-
-    pub dirent: fat32::pi_dirent_t,
-    pub data: [u8; 8192],
-    pub nbytes: usize,
-    pub nbytes_alloc: usize,
-    pub is_directory: bool,
-    pub dirents: [u8; 8192], // load the dirents at the same time as the regular listings
-
-    pub parent: fat32::pi_dirent_t,
-    pub special_file: SpecialFileMarker
 }
 
 #[derive(Clone, Copy)]
@@ -86,30 +66,28 @@ pub struct Program {
     pub return_sp: usize,
     pub return_lr: usize,
 
-    pub file_descriptors: [KernelFile; NUM_FILE_DESCRIPTORS],
-    pub cwd: fat32::pi_dirent_t,
+    pub fds: FdTable,
+    pub cwd: Path,
+    pub exe: Path, // path this program was exec'd from, for /proc/self/exe
 
     pub thread_pointer: u32,
-    pub clear_child_tid: u32
+    pub clear_child_tid: u32,
+
+    // the rest of the user state that the SVC entry stub doesn't push
+    pub user_lr: u32,
+    pub spsr: u32,
+    pub fpscr: u32,
+    pub vfp: [u64; 16],
+
+    pub mmap_pages: [u32; HEAP_PAGES / 32], // heap pages handed out by mmap (from the top), one bit each
+    pub sig_ignored: u64, // bit n set = signal n is SIG_IGN
+    pub wake_at: u64, // deadline (us since boot) of an in-progress sleep, 0 if not sleeping
 }
 
 impl Program {
-    pub fn allocate_file_descriptor(&mut self) -> usize {
-        for i in 3..NUM_FILE_DESCRIPTORS {
-            if !self.file_descriptors[i].active {
-                self.file_descriptors[i] = unsafe { core::mem::zeroed() };
-                self.file_descriptors[i].active = true;
-                return i;
-            }
-        }
-        panic!("no file descriptors available!"); // very dumb but will help with error hcecking
-    }
-
-    pub fn get_file(&mut self, fd: usize) -> &mut KernelFile {
-        if fd >= NUM_FILE_DESCRIPTORS { 
-            panic!("FD out of bounds");
-        }
-        &mut self.file_descriptors[fd]
+    // VA ranges of the heap and stack windows
+    pub fn heap_range() -> (usize, usize) {
+        (offset_of!(Program, heap), offset_of!(Program, heap) + MAX_HEAP_SIZE)
     }
 }
 
@@ -160,6 +138,9 @@ pub struct OSHolder {
     pub programs: [*mut Program; NUM_PROGRAMS],
     pub current_program: usize,
     pub active: [bool; NUM_PROGRAMS],
+    pub zombie: [bool; NUM_PROGRAMS], // exited, but the parent hasn't collected the status with wait4 yet
+    pub exit_status: [u32; NUM_PROGRAMS], // wait4-style: exit code << 8, or the terminating signal
+    pub parent: [Option<usize>; NUM_PROGRAMS],
     
     pub should_cswitch: bool,
 
@@ -168,11 +149,13 @@ pub struct OSHolder {
 }
 
 unsafe fn hexdump(ptr: *const u8, lines: u32) {
-    for i in 0..lines {
-        for j in 0..8 {
-            print!("{:0x} ", *(ptr.byte_add(8*i as usize + j)));
+    unsafe {
+        for i in 0..lines {
+            for j in 0..8 {
+                print!("{:0x} ", *(ptr.byte_add(8*i as usize + j)));
+            }
+            println!();
         }
-        println!();
     }
 }
 
@@ -192,7 +175,9 @@ pub fn get_user_sp() -> u32 {
 
 impl OSHolder {
     pub unsafe fn os_holder_mut() -> &'static mut OSHolder {
-        &mut *OS_HOLDER.get().cast::<OSHolder>()
+        unsafe {
+            &mut *OS_HOLDER.get().cast::<OSHolder>()
+        }
     }
 
     pub fn init() {
@@ -216,7 +201,7 @@ impl OSHolder {
                 holder.programs[i] = (0x0200_0000 * i + 0x0100_0000) as *mut Program; // this is actually the address that they are supposed to be mapped to 
                 // note: these memory addresses are properly aligned - 
                 core::ptr::write_bytes(
-                    (holder.programs[i] as *mut u8),
+                    holder.programs[i] as *mut u8,
                     0,
                     core::mem::size_of::<Program>()
                 );
@@ -241,20 +226,34 @@ impl OSHolder {
     }
 
     pub unsafe fn get_program_mut(&mut self, index: usize) -> &'static mut Program {
-        &mut *self.programs[index]
+        unsafe {
+            &mut *self.programs[index]
+        }
     }
 
     pub unsafe fn get_program(&self, index: usize) -> &'static Program {
-        &*self.programs[index]
+        unsafe {
+            &*self.programs[index]
+        }
     }
 
-    pub unsafe fn get_next_empty_index(&self) -> usize {
+    // first slot that is neither running nor a zombie waiting to be reaped
+    pub fn free_slot(&self) -> Option<usize> {
         for i in 0..NUM_PROGRAMS {
-            if !self.active[i] {
-                return i
+            if !self.active[i] && !self.zombie[i] {
+                return Some(i);
             }
         }
-        panic!("out of program slots!");
+        None
+    }
+
+    // the running program, through its physical address (valid with the MMU off)
+    pub fn current(&mut self) -> &'static mut Program {
+        unsafe { self.get_program_mut(self.current_program) }
+    }
+
+    pub fn pid(&self) -> u32 {
+        self.current_program as u32 + 1
     }
 
     pub fn map_program_mmu(&mut self, program_index: usize) {
@@ -271,7 +270,6 @@ impl OSHolder {
         let program_addr = self.programs[program_index] as u32;
 
         // Program index memory mapping
-        // virtmem::pin_mmu_sec(1, 00, 0x0000, kern);
         virtmem::pin_mmu_sec(1, 0x0000, program_addr, kern);
         virtmem::pin_mmu_sec(2, 0x0000 + 16 * ONE_MB as u32, program_addr + 16 * ONE_MB as u32, kern);
         
@@ -294,96 +292,136 @@ impl OSHolder {
         unsafe {
             let program_ptr = self.programs[program_index];
             let program: &mut Program = &mut *program_ptr;
-            program.cwd = self.root;
-            println!("Program CWD is dir = {}, at address: {:p}", program.cwd.is_dir_p, core::ptr::addr_of!(program.cwd.is_dir_p));
+            program.cwd = Path::ROOT;
+            program.exe = Path::resolve(&Path::ROOT, prog_name).expect("bad program name");
+            println!("Program CWD is {}", program.cwd.as_str());
             let file = fat32::fat32_read(&self.fs, &self.root, prog_name);
 
-            unsafe {
-                for kernel_file in program.file_descriptors.iter_mut() {
-                    *kernel_file = unsafe { core::mem::zeroed() }; 
-                }
+            program.fds.init_stdio();
+
+            let context = self.exec_elf(program_index, (*file).data as *const u8, (*file).n_data, &args[..argc], DEFAULT_ENV)
+                .expect("failed to load the program");
+            self.active[program_index] = true;
+            context
+        }
+    }
+
+    // Load an ELF into a program slot and build its initial stack. execve uses this too,
+    // so it leaves the file descriptors and cwd alone.
+    pub fn exec_elf(&mut self, program_index: usize, file_data: *const u8, file_len: usize, args: &[&str], envs: &[&str]) -> Result<ProgramContext, Errno> {
+        unsafe {
+            let program_ptr = self.programs[program_index];
+            let program: &mut Program = &mut *program_ptr;
+
+            if args.len() > MAX_ARGS || envs.len() > MAX_ARGS {
+                return Err(E2BIG);
+            }
+            let mut string_bytes = 0;
+            for s in args.iter().chain(envs) {
+                string_bytes += s.len() + 1;
+            }
+            if string_bytes > 64 * 1024 {
+                return Err(E2BIG);
             }
 
-            program.file_descriptors[0].special_file = SpecialFileMarker::Stdin;
-            program.file_descriptors[1].special_file = SpecialFileMarker::Stdout;
-            program.file_descriptors[2].special_file = SpecialFileMarker::Stderr;
-            for i in 0..3 {
-                program.file_descriptors[i].active = true;
-            }
-
-            program.heap_ptr = (program.heap.data.as_ptr() as usize) - (program_ptr as usize); // need to make sure that you showing the relative heap.data
-            // should write a helper for this
-
-            crate::os::elf_file::load_elf_into_program((*file).data as *const u8, program);
+            crate::os::elf_file::load_elf_into_program(file_data, file_len, program)?;
 
             println!("number of program headers: {}", program.elf_header.e_phnum);
             println!("Program entry point (physical): {:#x}", program.elf_header.e_entry);
-            
-            
-            let mut arg_ptrs = [0u32; 16]; 
 
-            for (i, arg_str) in args.iter().take(argc).enumerate() {
-                let bytes = arg_str.as_bytes();
-                let len = bytes.len() + 1;
+            program.heap_ptr = (program.heap.data.as_ptr() as usize) - (program_ptr as usize); // need to make sure that you showing the relative heap.data
+            // should write a helper for this
+            program.mmap_pages = [0; HEAP_PAGES / 32];
+            program.thread_pointer = 0;
+            program.clear_child_tid = 0;
+            program.wake_at = 0;
 
-                let heap_ptr = unsafe { crate::kmalloc::kmalloc(len) as *mut u8 };
-                
-                if heap_ptr.is_null() {
-                    panic!("Out of memory while allocating argv[{}]", i);
-                }
+            // strings go at the top of the user stack: the program can't read kmalloc'd memory,
+            // and every execve would leak it
+            let mut sp_bytes = program.stack.data.as_mut_ptr().add(program.stack.data.len());
 
-                unsafe {
-                    core::ptr::copy_nonoverlapping(bytes.as_ptr(), heap_ptr, bytes.len());
-                    *heap_ptr.add(bytes.len()) = 0;
-                }
+            let mut arg_ptrs = [0u32; MAX_ARGS];
+            for i in 0..args.len() {
+                sp_bytes = push_string(sp_bytes, args[i].as_bytes());
+                arg_ptrs[i] = (sp_bytes as usize - program_ptr as usize) as u32;
+            }
+            let mut env_ptrs = [0u32; MAX_ARGS];
+            for i in 0..envs.len() {
+                sp_bytes = push_string(sp_bytes, envs[i].as_bytes());
+                env_ptrs[i] = (sp_bytes as usize - program_ptr as usize) as u32;
+            }
+            sp_bytes = push_string(sp_bytes, program.exe.as_str().as_bytes());
+            let execfn = (sp_bytes as usize - program_ptr as usize) as u32;
+            sp_bytes = push_string(sp_bytes, b"v6l");
+            let platform = (sp_bytes as usize - program_ptr as usize) as u32;
+            sp_bytes = sp_bytes.sub(16); // AT_RANDOM: libc seeds its stack canary from these
+            utils::fill_random(core::slice::from_raw_parts_mut(sp_bytes, 16));
+            let random = (sp_bytes as usize - program_ptr as usize) as u32;
 
-                arg_ptrs[i] = heap_ptr as u32;
+            let phdr_addr = (program.elf_base as u32).wrapping_add(program.elf_header.e_phoff as u32);
+            let hwcap = 1 | 2 | 4 | 16 | 64 | 128 | (1 << 15); // swp half thumb fast_mult vfp edsp tls
+            let auxv = [
+                3, phdr_addr,
+                4, program.elf_header.e_phentsize as u32,
+                5, program.elf_header.e_phnum as u32,
+                6, 4096,
+                7, 0, // AT_BASE
+                9, program.elf_header.e_entry, // AT_ENTRY
+                11, 0, 12, 0, 13, 0, 14, 0, // uid, euid, gid, egid
+                15, platform, // AT_PLATFORM
+                16, hwcap, // AT_HWCAP
+                17, 100, // AT_CLKTCK
+                23, 0, // AT_SECURE
+                25, random, // AT_RANDOM
+                31, execfn, // AT_EXECFN
+                0, 0, // AT_NULL
+            ];
+
+            // the ABI wants sp 8-byte aligned at argc
+            let total_words = auxv.len() + envs.len() + 1 + args.len() + 1 + 1;
+            let aligned_sp = (sp_bytes as usize - total_words * 4) & !7;
+            let mut sp_words = (aligned_sp + total_words * 4) as *mut u32;
+
+            sp_words = sp_words.sub(auxv.len());
+            core::ptr::copy_nonoverlapping(auxv.as_ptr(), sp_words, auxv.len());
+
+            sp_words = sp_words.sub(1);
+            *sp_words = 0; // envp[envc] = NULL
+
+            for i in (0..envs.len()).rev() {
+                sp_words = sp_words.sub(1);
+                *sp_words = env_ptrs[i];
             }
 
-            let mut sp_words = program.stack.data.as_ptr().byte_add(program.stack.data.len()) as *mut u32; 
+            sp_words = sp_words.sub(1);
+            *sp_words = 0; // argv[argc] = NULL
 
-            unsafe {
-                let phdr_addr = (program.elf_base as u32).wrapping_add(program.elf_header.e_phoff as u32);
-                let auxv = [
-                    3, phdr_addr,
-                    4, program.elf_header.e_phentsize as u32,
-                    5, program.elf_header.e_phnum as u32,
-                    6, 4096,
-                    0, 0, // AT_NULL
-                ];
-                sp_words = sp_words.sub(auxv.len());
-                core::ptr::copy_nonoverlapping(auxv.as_ptr(), sp_words, auxv.len());
-
+            for i in (0..args.len()).rev() {
                 sp_words = sp_words.sub(1);
-                *sp_words = 0; // envp[0] = NULL
-
-                sp_words = sp_words.sub(1);
-                *sp_words = 0; // argv[argc] = NULL
-
-                for i in (0..argc).rev() {
-                    sp_words = sp_words.sub(1);
-                    *sp_words = arg_ptrs[i];
-                }
-
-                sp_words = sp_words.sub(1);
-                *sp_words = argc as u32;
+                *sp_words = arg_ptrs[i];
             }
+
+            sp_words = sp_words.sub(1);
+            *sp_words = args.len() as u32;
 
             program.sp = sp_words as usize - (program_ptr as usize); // normalize the stack and make sure that it is relative to the base
-            program.frame.lr = (program.elf_header.e_entry);
-            program.frame.r0 = argc as u32;
+            program.frame = core::mem::zeroed();
+            program.frame.lr = program.elf_header.e_entry;
+            program.frame.r0 = 0; // rtld_fini: static binaries have none (libc registers a nonzero r0 with atexit)
             program.frame.r1 = (program.sp as *const u32).add(1) as u32;
             program.frame.r2 = 0;
+            program.user_lr = 0;
+            program.spsr = interrupts::CPSR_USER_MODE; // ARM state, IRQs on
+            program.fpscr = 0;
+            program.vfp = [0; 16];
 
-            self.active[program_index] = true;
-
-            ProgramContext {
+            Ok(ProgramContext {
                 user_stack: program.sp as u32,
                 entry: program.frame.lr as u32,
-                arg0: program.frame.r0 as u32,                       // r0 = argc
-                arg1: program.frame.r1 as u32, // r1 = argv
-                arg2: program.frame.r2 as u32,                                 // r2 = envp
-            }
+                arg0: program.frame.r0 as u32,
+                arg1: program.frame.r1 as u32,
+                arg2: program.frame.r2 as u32,
+            })
         }
     }
 
@@ -410,15 +448,22 @@ impl OSHolder {
 
             println!("Set variables in holder.");
 
-            // profiler::breakpoint_mismatch_start();
 
             interrupts::switch_to_user_mode();
             println!("Switched to user mode");
             
-            // interrupts::run_test_interrupt(); // expect the text to be off because buffer mismatch
-            // interrupts::switch_to_user_mode();
             elf_loader_tramp(core::ptr::addr_of!(context), core::ptr::addr_of_mut!(program.return_sp), core::ptr::addr_of_mut!(program.return_lr));
         }
+    }
+}
+
+// copy a NUL-terminated string just below `sp` and return the new sp
+unsafe fn push_string(sp: *mut u8, bytes: &[u8]) -> *mut u8 {
+    unsafe {
+        let sp = sp.sub(bytes.len() + 1);
+        core::ptr::copy_nonoverlapping(bytes.as_ptr(), sp, bytes.len());
+        *sp.add(bytes.len()) = 0;
+        sp
     }
 }
 

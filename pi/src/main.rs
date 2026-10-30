@@ -2,57 +2,29 @@
 #![no_std]
 #![no_main]
 
-use core::arch::global_asm;
-
-mod arch;
 mod llvm_infra;
 mod panic_infra;
-mod print;
-mod circular;
-mod mem;
-mod gpio;
 mod start;
-mod uart;
-mod watchdog;
-mod timer;
-mod kmalloc;
-mod fat32;
-mod fast_hash;
-mod crc;
-// mod gpt;
-// mod gpu;
-// mod matmul;
-// mod softmax;
-mod ckalloc;
-// mod profiler;
-// mod pmu_profiler;
-mod bit_utils;
+
+mod arch;     // CPU: barriers, MMIO access
+mod devices;  // GPIO, UART, timers, watchdog
+mod fs;       // SD card + FAT32
+mod mm;       // kernel allocators
+mod util;     // printing, checksums, bit helpers
+mod os;       // the Linux-compatible process layer
+
+// keep the old flat paths (crate::uart, crate::kmalloc, ...) working
+use arch::mem;
+use devices::{gpio, timer, uart, watchdog};
+use fs::fat32;
+use mm::kmalloc;
+use util::{crc, fast_hash, print};
+
+// demos, run by hand from main
+#[allow(dead_code)]
 mod programs {
     pub mod dma;
-//     pub mod gpu_test;
-//     pub mod mandelbrot;
-    // pub mod fat32_test;
-//     pub mod matrix_load_test;
-//     pub mod derive_jit;
-//     pub mod ir;
-//     pub mod ckmalloc_test;
-//     pub mod vm_test;
-//     pub mod imu;
-//     pub mod lightstrip;
-    // pub mod memtrace;
-//     pub mod stepper_motor;
-//     pub mod oled_display;
 }
-// mod os {
-//     pub mod holder;
-//     pub mod interrupts;
-//     pub mod syscalls;
-//     pub mod virtmem;
-//     pub mod threads;
-//     pub mod utils;
-//     pub mod elf_file;
-//     pub mod kuser;
-// }
 
 unsafe fn enable_fpu() {
     unsafe {
@@ -73,73 +45,13 @@ unsafe fn enable_fpu() {
 
 
 
-pub fn main() {    
-    unsafe { 
-        enable_fpu(); 
-        // os::utils::enable_l1_instruction_cache();
-        // os::utils::enable_branch_prediction();
-    }
+pub fn main() {
+    unsafe { enable_fpu(); }
     uart::init();
     println!("Hello from Rust on the Pi!");
 
-    programs::dma::dma_test();
-
-    // os::interrupts::test_interrupts();
-    // os::interrupts::test_interrupts_vbar();
-
-    // unsafe {
-    //     os::holder::mmu_identity_map_test();
-    // }
-
-
-    // unsafe {
-    //     os::holder::OSHolder::init();
-    //     os::holder::OSHolder::test_swi();
-    // }
-
-    // unsafe {
-        // os::holder::mmu_identity_map_test();
-    //     os::holder::OSHolder::init();    
-    //     let busybox_program_index = os::holder::OSHolder::os_holder_mut().load_elf("BUSYBOX");
-    //     println!("Program index: {}", busybox_program_index);
-    //     os::holder::OSHolder::os_holder_mut().run_elf(busybox_program_index, "BUSYBOX");
-    //     // let _ = hello_program_index;
-    // }
-
-    // programs::memtrace::run_all_eraser_tests();
-    // programs::memtrace::test_memtrace();
-
-    // os::interrupts::test_interrupts_vbar_vmem();
-    // os::holder::run_busybox();
-    // programs::oled_display::test_oled_display();
-    // programs::stepper_motor::run_stepper_motor();
-    // memtrace::test_memtrace_with_ckalloc();
-    // memtrace::test_memtrace();
-    // lightstrip::basic_run();
-    // lightstrip::use_imu_to_color();
-    // pmu_profiler::test_pmu_profiler();
-    // profiler::test_profiler();
-    // fat32::pi_sd_init();
-    // programs::fat32_test::fat32_test();
-    // os::elf_loader::test_elf_loader();
-    // os::threads::test_threads();
-    // programs::imu::imu_test();
-    // os::interrupts::test_interrupts();
-    // programs::vm_test::vm_test();
-    // programs::ckmalloc_test::test_ckmalloc();
-    // programs::ir::ir_main();
-    // programs::derive_jit::derive_main();
-    // unsafe {enable_fpu()};
-    // unsafe {enable_caches();}
-    // fat32::pi_sd_init();
-    // softmax::softmax_func_test();
-    // softmax::exp_func_test();
-    // programs::gpu_test::test_gpu();
-    // gpt::gpt_demo();
-    // programs::mandelbrot::mandelbrot();
-    // programs::fat32_test::fat32_test();
-    // programs::matrix_load_test::matrix_load_test();
-    // gpt::model::infer_model();
+    // programs::dma::dma_test();
+    os::run_busybox();
     done();
 }
 

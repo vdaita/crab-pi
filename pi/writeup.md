@@ -22,3 +22,9 @@ Larger TinyStories models took a very long time to load on the Pi Zero. To get i
 
 The rest of the model implementation was mostly implemented on the CPU. It seems that running the operations for softmax on the QPU's SFU might be of comparable speed of doing the same operation on the CPU, but there are still some correctness checks I am failing for the softmax implementation.
 
+## AI-assisted code
+These parts were written with an AI assistant (Claude):
+- `src/os/file.rs`, `vfs.rs`, `pipe.rs`, `errno.rs` and `src/os/syscalls/` - the Linux syscall layer that busybox runs on
+- patches to my `os/holder.rs` (split `setup_elf` into `exec_elf` for execve, envp/auxv, extra per-program state), `os/elf_file.rs` (validation before copying), `os/kuser.rs` (cmpxchg and helper addresses) and `os/virtmem.rs` (keep IRQs masked across MMU updates)
+- the move into the current folder layout
+- the dead-code cleanup: removing unused labs/tests (profiler, ckalloc, threads, old demo programs), fixing compiler warnings (`unsafe {}` around unsafe-fn bodies, snake_case renames)

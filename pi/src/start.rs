@@ -6,30 +6,7 @@ unsafe extern "C" {
     safe static __bss_start__: [u32; 0];
     safe static __bss_end__: [u32; 0];
     safe static __stack_init__: [u32; 0];
-    safe static __data_start__: [u32; 0];
-    safe static __data_end__: [u32; 0];
 }
-
-pub fn bss_start() -> *const u32 {
-    core::ptr::addr_of!(__bss_start__) as *const u32
-}
-
-pub fn bss_end() -> *const u32 {
-    core::ptr::addr_of!(__bss_end__) as *const u32
-}
-
-pub fn stack_init() -> *const u32 {
-    core::ptr::addr_of!(__stack_init__) as *const u32
-}
-
-pub fn data_start() -> *const u32 {
-    core::ptr::addr_of!(__data_start__) as *const u32
-}
-
-pub fn data_end() -> *const u32 {
-    core::ptr::addr_of!(__data_end__) as *const u32
-}
-
 
 extern "C" fn __kernel_start() -> ! {
     crate::main();

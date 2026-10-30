@@ -16,5 +16,4 @@ bench = false
 opt-level = "z"
 
 [dependencies]
-libm = "0.2"
 paste = "1"

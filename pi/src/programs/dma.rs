@@ -3,7 +3,6 @@ use crate::mem::{get32, put32};
 use crate::println;
 use crate::gpio;
 use crate::kmalloc;
-use crate::timer::Timer;
 use core::ptr::addr_of;
 
 // NOTE: this won't work unless you adjust the memory layout to support this abomination
@@ -152,9 +151,11 @@ impl DMA {
 }
 
 unsafe fn get_heap_cb(count: usize) -> &'static mut ControlBlock {
-    &mut *(kmalloc::kmalloc_aligned(
-            count * core::mem::size_of::<ControlBlock>(), 32
-    ) as *mut ControlBlock)
+    unsafe {
+        &mut *(kmalloc::kmalloc_aligned(
+                count * core::mem::size_of::<ControlBlock>(), 32
+        ) as *mut ControlBlock)
+    }
 }
 
 fn dma_test_blink() {
@@ -169,8 +170,8 @@ fn dma_test_blink() {
 
         kmalloc::kmalloc_init_mb(16);
 
-        const scratch_len: usize = 1024 * 32;
-        let scratch_src = kmalloc::kmalloc(scratch_len);
+        const SCRATCH_LEN: usize = 1024 * 32;
+        let scratch_src = kmalloc::kmalloc(SCRATCH_LEN);
         let bus_scratch_src = BusAddr::from_arm(scratch_src as u32);
 
         const BLINKS:    usize = 7;
@@ -187,13 +188,13 @@ fn dma_test_blink() {
             *blocks.add(i) = ControlBlock::new(bus_parthiv_bit, bus_gpio_set, 4);
             i += 1;
             for _ in 0..DELAY_LEN {
-                *blocks.add(i) = ControlBlock::new(bus_scratch_src, bus_scratch_src, scratch_len as u32);
+                *blocks.add(i) = ControlBlock::new(bus_scratch_src, bus_scratch_src, SCRATCH_LEN as u32);
                 i += 1;
             }
             *blocks.add(i) = ControlBlock::new(bus_parthiv_bit, bus_gpio_clr, 4);
             i += 1;
             for _ in 0..DELAY_LEN {
-                *blocks.add(i) = ControlBlock::new(bus_scratch_src, bus_scratch_src, scratch_len as u32);
+                *blocks.add(i) = ControlBlock::new(bus_scratch_src, bus_scratch_src, SCRATCH_LEN as u32);
                 i += 1;
             }
         }
@@ -300,7 +301,6 @@ fn dma_test_add8() {
             core::ptr::write_volatile(addr_of!(A_VAL)     as *mut u8, a);
             core::ptr::write_volatile(addr_of!(B_VAL)     as *mut u8, b);
             
-            // dispatch.next_cb = BusAddr(jump_base_bus);
 
             dma.start(patch_b);
             dma.wait();
@@ -350,11 +350,8 @@ fn dma_test_add32() {
         let jump_base_bus = BusAddr::from_arm(jump_base as u32).0;
         for byte in 0usize..4 {
             for carry in 0usize..2 {
-                let next_dispatch_idx = ((byte + 1) * 2) + carry; 
                 let next_dispatch_addr = patch_b_memory.add(byte + 1) as u32;
-                // let next_dispatch_addr = addr_of!(PATCH_B_BLOCKS) as u32 + (next_dispatch_idx * size_of::<ControlBlock>()) as u32;
                 let idx_offset = (byte * 2 + carry) * 256 * 256;
-                // println!("jump table offset: byte={}, carry={} jt_offset={:x}, next_dispatch_addr={:x}", byte, carry, (byte * 2 + carry) * 256 * 256, next_dispatch_addr);
                 for a in 0usize..256 {
                     for b in 0usize..256 {
                         let idx     = idx_offset + a * 256 + b;
@@ -371,18 +368,14 @@ fn dma_test_add32() {
                         let cb1 = &mut *jump_table.add(cb_base + 1);
                         let cb2 = &mut *jump_table.add(cb_base + 2);
 
-                        // if a == 0 && b == 0 && byte == 0 && carry == 0 { println!("cb0 at a=0,b=0,byte=0,carry=0, {}", jump_table.add(cb_base) as u32); }
 
                         *cb0 = ControlBlock::new(bus_sum, bus_outs[byte], 1);
                         cb0.next_cb = BusAddr::from_arm(jump_table.add(cb_base + 1) as u32);
-                        // if byte == 1 { cb0.next_cb = BusAddr(0); }
 
-                        // *cb1 = ControlBlock::new(bus_scratch, bus_scratch, 1);
                         *cb1 = ControlBlock::new(bus_carry, BusAddr(addr_of!(cb2.next_cb) as u32 + 2), 1);
                         cb1.next_cb = BusAddr::from_arm(jump_table.add(cb_base + 2) as u32);
 
                         *cb2 = ControlBlock::new(bus_carry, bus_out_carry, 2);
-                        // cb1.next_cb = BusAddr(0);
 
                         if byte < 3 {
                             cb2.next_cb = BusAddr::from_arm(
@@ -393,7 +386,6 @@ fn dma_test_add32() {
                         }
                     }
                 }
-                // println!("finished putting together table for carry={}, byte={}", carry, byte);
             }
         }
 
@@ -404,7 +396,6 @@ fn dma_test_add32() {
                 let idx = (byte * 2) + carry; 
 
                 let dispatch = &mut DISPATCH_BLOCKS[idx];
-                // let patch_b  = &mut PATCH_B_BLOCKS[idx];
                 let patch_b_addr = (patch_b_memory.add(byte) as usize) | (carry << 16);
                 let patch_b = &mut *(patch_b_addr as *mut ControlBlock);
                 let patch_a  = &mut PATCH_A_BLOCKS[idx];
@@ -413,8 +404,6 @@ fn dma_test_add32() {
                 dispatch.next_cb = BusAddr(
                     jump_base_bus + ((byte * 2 + carry) * 256 * 256 * 256) as u32
                 );
-                // println!("dispatch: byte={}, carry={}, idx={}, next jump={:x}, address={:x}, patch_b_addr={:x}", byte, carry, idx, dispatch.next_cb.0, dispatch as *const _ as u32, patch_b as *const _ as u32);
-                // if byte == 1 { dispatch.next_cb = BusAddr(0); }
 
 
                 let dispatch_next_cb_addr = addr_of!(dispatch.next_cb) as u32;
@@ -432,10 +421,8 @@ fn dma_test_add32() {
                 );
 
                 patch_b.next_cb = BusAddr::from_arm(patch_a  as *const _ as u32);
-                // if byte == 1 { patch_b.next_cb = BusAddr(0); }
 
                 patch_a.next_cb = BusAddr::from_arm(dispatch as *const _ as u32);
-                // if byte == 1 { patch_a.next_cb = BusAddr(0); }
 
                 // patch_b -> patch_a -> dispatch -> jump table -> c0 -> c1 -> patch_b (next byte)
 
